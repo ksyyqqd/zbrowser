@@ -1,20 +1,28 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
+// 导入React相关Hook函数
 import { useState, useEffect, useCallback, useRef } from 'react';
+// 导入UI图标组件
 import { RxDiscordLogo } from 'react-icons/rx';
 import { FiSettings } from 'react-icons/fi';
 import { PiPlusBold } from 'react-icons/pi';
 import { GrHistory } from 'react-icons/gr';
+// 导入消息类型、角色枚举和存储相关功能
 import { type Message, Actors, chatHistoryStore, agentModelStore, generalSettingsStore } from '@extension/storage';
+// 导入收藏提示存储和类型
 import favoritesStorage, { type FavoritePrompt } from '@extension/storage/lib/prompt/favorites';
+// 导入国际化函数
 import { t } from '@extension/i18n';
+// 导入子组件
 import MessageList from './components/MessageList';
 import ChatInput from './components/ChatInput';
 import ChatHistoryList from './components/ChatHistoryList';
 import BookmarkList from './components/BookmarkList';
+// 导入事件类型和执行状态
 import { EventType, type AgentEvent, ExecutionState } from './types/event';
+// 导入样式表
 import './SidePanel.css';
 
-// Declare chrome API types
+// 声明Chrome API类型
 declare global {
   interface Window {
     chrome: typeof chrome;
@@ -22,88 +30,118 @@ declare global {
 }
 
 const SidePanel = () => {
+  // 进度消息常量
   const progressMessage = 'Showing progress...';
+
+  // 消息状态：存储聊天消息数组
   const [messages, setMessages] = useState<Message[]>([]);
+  // 输入启用状态：控制输入框是否可用
   const [inputEnabled, setInputEnabled] = useState(true);
+  // 是否显示停止按钮
   const [showStopButton, setShowStopButton] = useState(false);
+  // 当前会话ID
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
+  // 是否显示历史记录
   const [showHistory, setShowHistory] = useState(false);
+  // 聊天会话列表
   const [chatSessions, setChatSessions] = useState<Array<{ id: string; title: string; createdAt: number }>>([]);
+  // 是否处于跟进模式
   const [isFollowUpMode, setIsFollowUpMode] = useState(false);
+  // 是否是历史会话
   const [isHistoricalSession, setIsHistoricalSession] = useState(false);
+  // 是否是暗色模式
   const [isDarkMode, setIsDarkMode] = useState(false);
+  // 收藏的提示词列表
   const [favoritePrompts, setFavoritePrompts] = useState<FavoritePrompt[]>([]);
-  const [hasConfiguredModels, setHasConfiguredModels] = useState<boolean | null>(null); // null = loading, false = no models, true = has models
+  // 是否已配置模型（null=加载中，false=无模型，true=有模型）
+  const [hasConfiguredModels, setHasConfiguredModels] = useState<boolean | null>(null);
+  // 是否正在录音
   const [isRecording, setIsRecording] = useState(false);
+  // 是否正在处理语音
   const [isProcessingSpeech, setIsProcessingSpeech] = useState(false);
+  // 是否正在重播
   const [isReplaying, setIsReplaying] = useState(false);
+  // 是否启用重播功能
   const [replayEnabled, setReplayEnabled] = useState(false);
+  // 会话ID引用
   const sessionIdRef = useRef<string | null>(null);
+  // 重播状态引用
   const isReplayingRef = useRef<boolean>(false);
+  // Chrome运行时端口引用
   const portRef = useRef<chrome.runtime.Port | null>(null);
+  // 心跳间隔引用
   const heartbeatIntervalRef = useRef<number | null>(null);
+  // 消息列表底部引用（用于自动滚动到底部）
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  // 设置输入文本的引用
   const setInputTextRef = useRef<((text: string) => void) | null>(null);
+  // 媒体录制器引用
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  // 音频片段引用
   const audioChunksRef = useRef<Blob[]>([]);
+  // 录音计时器引用
   const recordingTimerRef = useRef<number | null>(null);
 
-  // Check for dark mode preference
+  // 检查暗色模式偏好
   useEffect(() => {
+    // 获取系统暗色模式设置
     const darkModeMediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
     setIsDarkMode(darkModeMediaQuery.matches);
 
+    // 监听暗色模式变化
     const handleChange = (e: MediaQueryListEvent) => {
       setIsDarkMode(e.matches);
     };
 
     darkModeMediaQuery.addEventListener('change', handleChange);
+    // 清理事件监听器
     return () => darkModeMediaQuery.removeEventListener('change', handleChange);
   }, []);
 
-  // Check if models are configured
+  // 检查模型配置情况
   const checkModelConfiguration = useCallback(async () => {
     try {
+      // 获取已配置的代理
       const configuredAgents = await agentModelStore.getConfiguredAgents();
 
-      // Check if at least one agent (preferably Navigator) is configured
+      // 检查是否至少配置了一个代理（最好是Navigator代理）
       const hasAtLeastOneModel = configuredAgents.length > 0;
       setHasConfiguredModels(hasAtLeastOneModel);
     } catch (error) {
-      console.error('Error checking model configuration:', error);
+      console.error('检查模型配置时出错:', error);
       setHasConfiguredModels(false);
     }
   }, []);
 
-  // Load general settings to check if replay is enabled
+  // 加载通用设置以检查是否启用了重播功能
   const loadGeneralSettings = useCallback(async () => {
     try {
       const settings = await generalSettingsStore.getSettings();
       setReplayEnabled(settings.replayHistoricalTasks);
     } catch (error) {
-      console.error('Error loading general settings:', error);
+      console.error('加载通用设置时出错:', error);
       setReplayEnabled(false);
     }
   }, []);
 
-  // Check model configuration on mount
+  // 在挂载时检查模型配置
   useEffect(() => {
     checkModelConfiguration();
     loadGeneralSettings();
   }, [checkModelConfiguration, loadGeneralSettings]);
 
-  // Re-check model configuration when the side panel becomes visible again
+  // 当侧面板再次变为可见时重新检查模型配置
   useEffect(() => {
     const handleVisibilityChange = () => {
       if (!document.hidden) {
-        // Panel became visible, re-check configuration and settings
+        // 面板变为可见，重新检查配置和设置
         checkModelConfiguration();
         loadGeneralSettings();
       }
     };
 
     const handleFocus = () => {
-      // Panel gained focus, re-check configuration and settings
+      // 面板获得焦点，重新检查配置和设置
       checkModelConfiguration();
       loadGeneralSettings();
     };
@@ -117,48 +155,55 @@ const SidePanel = () => {
     };
   }, [checkModelConfiguration, loadGeneralSettings]);
 
+  // 同步当前会话ID到引用
   useEffect(() => {
     sessionIdRef.current = currentSessionId;
   }, [currentSessionId]);
 
+  // 同步重播状态到引用
   useEffect(() => {
     isReplayingRef.current = isReplaying;
   }, [isReplaying]);
 
+  // 添加新消息到消息列表
   const appendMessage = useCallback((newMessage: Message, sessionId?: string | null) => {
-    // Don't save progress messages
+    // 不保存进度消息
     const isProgressMessage = newMessage.content === progressMessage;
 
     setMessages(prev => {
+      // 过滤掉之前的进度消息
       const filteredMessages = prev.filter((msg, idx) => !(msg.content === progressMessage && idx === prev.length - 1));
       return [...filteredMessages, newMessage];
     });
 
-    // Use provided sessionId if available, otherwise fall back to sessionIdRef.current
+    // 如果提供了sessionId则使用它，否则回退到sessionIdRef.current
     const effectiveSessionId = sessionId !== undefined ? sessionId : sessionIdRef.current;
 
     console.log('sessionId', effectiveSessionId);
 
-    // Save message to storage if we have a session and it's not a progress message
+    // 如果有会话ID且不是进度消息，则保存消息到存储
     if (effectiveSessionId && !isProgressMessage) {
       chatHistoryStore
         .addMessage(effectiveSessionId, newMessage)
-        .catch(err => console.error('Failed to save message to history:', err));
+        .catch(err => console.error('保存消息到历史记录失败:', err));
     }
   }, []);
 
+  // 处理任务状态变化
   const handleTaskState = useCallback(
     (event: AgentEvent) => {
+      // 解构事件对象
       const { actor, state, timestamp, data } = event;
       const content = data?.details;
       let skip = true;
       let displayProgress = false;
 
+      // 根据不同的参与者处理事件
       switch (actor) {
         case Actors.SYSTEM:
           switch (state) {
             case ExecutionState.TASK_START:
-              // Reset historical session flag when a new task starts
+              // 重置历史会话标志
               setIsHistoricalSession(false);
               break;
             case ExecutionState.TASK_OK:
@@ -186,7 +231,7 @@ const SidePanel = () => {
             case ExecutionState.TASK_RESUME:
               break;
             default:
-              console.error('Invalid task state', state);
+              console.error('无效的任务状态', state);
               return;
           }
           break;
@@ -206,7 +251,7 @@ const SidePanel = () => {
             case ExecutionState.STEP_CANCEL:
               break;
             default:
-              console.error('Invalid step state', state);
+              console.error('无效的步骤状态', state);
               return;
           }
           break;
@@ -227,7 +272,7 @@ const SidePanel = () => {
               break;
             case ExecutionState.ACT_START:
               if (content !== 'cache_content') {
-                // skip to display caching content
+                // 跳过显示缓存内容
                 skip = false;
               }
               break;
@@ -238,12 +283,12 @@ const SidePanel = () => {
               skip = false;
               break;
             default:
-              console.error('Invalid action', state);
+              console.error('无效的动作', state);
               return;
           }
           break;
         case Actors.VALIDATOR:
-          // Handle legacy validator events from historical messages
+          // 处理来自历史消息的旧验证器事件
           switch (state) {
             case ExecutionState.STEP_START:
               displayProgress = true;
@@ -255,15 +300,16 @@ const SidePanel = () => {
               skip = false;
               break;
             default:
-              console.error('Invalid validation', state);
+              console.error('无效的验证', state);
               return;
           }
           break;
         default:
-          console.error('Unknown actor', actor);
+          console.error('未知参与者', actor);
           return;
       }
 
+      // 如果不应跳过，则添加消息
       if (!skip) {
         appendMessage({
           actor,
@@ -272,6 +318,7 @@ const SidePanel = () => {
         });
       }
 
+      // 如果需要显示进度，则添加进度消息
       if (displayProgress) {
         appendMessage({
           actor,
@@ -283,7 +330,7 @@ const SidePanel = () => {
     [appendMessage],
   );
 
-  // Stop heartbeat and close connection
+  // 停止心跳并关闭连接
   const stopConnection = useCallback(() => {
     if (heartbeatIntervalRef.current) {
       clearInterval(heartbeatIntervalRef.current);
@@ -295,23 +342,24 @@ const SidePanel = () => {
     }
   }, []);
 
-  // Setup connection management
+  // 设置连接管理
   const setupConnection = useCallback(() => {
-    // Only setup if no existing connection
+    // 如果已有连接则只设置
     if (portRef.current) {
       return;
     }
 
     try {
+      // 建立与后台脚本的连接
       portRef.current = chrome.runtime.connect({ name: 'side-panel-connection' });
 
-      // biome-ignore lint/suspicious/noExplicitAny: <explanation>
+      // 监听来自后台的消息
       portRef.current.onMessage.addListener((message: any) => {
-        // Add type checking for message
+        // 检查消息类型
         if (message && message.type === EventType.EXECUTION) {
           handleTaskState(message);
         } else if (message && message.type === 'error') {
-          // Handle error messages from service worker
+          // 处理来自服务工作者的错误消息
           appendMessage({
             actor: Actors.SYSTEM,
             content: message.error || t('errors_unknown'),
@@ -320,13 +368,13 @@ const SidePanel = () => {
           setInputEnabled(true);
           setShowStopButton(false);
         } else if (message && message.type === 'speech_to_text_result') {
-          // Handle speech-to-text result
+          // 处理语音转文字结果
           if (message.text && setInputTextRef.current) {
             setInputTextRef.current(message.text);
           }
           setIsProcessingSpeech(false);
         } else if (message && message.type === 'speech_to_text_error') {
-          // Handle speech-to-text error
+          // 处理语音转文字错误
           appendMessage({
             actor: Actors.SYSTEM,
             content: message.error || t('chat_stt_recognitionFailed'),
@@ -334,13 +382,13 @@ const SidePanel = () => {
           });
           setIsProcessingSpeech(false);
         } else if (message && message.type === 'heartbeat_ack') {
-          console.log('Heartbeat acknowledged');
+          console.log('心跳已确认');
         }
       });
 
       portRef.current.onDisconnect.addListener(() => {
         const error = chrome.runtime.lastError;
-        console.log('Connection disconnected', error ? `Error: ${error.message}` : '');
+        console.log('连接断开', error ? `错误: ${error.message}` : '');
         portRef.current = null;
         if (heartbeatIntervalRef.current) {
           clearInterval(heartbeatIntervalRef.current);
@@ -350,7 +398,7 @@ const SidePanel = () => {
         setShowStopButton(false);
       });
 
-      // Setup heartbeat interval
+      // 设置心跳间隔
       if (heartbeatIntervalRef.current) {
         clearInterval(heartbeatIntervalRef.current);
       }
@@ -360,47 +408,46 @@ const SidePanel = () => {
           try {
             portRef.current.postMessage({ type: 'heartbeat' });
           } catch (error) {
-            console.error('Heartbeat failed:', error);
-            stopConnection(); // Stop connection if heartbeat fails
+            console.error('心跳失败:', error);
+            stopConnection(); // 如果心跳失败则停止连接
           }
         } else {
-          stopConnection(); // Stop if port is invalid
+          stopConnection(); // 如果端口无效则停止
         }
       }, 25000);
     } catch (error) {
-      console.error('Failed to establish connection:', error);
+      console.error('建立连接失败:', error);
       appendMessage({
         actor: Actors.SYSTEM,
         content: t('errors_conn_serviceWorker'),
         timestamp: Date.now(),
       });
-      // Clear any references since connection failed
+      // 由于连接失败，清除任何引用
       portRef.current = null;
     }
   }, [handleTaskState, appendMessage, stopConnection]);
 
-  // Add safety check for message sending
+  // 添加消息发送的安全检查
   const sendMessage = useCallback(
-    // biome-ignore lint/suspicious/noExplicitAny: <explanation>
     (message: any) => {
       if (portRef.current?.name !== 'side-panel-connection') {
-        throw new Error('No valid connection available');
+        throw new Error('没有有效的连接可用');
       }
       try {
         portRef.current.postMessage(message);
       } catch (error) {
-        console.error('Failed to send message:', error);
-        stopConnection(); // Stop connection when message sending fails
+        console.error('发送消息失败:', error);
+        stopConnection(); // 当消息发送失败时停止连接
         throw error;
       }
     },
     [stopConnection],
   );
 
-  // Handle replay command
+  // 处理重播命令
   const handleReplay = async (historySessionId: string): Promise<void> => {
     try {
-      // Check if replay is enabled in settings
+      // 检查设置中是否启用了重播
       if (!replayEnabled) {
         appendMessage({
           actor: Actors.SYSTEM,
@@ -410,7 +457,7 @@ const SidePanel = () => {
         return;
       }
 
-      // Check if history exists using loadAgentStepHistory
+      // 检查历史记录是否存在，使用loadAgentStepHistory
       const historyData = await chatHistoryStore.loadAgentStepHistory(historySessionId);
       if (!historyData) {
         appendMessage({
@@ -421,32 +468,32 @@ const SidePanel = () => {
         return;
       }
 
-      // Get current tab ID
+      // 获取当前标签页ID
       const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
       const tabId = tabs[0]?.id;
       if (!tabId) {
-        throw new Error('No active tab found');
+        throw new Error('未找到活动标签页');
       }
 
-      // Clear messages if we're in a historical session
+      // 如果我们在历史会话中，则清除消息
       if (isHistoricalSession) {
         setMessages([]);
       }
 
-      // Create a new chat session for this replay task
-      const newSession = await chatHistoryStore.createSession(`Replay of ${historySessionId.substring(0, 20)}...`);
-      console.log('newSession for replay', newSession);
+      // 为此重播任务创建新的聊天会话
+      const newSession = await chatHistoryStore.createSession(`重播 ${historySessionId.substring(0, 20)}...`);
+      console.log('重播的新会话', newSession);
 
-      // Store the new session ID in both state and ref
+      // 在状态和引用中存储新会话ID
       const newTaskId = newSession.id;
       setCurrentSessionId(newTaskId);
       sessionIdRef.current = newTaskId;
 
-      // Send replay command to background
+      // 发送重播命令到后台
       setInputEnabled(false);
       setShowStopButton(true);
 
-      // Reset follow-up mode and historical session flags
+      // 重置跟进模式和历史会话标志
       setIsFollowUpMode(false);
       setIsHistoricalSession(false);
 
@@ -456,21 +503,21 @@ const SidePanel = () => {
         timestamp: Date.now(),
       };
 
-      // Add the user message to the new session
+      // 将用户消息添加到新会话
       appendMessage(userMessage, sessionIdRef.current);
 
-      // Setup connection if not exists
+      // 如果不存在则设置连接
       if (!portRef.current) {
         setupConnection();
       }
 
-      // Send replay command to background with the task from history
+      // 发送重播命令到后台，附带历史任务
       portRef.current?.postMessage({
         type: 'replay',
         taskId: newTaskId,
         tabId: tabId,
         historySessionId: historySessionId,
-        task: historyData.task, // Add the task from history
+        task: historyData.task, // 添加来自历史的任务
       });
 
       appendMessage({
@@ -489,15 +536,15 @@ const SidePanel = () => {
     }
   };
 
-  // Handle chat commands that start with /
+  // 处理以/开头的命令
   const handleCommand = async (command: string): Promise<boolean> => {
     try {
-      // Setup connection if not exists
+      // 如果不存在则设置连接
       if (!portRef.current) {
         setupConnection();
       }
 
-      // Handle different commands
+      // 处理不同命令
       if (command === '/state') {
         portRef.current?.postMessage({
           type: 'state',
@@ -513,8 +560,8 @@ const SidePanel = () => {
       }
 
       if (command.startsWith('/replay ')) {
-        // Parse replay command: /replay <historySessionId>
-        // Handle multiple spaces by filtering out empty strings
+        // 解析重播命令: /replay <historySessionId>
+        // 通过过滤空字符串处理多个空格
         const parts = command.split(' ').filter(part => part.trim() !== '');
         if (parts.length !== 2) {
           appendMessage({
@@ -530,7 +577,7 @@ const SidePanel = () => {
         return true;
       }
 
-      // Unsupported command
+      // 不支持的命令
       appendMessage({
         actor: Actors.SYSTEM,
         content: t('errors_cmd_unknown', command),
@@ -539,7 +586,7 @@ const SidePanel = () => {
       return true;
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : String(err);
-      console.error('Command error', errorMessage);
+      console.error('命令错误', errorMessage);
       appendMessage({
         actor: Actors.SYSTEM,
         content: errorMessage,
@@ -549,24 +596,25 @@ const SidePanel = () => {
     }
   };
 
+  // 处理发送消息
   const handleSendMessage = async (text: string, displayText?: string) => {
     console.log('handleSendMessage', text);
 
-    // Trim the input text first
+    // 首先修剪输入文本
     const trimmedText = text.trim();
 
     if (!trimmedText) return;
 
-    // Check if the input is a command (starts with /)
+    // 检查输入是否为命令（以/开头）
     if (trimmedText.startsWith('/')) {
-      // Process command and return if it was handled
+      // 处理命令，如果已处理则返回
       const wasHandled = await handleCommand(trimmedText);
       if (wasHandled) return;
     }
 
-    // Block sending messages in historical sessions
+    // 阻止在历史会话中发送消息
     if (isHistoricalSession) {
-      console.log('Cannot send messages in historical sessions');
+      console.log('无法在历史会话中发送消息');
       return;
     }
 
@@ -574,22 +622,22 @@ const SidePanel = () => {
       const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
       const tabId = tabs[0]?.id;
       if (!tabId) {
-        throw new Error('No active tab found');
+        throw new Error('未找到活动标签页');
       }
 
       setInputEnabled(false);
       setShowStopButton(true);
 
-      // Create a new chat session for this task if not in follow-up mode
+      // 如果不在跟进模式下，则为该任务创建新的聊天会话
       if (!isFollowUpMode) {
-        // Use display text for session title if available, otherwise use full text
+        // 如有显示文本则使用它作为会话标题，否则使用完整文本
         const titleText = displayText || text;
         const newSession = await chatHistoryStore.createSession(
           titleText.substring(0, 50) + (titleText.length > 50 ? '...' : ''),
         );
-        console.log('newSession', newSession);
+        console.log('新会话', newSession);
 
-        // Store the session ID in both state and ref
+        // 在状态和引用中存储会话ID
         const sessionId = newSession.id;
         setCurrentSessionId(sessionId);
         sessionIdRef.current = sessionId;
@@ -597,41 +645,41 @@ const SidePanel = () => {
 
       const userMessage = {
         actor: Actors.USER,
-        content: displayText || text, // Use display text for chat UI, full text for background service
+        content: displayText || text, // 在聊天UI中使用显示文本，后台服务使用完整文本
         timestamp: Date.now(),
       };
 
-      // Pass the sessionId directly to appendMessage
+      // 将sessionId直接传递给appendMessage
       appendMessage(userMessage, sessionIdRef.current);
 
-      // Setup connection if not exists
+      // 如果不存在则设置连接
       if (!portRef.current) {
         setupConnection();
       }
 
-      // Send message using the utility function
+      // 使用实用函数发送消息
       if (isFollowUpMode) {
-        // Send as follow-up task
+        // 作为跟进任务发送
         await sendMessage({
           type: 'follow_up_task',
           task: text,
           taskId: sessionIdRef.current,
           tabId,
         });
-        console.log('follow_up_task sent', text, tabId, sessionIdRef.current);
+        console.log('跟进任务已发送', text, tabId, sessionIdRef.current);
       } else {
-        // Send as new task
+        // 作为新任务发送
         await sendMessage({
           type: 'new_task',
           task: text,
           taskId: sessionIdRef.current,
           tabId,
         });
-        console.log('new_task sent', text, tabId, sessionIdRef.current);
+        console.log('新任务已发送', text, tabId, sessionIdRef.current);
       }
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : String(err);
-      console.error('Task error', errorMessage);
+      console.error('任务错误', errorMessage);
       appendMessage({
         actor: Actors.SYSTEM,
         content: errorMessage,
@@ -643,6 +691,7 @@ const SidePanel = () => {
     }
   };
 
+  // 处理停止任务
   const handleStopTask = async () => {
     try {
       portRef.current?.postMessage({
@@ -650,7 +699,7 @@ const SidePanel = () => {
       });
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : String(err);
-      console.error('cancel_task error', errorMessage);
+      console.error('取消任务错误', errorMessage);
       appendMessage({
         actor: Actors.SYSTEM,
         content: errorMessage,
@@ -661,8 +710,9 @@ const SidePanel = () => {
     setShowStopButton(false);
   };
 
+  // 处理新建聊天
   const handleNewChat = () => {
-    // Clear messages and start a new chat
+    // 清除消息并开始新聊天
     setMessages([]);
     setCurrentSessionId(null);
     sessionIdRef.current = null;
@@ -671,24 +721,27 @@ const SidePanel = () => {
     setIsFollowUpMode(false);
     setIsHistoricalSession(false);
 
-    // Disconnect any existing connection
+    // 断开任何现有连接
     stopConnection();
   };
 
+  // 加载聊天会话
   const loadChatSessions = useCallback(async () => {
     try {
       const sessions = await chatHistoryStore.getSessionsMetadata();
       setChatSessions(sessions.sort((a, b) => b.createdAt - a.createdAt));
     } catch (error) {
-      console.error('Failed to load chat sessions:', error);
+      console.error('加载聊天会话失败:', error);
     }
   }, []);
 
+  // 处理加载历史记录
   const handleLoadHistory = async () => {
     await loadChatSessions();
     setShowHistory(true);
   };
 
+  // 返回聊天视图
   const handleBackToChat = (reset = false) => {
     setShowHistory(false);
     if (reset) {
@@ -699,6 +752,7 @@ const SidePanel = () => {
     }
   };
 
+  // 处理会话选择
   const handleSessionSelect = async (sessionId: string) => {
     try {
       const fullSession = await chatHistoryStore.getSession(sessionId);
@@ -706,15 +760,16 @@ const SidePanel = () => {
         setCurrentSessionId(fullSession.id);
         setMessages(fullSession.messages);
         setIsFollowUpMode(false);
-        setIsHistoricalSession(true); // Mark this as a historical session
-        console.log('history session selected', sessionId);
+        setIsHistoricalSession(true); // 标记为历史会话
+        console.log('历史会话已选择', sessionId);
       }
       setShowHistory(false);
     } catch (error) {
-      console.error('Failed to load session:', error);
+      console.error('加载会话失败:', error);
     }
   };
 
+  // 处理会话删除
   const handleSessionDelete = async (sessionId: string) => {
     try {
       await chatHistoryStore.deleteSession(sessionId);
@@ -724,103 +779,108 @@ const SidePanel = () => {
         setCurrentSessionId(null);
       }
     } catch (error) {
-      console.error('Failed to delete session:', error);
+      console.error('删除会话失败:', error);
     }
   };
 
+  // 处理会话收藏
   const handleSessionBookmark = async (sessionId: string) => {
     try {
       const fullSession = await chatHistoryStore.getSession(sessionId);
 
       if (fullSession && fullSession.messages.length > 0) {
-        // Get the session title
+        // 获取会话标题
         const sessionTitle = fullSession.title;
-        // Get the first 8 words of the title
+        // 获取标题的前8个单词
         const title = sessionTitle.split(' ').slice(0, 8).join(' ');
 
-        // Get the first message content (the task)
+        // 获取第一条消息内容（任务）
         const taskContent = fullSession.messages[0]?.content || '';
 
-        // Add to favorites storage
+        // 添加到收藏存储
         await favoritesStorage.addPrompt(title, taskContent);
 
-        // Update favorites in the UI
+        // 在UI中更新收藏
         const prompts = await favoritesStorage.getAllPrompts();
         setFavoritePrompts(prompts);
 
-        // Return to chat view after pinning
+        // 更新后返回聊天视图
         handleBackToChat(true);
       }
     } catch (error) {
-      console.error('Failed to pin session to favorites:', error);
+      console.error('收藏会话到收藏夹失败:', error);
     }
   };
 
+  // 处理收藏选择
   const handleBookmarkSelect = (content: string) => {
     if (setInputTextRef.current) {
       setInputTextRef.current(content);
     }
   };
 
+  // 更新收藏标题
   const handleBookmarkUpdateTitle = async (id: number, title: string) => {
     try {
       await favoritesStorage.updatePromptTitle(id, title);
 
-      // Update favorites in the UI
+      // 在UI中更新收藏
       const prompts = await favoritesStorage.getAllPrompts();
       setFavoritePrompts(prompts);
     } catch (error) {
-      console.error('Failed to update favorite prompt title:', error);
+      console.error('更新收藏提示标题失败:', error);
     }
   };
 
+  // 删除收藏
   const handleBookmarkDelete = async (id: number) => {
     try {
       await favoritesStorage.removePrompt(id);
 
-      // Update favorites in the UI
+      // 在UI中更新收藏
       const prompts = await favoritesStorage.getAllPrompts();
       setFavoritePrompts(prompts);
     } catch (error) {
-      console.error('Failed to delete favorite prompt:', error);
+      console.error('删除收藏提示失败:', error);
     }
   };
 
+  // 重新排序收藏
   const handleBookmarkReorder = async (draggedId: number, targetId: number) => {
     try {
-      // Directly pass IDs to storage function - it now handles the reordering logic
+      // 直接传递ID到存储函数 - 它现在处理重新排序逻辑
       await favoritesStorage.reorderPrompts(draggedId, targetId);
 
-      // Fetch the updated list from storage to get the new IDs and reflect the authoritative order
+      // 从存储中获取更新后的列表以获取新的ID并反映权威顺序
       const updatedPromptsFromStorage = await favoritesStorage.getAllPrompts();
       setFavoritePrompts(updatedPromptsFromStorage);
     } catch (error) {
-      console.error('Failed to reorder favorite prompts:', error);
+      console.error('重新排序收藏提示失败:', error);
     }
   };
 
-  // Load favorite prompts from storage
+  // 加载收藏提示从存储
   useEffect(() => {
     const loadFavorites = async () => {
       try {
         const prompts = await favoritesStorage.getAllPrompts();
         setFavoritePrompts(prompts);
       } catch (error) {
-        console.error('Failed to load favorite prompts:', error);
+        console.error('加载收藏提示失败:', error);
       }
     };
 
     loadFavorites();
   }, []);
 
-  // Cleanup on unmount
+  // 清理卸载时
   useEffect(() => {
     return () => {
-      // Stop recording if active
+      // 如果正在录音则停止
       if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
         mediaRecorderRef.current.stop();
       }
-      // Clear recording timer
+      // 清除录音计时器
       if (recordingTimerRef.current) {
         clearTimeout(recordingTimerRef.current);
         recordingTimerRef.current = null;
@@ -829,19 +889,20 @@ const SidePanel = () => {
     };
   }, [stopConnection]);
 
-  // Scroll to bottom when new messages arrive
+  // 当新消息到达时滚动到底部
   // biome-ignore lint/correctness/useExhaustiveDependencies: <explanation>
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
+  // 处理麦克风点击
   const handleMicClick = async () => {
     if (isRecording) {
-      // Stop recording
+      // 停止录音
       if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
         mediaRecorderRef.current.stop();
       }
-      // Clear the timer
+      // 清除计时器
       if (recordingTimerRef.current) {
         clearTimeout(recordingTimerRef.current);
         recordingTimerRef.current = null;
@@ -851,7 +912,7 @@ const SidePanel = () => {
     }
 
     try {
-      // First check if permission is already granted
+      // 首先检查权限是否已授予
       const permissionStatus = await navigator.permissions.query({ name: 'microphone' as PermissionName });
 
       if (permissionStatus.state === 'denied') {
@@ -863,11 +924,11 @@ const SidePanel = () => {
         return;
       }
 
-      // If permission is not granted, open permission page
+      // 如果权限未授予，则打开权限页面
       if (permissionStatus.state !== 'granted') {
         const permissionUrl = chrome.runtime.getURL('permission/index.html');
 
-        // Open permission page in a new window
+        // 在新窗口中打开权限页面
         chrome.windows.create(
           {
             url: permissionUrl,
@@ -877,23 +938,23 @@ const SidePanel = () => {
           },
           createdWindow => {
             if (createdWindow?.id) {
-              // Listen for window close to check permission status
+              // 监听窗口关闭以检查权限状态
               chrome.windows.onRemoved.addListener(function onWindowClose(windowId) {
                 if (windowId === createdWindow.id) {
                   chrome.windows.onRemoved.removeListener(onWindowClose);
-                  // Check permission status after window closes
+                  // 窗口关闭后检查权限状态
                   setTimeout(async () => {
                     try {
                       const newPermissionStatus = await navigator.permissions.query({
                         name: 'microphone' as PermissionName,
                       });
-                      // Only retry if permission was granted
+                      // 仅在权限被授予时重试
                       if (newPermissionStatus.state === 'granted') {
                         handleMicClick();
                       }
-                      // If denied or prompt, do nothing - let user manually try again
+                      // 如果被拒绝或提示，则让用户手动重试
                     } catch (error) {
-                      console.error('Failed to check permission status:', error);
+                      console.error('检查权限状态失败:', error);
                     }
                   }, 500);
                 }
@@ -904,43 +965,43 @@ const SidePanel = () => {
         return;
       }
 
-      // Permission granted - proceed with recording
+      // 权限已授予 - 继续录音
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
 
-      // Clear previous audio chunks
+      // 清除之前的音频片段
       audioChunksRef.current = [];
 
-      // Create MediaRecorder
+      // 创建MediaRecorder
       const mediaRecorder = new MediaRecorder(stream);
       mediaRecorderRef.current = mediaRecorder;
 
-      // Handle data available event
+      // 处理数据可用事件
       mediaRecorder.ondataavailable = event => {
         if (event.data.size > 0) {
           audioChunksRef.current.push(event.data);
         }
       };
 
-      // Handle stop event
+      // 处理停止事件
       mediaRecorder.onstop = async () => {
-        // Stop all tracks to release microphone
+        // 停止所有轨道以释放麦克风
         stream.getTracks().forEach(track => track.stop());
 
         if (audioChunksRef.current.length > 0) {
-          // Create audio blob
+          // 创建音频Blob
           const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
 
-          // Convert blob to base64
+          // 将Blob转换为base64
           const reader = new FileReader();
           reader.onloadend = () => {
             const base64Audio = reader.result as string;
 
-            // Setup connection if not exists
+            // 如果不存在则设置连接
             if (!portRef.current) {
               setupConnection();
             }
 
-            // Send audio to backend for speech-to-text conversion
+            // 发送音频到后端进行语音转文字转换
             try {
               setIsProcessingSpeech(true);
               portRef.current?.postMessage({
@@ -948,7 +1009,7 @@ const SidePanel = () => {
                 audio: base64Audio,
               });
             } catch (error) {
-              console.error('Failed to send audio for speech-to-text:', error);
+              console.error('发送音频进行语音转文字失败:', error);
               appendMessage({
                 actor: Actors.SYSTEM,
                 content: t('chat_stt_processingFailed'),
@@ -962,7 +1023,7 @@ const SidePanel = () => {
         }
       };
 
-      // Set up 2-minute duration limit
+      // 设置2分钟时长限制
       const maxDuration = 2 * 60 * 1000;
       recordingTimerRef.current = window.setTimeout(() => {
         if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
@@ -973,11 +1034,11 @@ const SidePanel = () => {
         recordingTimerRef.current = null;
       }, maxDuration);
 
-      // Start recording
+      // 开始录音
       mediaRecorder.start();
       setIsRecording(true);
     } catch (error) {
-      console.error('Error accessing microphone:', error);
+      console.error('访问麦克风失败:', error);
 
       let errorMessage = t('chat_stt_microphone_accessFailed');
       if (error instanceof Error) {
