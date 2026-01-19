@@ -68,14 +68,27 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const locales = fs.readdirSync(path.join(__dirname, 'locales'));
 
+// 验证语言代码
 locales.forEach(locale => {
   if (!(locale in SUPPORTED_LANGUAGES)) {
     throw new Error(`Unsupported language: ${locale}`);
   }
 });
 
-makeTypeFile(locales);
-makeGetMessageFromLocaleFile(locales);
+// 重新排序，将中文设为第一优先级
+const orderedLocales = locales.sort((a, b) => {
+  // 优先级: zh_CN > zh_TW > en > 其他
+  if (a === 'zh_CN') return -1;
+  if (b === 'zh_CN') return 1;
+  if (a === 'zh_TW') return -1;
+  if (b === 'zh_TW') return 1;
+  if (a === 'en') return -1;
+  if (b === 'en') return 1;
+  return 0;
+});
+
+makeTypeFile(orderedLocales);
+makeGetMessageFromLocaleFile(orderedLocales);
 
 function makeTypeFile(locales) {
   const typeFile = `/**
@@ -93,9 +106,16 @@ export type DevLocale = ${locales.map(locale => `'${locale}'`).join(' | ')};
 }
 
 function makeGetMessageFromLocaleFile(locales) {
+  // 确保 zh_CN 是第一个元素，作为默认语言
+  const reorderedLocales = [...locales].sort((a, b) => {
+    if (a === 'zh_CN') return -1;
+    if (b === 'zh_CN') return 1;
+    return 0;
+  });
+  
   const defaultLocaleCode = `(() => {
-  const locales = ${JSON.stringify(locales).replace(/"/g, "'" ).replace(/,/g, ', ' )};
-  const firstLocale = locales[0];
+  const locales = ${JSON.stringify(reorderedLocales).replace(/"/g, "'" ).replace(/,/g, ', ' )};
+  const firstLocale = locales[0];  // zh_CN 将会是默认值
   const defaultLocale = Intl.DateTimeFormat().resolvedOptions().locale.replace('-', '_');
   if (locales.includes(defaultLocale)) {
     return defaultLocale;
