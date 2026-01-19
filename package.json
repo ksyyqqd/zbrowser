@@ -11,7 +11,6 @@
   "scripts": {
     "clean:bundle": "rimraf dist",
     "clean:node_modules": "pnpx rimraf node_modules",
-    "clean:turbo": "rimraf .turbo",
     "clean": "pnpm clean:bundle && pnpm clean:turbo && pnpm clean:node_modules",
     "clean:install": "pnpm clean:node_modules && pnpm install --frozen-lockfile",
     "build": "run-script-os",

@@ -967,5 +967,11 @@
         "example": "Option not found"
       }
     }
+  },
+  "chat_copy": {
+    "message": "Copy"
+  },
+  "chat_copied": {
+    "message": "Copied"
   }
 }

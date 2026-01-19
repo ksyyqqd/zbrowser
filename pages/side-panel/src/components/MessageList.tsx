@@ -1,6 +1,8 @@
 import type { Message } from '@extension/storage';
 import { ACTOR_PROFILES } from '../types/message';
-import { memo } from 'react';
+import { memo, useState } from 'react';
+import { FiCopy, FiCheck } from 'react-icons/fi';
+import { t } from '@extension/i18n';
 
 interface MessageListProps {
   messages: Message[];
@@ -29,12 +31,23 @@ interface MessageBlockProps {
 }
 
 function MessageBlock({ message, isSameActor, isDarkMode = false }: MessageBlockProps) {
+  const [copied, setCopied] = useState(false);
   if (!message.actor) {
     console.error('No actor found');
     return <div />;
   }
   const actor = ACTOR_PROFILES[message.actor as keyof typeof ACTOR_PROFILES];
   const isProgress = message.content === 'Showing progress...';
+
+  const copyToClipboard = async () => {
+    try {
+      await navigator.clipboard.writeText(message.content);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000); // Reset after 2 seconds
+    } catch (err) {
+      console.error('Failed to copy text: ', err);
+    }
+  };
 
   return (
     <div
@@ -60,13 +73,32 @@ function MessageBlock({ message, isSameActor, isDarkMode = false }: MessageBlock
         )}
 
         <div className="space-y-0.5">
-          <div className={`whitespace-pre-wrap break-words text-sm ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
-            {isProgress ? (
-              <div className={`h-1 overflow-hidden rounded ${isDarkMode ? 'bg-gray-700' : 'bg-gray-200'}`}>
-                <div className="h-full animate-progress bg-blue-500" />
-              </div>
-            ) : (
-              message.content
+          <div className="relative">
+            <div
+              className={`whitespace-pre-wrap break-words text-sm ${isDarkMode ? 'text-gray-300' : 'text-gray-700'} pr-10`}>
+              {isProgress ? (
+                <div className={`h-1 overflow-hidden rounded ${isDarkMode ? 'bg-gray-700' : 'bg-gray-200'}`}>
+                  <div className="h-full animate-[progress] bg-blue-500" />
+                </div>
+              ) : (
+                message.content
+              )}
+            </div>
+            {!isProgress && (
+              <button
+                onClick={copyToClipboard}
+                className={`absolute right-0 top-0 rounded p-1.5 text-xs ${
+                  isDarkMode
+                    ? copied
+                      ? 'text-green-400 hover:bg-gray-700'
+                      : 'text-gray-400 hover:bg-gray-700 hover:text-gray-200'
+                    : copied
+                      ? 'text-green-600 hover:bg-gray-200'
+                      : 'text-gray-500 hover:bg-gray-200 hover:text-gray-700'
+                }`}
+                title={copied ? t('chat_copied') : t('chat_copy')}>
+                {copied ? <FiCheck size={14} /> : <FiCopy size={14} />}
+              </button>
             )}
           </div>
           {!isProgress && (

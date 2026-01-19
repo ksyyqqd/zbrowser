@@ -24,7 +24,7 @@ export function getMessageFromLocale(locale: string) {
 
 export const defaultLocale = (() => {
   const locales = ['zh_CN', 'zh_TW', 'en', 'pt_BR'];
-  const firstLocale = locales[2]; // zh_CN 将会是默认值
+  const firstLocale = locales[0]; // zh_CN 将会是默认值
   const defaultLocale = Intl.DateTimeFormat().resolvedOptions().locale.replace('-', '_');
   if (locales.includes(defaultLocale)) {
     return defaultLocale;

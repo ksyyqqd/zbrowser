@@ -953,5 +953,11 @@
         "example": "Option not found"
       }
     }
+  },
+  "chat_copy": {
+    "message": "复制"
+  },
+  "chat_copied": {
+    "message": "已复制"
   }
 }
