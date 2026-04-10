@@ -27,64 +27,45 @@ const BookmarkList: React.FC<BookmarkListProps> = ({
   isDarkMode = false,
 }) => {
   const [editingId, setEditingId] = useState<number | null>(null);
-  const [editTitle, setEditTitle] = useState<string>('');
+  const [editTitle, setEditTitle] = useState('');
   const [draggedId, setDraggedId] = useState<number | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const handleEditClick = (bookmark: Bookmark) => {
-    setEditingId(bookmark.id);
-    setEditTitle(bookmark.title);
+  const handleEditClick = (b: Bookmark) => {
+    setEditingId(b.id);
+    setEditTitle(b.title);
   };
-
   const handleSaveEdit = (id: number) => {
-    if (onBookmarkUpdateTitle && editTitle.trim()) {
-      onBookmarkUpdateTitle(id, editTitle);
-    }
+    if (onBookmarkUpdateTitle && editTitle.trim()) onBookmarkUpdateTitle(id, editTitle);
     setEditingId(null);
   };
+  const handleCancelEdit = () => setEditingId(null);
 
-  const handleCancelEdit = () => {
-    setEditingId(null);
-  };
-
-  // Drag handlers
   const handleDragStart = (e: React.DragEvent, id: number) => {
     setDraggedId(id);
     e.dataTransfer.setData('text/plain', id.toString());
     e.currentTarget.classList.add('dragging');
   };
-
   const handleDragEnd = (e: React.DragEvent) => {
     e.currentTarget.classList.remove('dragging');
     setDraggedId(null);
   };
-
-  const handleDragOver = (e: React.DragEvent) => {
-    e.preventDefault();
-  };
-
+  const handleDragOver = (e: React.DragEvent) => e.preventDefault();
   const handleDrop = (e: React.DragEvent, targetId: number) => {
     e.preventDefault();
-    if (draggedId === null || draggedId === targetId) return;
-
-    if (onBookmarkReorder) {
-      onBookmarkReorder(draggedId, targetId);
-    }
+    if (draggedId !== null && draggedId !== targetId && onBookmarkReorder) onBookmarkReorder(draggedId, targetId);
   };
 
-  // Focus the input field when entering edit mode
   useEffect(() => {
-    if (editingId !== null && inputRef.current) {
-      inputRef.current.focus();
-    }
+    if (editingId !== null && inputRef.current) inputRef.current.focus();
   }, [editingId]);
 
   return (
     <div className="p-3">
-      <h3 className={`mb-4 text-sm font-semibold tracking-wide ${isDarkMode ? 'text-gray-200' : 'text-gray-700'}`}>
+      <h3 className="mb-4 text-sm font-semibold tracking-wide" style={{ color: `var(--text-primary)` }}>
         {t('chat_bookmarks_header')}
       </h3>
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+      <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
         {bookmarks.map(bookmark => (
           <div
             key={bookmark.id}
@@ -93,7 +74,7 @@ const BookmarkList: React.FC<BookmarkListProps> = ({
             onDragEnd={handleDragEnd}
             onDragOver={handleDragOver}
             onDrop={e => handleDrop(e, bookmark.id)}
-            className={`bookmark-card group relative`}>
+            className="bookmark-scroll group relative">
             {editingId === bookmark.id ? (
               <div className="flex items-center gap-2">
                 <input
@@ -101,82 +82,58 @@ const BookmarkList: React.FC<BookmarkListProps> = ({
                   type="text"
                   value={editTitle}
                   onChange={e => setEditTitle(e.target.value)}
-                  className={`cyber-input grow rounded-lg px-3 py-1.5 text-xs`}
+                  className="jade-input grow rounded-lg px-3 py-1.5 text-xs"
                 />
-                <button
-                  onClick={() => handleSaveEdit(bookmark.id)}
-                  className="icon-btn !text-green-500 hover:!text-green-400"
-                  aria-label={t('chat_bookmarks_saveEdit')}
-                  type="button">
-                  <FaCheck size={13} />
+                <button onClick={() => handleSaveEdit(bookmark.id)} className="icon-btn !text-green-500">
+                  <FaCheck size={12} />
                 </button>
-                <button
-                  onClick={handleCancelEdit}
-                  className="icon-btn !text-red-400 hover:!text-red-300"
-                  aria-label={t('chat_bookmarks_cancelEdit')}
-                  type="button">
-                  <FaTimes size={13} />
+                <button onClick={handleCancelEdit} className="icon-btn !text-red-400">
+                  <FaTimes size={12} />
                 </button>
               </div>
             ) : (
-              <>
-                <button
-                  type="button"
-                  onClick={() => onBookmarkSelect(bookmark.content)}
-                  onKeyDown={e => {
-                    if (e.key === 'Enter' || e.key === ' ') {
-                      onBookmarkSelect(bookmark.content);
-                    }
-                  }}
-                  className="w-full text-left z-[1] relative">
-                  <div
-                    className={`truncate pr-8 text-sm font-medium ${isDarkMode ? 'text-gray-200' : 'text-gray-700'}`}>
-                    {bookmark.title}
-                  </div>
-                </button>
-              </>
+              <button
+                type="button"
+                onClick={() => onBookmarkSelect(bookmark.content)}
+                onKeyDown={e => {
+                  if (e.key === 'Enter' || e.key === ' ') onBookmarkSelect(bookmark.content);
+                }}
+                className="relative z-[1] w-full text-left py-0.5">
+                <div className="truncate pr-8 text-sm font-medium" style={{ color: `var(--text-primary)` }}>
+                  {bookmark.title}
+                </div>
+              </button>
             )}
-
             {editingId !== bookmark.id && (
               <>
-                {/* Edit button */}
                 <button
                   onClick={e => {
                     e.stopPropagation();
                     handleEditClick(bookmark);
                   }}
-                  className={`icon-btn absolute right-8 top-1/2 -translate-y-1/2 opacity-0 transition-all duration-200 group-hover:opacity-100 z-10 ${
-                    isDarkMode ? '!text-cyber-primary' : '!text-neon-sky'
-                  }`}
+                  className="icon-btn absolute right-7 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 z-10"
+                  style={{ color: `var(--accent-color)` }}
                   aria-label={t('chat_bookmarks_edit')}
                   type="button">
-                  <FaPen size={12} />
+                  <FaPen size={11} />
                 </button>
-
-                {/* Delete button */}
                 <button
                   onClick={e => {
                     e.stopPropagation();
-                    if (onBookmarkDelete) {
-                      onBookmarkDelete(bookmark.id);
-                    }
+                    if (onBookmarkDelete) onBookmarkDelete(bookmark.id);
                   }}
-                  className={`icon-btn absolute right-2 top-1/2 -translate-y-1/2 opacity-0 transition-all duration-200 group-hover:opacity-100 z-10`}
+                  className="icon-btn absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 z-10"
                   aria-label={t('chat_bookmarks_delete')}
                   type="button">
-                  <FaTrash size={12} />
+                  <FaTrash size={11} />
                 </button>
               </>
             )}
           </div>
         ))}
       </div>
-
-      {/* Empty state */}
       {bookmarks.length === 0 && (
-        <div className="empty-state mt-4 text-sm">
-          <p>{t('chat_history_empty') || 'No bookmarks yet'}</p>
-        </div>
+        <div className="empty-state mt-4 text-sm">{t('chat_history_empty') || '暂无收藏'}</div>
       )}
     </div>
   );

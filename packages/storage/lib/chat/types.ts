@@ -16,12 +16,17 @@ export interface ChatMessage extends Message {
   id: string; // Unique ID for each message
 }
 
+/** 会话来源 */
+export type SessionSource = 'user' | 'ball';
+
 export interface ChatSessionMetadata {
   id: string;
   title: string;
   createdAt: number; // Unix timestamp in milliseconds
   updatedAt: number; // Unix timestamp in milliseconds
   messageCount: number;
+  /** 会话发起者：user = 用户主动发起，ball = 球球自主行为（捣乱等） */
+  source?: SessionSource;
 }
 
 // ChatSession is the full conversation history displayed in the Sidepanel
@@ -50,7 +55,7 @@ export interface ChatHistoryStorage {
   getSession: (sessionId: string) => Promise<ChatSession | null>;
 
   // Create a new chat session
-  createSession: (title: string) => Promise<ChatSession>;
+  createSession: (title: string, source?: SessionSource) => Promise<ChatSession>;
 
   // Update an existing chat session
   updateTitle: (sessionId: string, title: string) => Promise<ChatSessionMetadata>;

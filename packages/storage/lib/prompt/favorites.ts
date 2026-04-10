@@ -5,18 +5,19 @@ import type { BaseStorage } from '../base/types';
 // Template data
 const defaultFavoritePrompts = [
   {
-    title: '📚 Explore AI Papers',
+    title: '🔥 今日 AI 热点',
     content:
-      '- Go to https://huggingface.co/papers and click through each of the first 3 papers.\n- For each paper:\n  - Record the title, URL and upvotes\n  - Summarise the abstract section\n- Finally, compile together a summary of all 3 papers, ranked by upvotes',
+      '- 打开 https://36kr.com/AI 或 https://www.jiqizhixin.com，查看今天的前 3 条 AI 新闻。\n- 对每条新闻：\n  - 记录标题、链接和热度\n  - 用一句话总结核心内容\n- 最后汇总成一份今日 AI 热点简报，按热度排序',
   },
   {
-    title: '🐦 Follow us on X/Twitter!',
-    content: 'Follow us at https://x.com/nanobrowser_ai to stay updated on the latest news and features!',
+    title: '📖 帮我读懂这个网页',
+    content:
+      '请帮我阅读当前页面，提取以下信息：\n- 页面的核心主题是什么？\n- 列出 3-5 个关键要点\n- 如果有数据或结论，请整理出来\n- 用通俗易懂的语言做个总结',
   },
   {
-    title: '🌟 Star us on GitHub!',
+    title: '🛒 比价助手',
     content:
-      "Open the Nanobrowser repository at https://github.com/nanobrowser/nanobrowser and check if you've already starred it. If not, please support us by giving us a star!",
+      '- 帮我在淘宝、京东、拼多多上搜索当前商品\n- 分别记录各平台的价格、优惠活动、销量和评价数\n- 整理成一个对比表格，标注最划算的选择\n- 注意区分官方旗舰店和第三方店铺',
   },
 ];
 

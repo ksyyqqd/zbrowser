@@ -1,11 +1,11 @@
 {
   "app_metadata_description": {
     "description": "Extension description",
-    "message": "使用 AI 自动化网页任务！Nanobrowser 是一款开源的浏览器扩展，能协助您抓取数据、填写表单等。"
+    "message": "遇见球球——你的 AI 萌宠网页助手！一款开源浏览器扩展，能帮你自动浏览、点击、探索网页，还能撒娇卖萌~"
   },
   "app_metadata_name": {
     "description": "Extension name",
-    "message": "Nanobrowser：AI 网页代理程序与自动化"
+    "message": "球球助手：AI 宠物网页伴侣"
   },
   "errors_unknown": {
     "message": "发生未知错误"
@@ -38,7 +38,7 @@
     "message": "回到对话"
   },
   "welcome_title": {
-    "message": "欢迎使用 Nanobrowser！"
+    "message": "欢迎使用球球助手！"
   },
   "welcome_instruction": {
     "message": "开始使用前，请先完成 API 密钥的设置。"
@@ -47,7 +47,25 @@
     "message": "开启设置"
   },
   "welcome_quickStart": {
-    "message": "快速入门指南"
+    "message": "三步上手指南"
+  },
+  "welcome_step1_title": {
+    "message": "第一步：安装扩展"
+  },
+  "welcome_step1_desc": {
+    "message": "从 Chrome 网上应用店搜索「Ball」或「球球助手」，点击添加到 Chrome 即可。开发者模式：解压后加载 dist 目录。"
+  },
+  "welcome_step2_title": {
+    "message": "第二步：配置模型"
+  },
+  "welcome_step2_desc": {
+    "message": "点击右上角 ⚙️ 设置，添加 AI 模型 API Key。推荐使用 DeepSeek、通义千问、智谱 GLM 等国产大模型。"
+  },
+  "welcome_step3_title": {
+    "message": "第三步：开始对话"
+  },
+  "welcome_step3_desc": {
+    "message": "在输入框告诉球球你想做什么——「帮我查一下天气」「整理这个表格」「截图翻译这段文字」，球球会自动帮你完成！"
   },
   "welcome_joinCommunity": {
     "message": "加入我们的社区"

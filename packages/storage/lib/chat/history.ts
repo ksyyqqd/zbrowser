@@ -7,6 +7,7 @@ import type {
   Message,
   ChatSessionMetadata,
   ChatAgentStepHistory,
+  SessionSource,
 } from './types';
 
 // Key for storing chat session metadata
@@ -97,7 +98,7 @@ export function createChatHistoryStorage(): ChatHistoryStorage {
       };
     },
 
-    createSession: async (title: string): Promise<ChatSession> => {
+    createSession: async (title: string, source?: SessionSource): Promise<ChatSession> => {
       const newSessionId = crypto.randomUUID();
       const currentTime = getCurrentTimestamp();
       const newSessionMeta: ChatSessionMetadata = {
@@ -106,6 +107,7 @@ export function createChatHistoryStorage(): ChatHistoryStorage {
         createdAt: currentTime,
         updatedAt: currentTime,
         messageCount: 0,
+        source: source || 'user',
       };
 
       // Create empty messages array for the new session

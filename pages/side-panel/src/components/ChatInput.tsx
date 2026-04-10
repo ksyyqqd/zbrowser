@@ -13,12 +13,10 @@ interface ChatInputProps {
   showStopButton: boolean;
   setContent?: (setter: (text: string) => void) => void;
   isDarkMode?: boolean;
-  // Historical session ID - if provided, shows replay button instead of send button
   historicalSessionId?: string | null;
   onReplay?: (sessionId: string) => void;
 }
 
-// File attachment interface
 interface AttachedFile {
   name: string;
   content: string;
@@ -47,12 +45,8 @@ export default function ChatInput({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Handle text changes and resize textarea
   const handleTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    const newText = e.target.value;
-    setText(newText);
-
-    // Resize textarea
+    setText(e.target.value);
     const textarea = textareaRef.current;
     if (textarea) {
       textarea.style.height = 'auto';
@@ -60,19 +54,15 @@ export default function ChatInput({
     }
   };
 
-  // Expose a method to set content from outside
   useEffect(() => {
-    if (setContent) {
-      setContent(setText);
-    }
+    if (setContent) setContent(setText);
   }, [setContent]);
 
-  // Initial resize when component mounts
   useEffect(() => {
-    const textarea = textareaRef.current;
-    if (textarea) {
-      textarea.style.height = 'auto';
-      textarea.style.height = `${Math.min(textarea.scrollHeight, 100)}px`;
+    const ta = textareaRef.current;
+    if (ta) {
+      ta.style.height = 'auto';
+      ta.style.height = `${Math.min(ta.scrollHeight, 100)}px`;
     }
   }, []);
 
@@ -80,35 +70,23 @@ export default function ChatInput({
     (e: React.FormEvent) => {
       e.preventDefault();
       const trimmedText = text.trim();
+      if (!trimmedText && attachedFiles.length === 0) return;
 
-      if (trimmedText || attachedFiles.length > 0) {
-        let messageContent = trimmedText;
-        let displayContent = trimmedText;
-
-        // Security: Clearly separate user input from file content
-        // The background service will sanitize file content using guardrails
-        if (attachedFiles.length > 0) {
-          const fileContents = attachedFiles
-            .map(file => {
-              // Tag file content for background service to identify and sanitize
-              return `\n\n<nano_file_content type="file" name="${file.name}">\n${file.content}\n</nano_file_content>`;
-            })
-            .join('\n');
-
-          // Combine user message with tagged file content (for background service)
-          messageContent = trimmedText
-            ? `${trimmedText}\n\n<nano_attached_files>${fileContents}</nano_attached_files>`
-            : `<nano_attached_files>${fileContents}</nano_attached_files>`;
-
-          // Create display version with only filenames (for UI)
-          const fileList = attachedFiles.map(file => `📎 ${file.name}`).join('\n');
-          displayContent = trimmedText ? `${trimmedText}\n\n${fileList}` : fileList;
-        }
-
-        onSendMessage(messageContent, displayContent);
-        setText('');
-        setAttachedFiles([]);
+      let messageContent = trimmedText;
+      let displayContent = trimmedText;
+      if (attachedFiles.length > 0) {
+        const fileContents = attachedFiles
+          .map(f => `\n\n<nano_file_content type="file" name="${f.name}">\n${f.content}\n</nano_file_content>`)
+          .join('\n');
+        messageContent = trimmedText
+          ? `${trimmedText}\n\n<nano_attached_files>${fileContents}</nano_attached_files>`
+          : `<nano_attached_files>${fileContents}</nano_attached_files>`;
+        const fileList = attachedFiles.map(f => `📎 ${f.name}`).join('\n');
+        displayContent = trimmedText ? `${trimmedText}\n\n${fileList}` : fileList;
       }
+      onSendMessage(messageContent, displayContent);
+      setText('');
+      setAttachedFiles([]);
     },
     [text, attachedFiles, onSendMessage],
   );
@@ -124,83 +102,56 @@ export default function ChatInput({
   );
 
   const handleReplay = useCallback(() => {
-    if (historicalSessionId && onReplay) {
-      onReplay(historicalSessionId);
-    }
+    if (historicalSessionId && onReplay) onReplay(historicalSessionId);
   }, [historicalSessionId, onReplay]);
 
-  const handleFileSelect = useCallback(() => {
-    fileInputRef.current?.click();
-  }, []);
-
+  const handleFileSelect = useCallback(() => fileInputRef.current?.click(), []);
   const handleFileChange = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
-
     const newFiles: AttachedFile[] = [];
     const allowedTypes = ['.txt', '.md', '.markdown', '.json', '.csv', '.log', '.xml', '.yaml', '.yml'];
-
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
-      const fileExt = '.' + file.name.split('.').pop()?.toLowerCase();
-
-      // Check if file type is allowed
-      if (!allowedTypes.includes(fileExt)) {
-        console.warn(`File type ${fileExt} not supported. Only text-based files are allowed.`);
-        continue;
-      }
-
-      // Check file size (limit to 1MB)
-      if (file.size > 1024 * 1024) {
-        console.warn(`File ${file.name} is too large. Maximum size is 1MB.`);
-        continue;
-      }
-
+      const ext = '.' + file.name.split('.').pop()?.toLowerCase();
+      if (!allowedTypes.includes(ext)) continue;
+      if (file.size > 1024 * 1024) continue;
       try {
-        const content = await file.text();
-        newFiles.push({
-          name: file.name,
-          content,
-          type: file.type || 'text/plain',
-        });
-      } catch (error) {
-        console.error(`Error reading ${file.name}:`, error);
+        newFiles.push({ name: file.name, content: await file.text(), type: file.type || 'text/plain' });
+      } catch (err) {
+        console.error(`Error reading ${file.name}:`, err);
       }
     }
-
-    if (newFiles.length > 0) {
-      setAttachedFiles(prev => [...prev, ...newFiles]);
-    }
-
-    // Reset file input
-    if (fileInputRef.current) {
-      fileInputRef.current.value = '';
-    }
+    if (newFiles.length > 0) setAttachedFiles(prev => [...prev, ...newFiles]);
+    if (fileInputRef.current) fileInputRef.current.value = '';
   }, []);
 
-  const handleRemoveFile = useCallback((index: number) => {
-    setAttachedFiles(prev => prev.filter((_, i) => i !== index));
-  }, []);
+  const handleRemoveFile = useCallback(
+    (index: number) => setAttachedFiles(prev => prev.filter((_, i) => i !== index)),
+    [],
+  );
 
   return (
     <form
       onSubmit={handleSubmit}
-      className={`relative overflow-hidden rounded-xl border transition-colors duration-300 ${
-        isDarkMode ? 'border-cyber-border/40 bg-cyber-card/30' : 'border-white/30 bg-white/50 backdrop-blur-sm'
+      className={`relative overflow-hidden rounded-lg border transition-colors duration-300 ${
+        disabled ? 'opacity-55' : ''
+      } ${
+        isDarkMode ? 'border-jade-border/30 bg-jade-card/25' : 'border-[var(--border-color)] bg-[var(--bg-surface)]'
       }`}
       aria-label={t('chat_input_form')}>
       <div className="flex flex-col">
-        {/* File attachments display */}
+        {/* 文件附件 */}
         {attachedFiles.length > 0 && (
           <div
-            className={`flex flex-wrap gap-2 border-b p-2.5 transition-colors ${
-              isDarkMode ? 'border-cyber-border/30 bg-cyber-card/50' : 'border-white/20 bg-white/50'
+            className={`flex flex-wrap gap-2 border-b p-2 ${
+              isDarkMode ? 'border-jade-border/20' : 'border-[var(--border-color)]'
             }`}>
-            {attachedFiles.map((file, index) => (
-              <div key={index} className={`file-tag`}>
+            {attachedFiles.map((f, i) => (
+              <div key={i} className="file-tag">
                 <span>📎</span>
-                <span className="truncate">{file.name}</span>
-                <button type="button" onClick={() => handleRemoveFile(index)} className="remove-btn">
+                <span className="truncate">{f.name}</span>
+                <button type="button" onClick={() => handleRemoveFile(i)} className="remove-btn">
                   ✕
                 </button>
               </div>
@@ -208,6 +159,7 @@ export default function ChatInput({
           </div>
         )}
 
+        {/* 输入框 */}
         <textarea
           ref={textareaRef}
           value={text}
@@ -216,10 +168,10 @@ export default function ChatInput({
           disabled={disabled}
           aria-disabled={disabled}
           rows={5}
-          className={`cyber-input w-full resize-none px-3 py-2.5 text-sm ${
+          className={`jade-input w-full resize-none px-3 py-2.5 text-sm ${
             disabled
               ? isDarkMode
-                ? 'cursor-not-allowed bg-slate-800/50 text-gray-500'
+                ? 'cursor-not-allowed bg-ink-800/40 text-gray-500'
                 : 'cursor-not-allowed bg-gray-100 text-gray-400'
               : isDarkMode
                 ? 'bg-transparent text-gray-200'
@@ -231,24 +183,19 @@ export default function ChatInput({
 
         {/* 底部工具栏 */}
         <div
-          className={`flex items-center justify-between border-t px-3 py-2 transition-colors ${
-            isDarkMode ? 'border-cyber-border/20 bg-cyber-card/30' : 'border-white/20 bg-white/40'
+          className={`flex items-center justify-between border-t px-3 py-1.5 ${
+            isDarkMode ? 'border-jade-border/15' : 'border-[var(--border-color)]'
           }`}>
-          <div className={`flex gap-1 ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
-            {/* File attachment button */}
+          <div className="flex gap-0.5" style={{ color: `var(--text-muted)` }}>
             <button
               type="button"
               onClick={handleFileSelect}
               disabled={disabled}
               aria-label="Attach files"
-              title="Attach text files (txt, md, json, csv, etc.)"
-              className={`icon-btn rounded-lg transition-all duration-200 ${
-                disabled ? 'cursor-not-allowed opacity-40' : ''
-              }`}>
+              title="Attach text files"
+              className={`icon-btn rounded-md ${disabled ? '!opacity-35 cursor-not-allowed' : ''}`}>
               <span className="text-base">📎</span>
             </button>
-
-            {/* Hidden file input */}
             <input
               ref={fileInputRef}
               type="file"
@@ -258,7 +205,6 @@ export default function ChatInput({
               className="hidden"
               aria-hidden="true"
             />
-
             {onMicClick && (
               <button
                 type="button"
@@ -271,12 +217,8 @@ export default function ChatInput({
                       ? t('chat_stt_recording_stop')
                       : t('chat_stt_input_start')
                 }
-                className={`icon-btn rounded-lg transition-all duration-200 ${
-                  disabled || isProcessingSpeech
-                    ? 'cursor-not-allowed opacity-40'
-                    : isRecording
-                      ? '!text-red-500 animate-pulse hover:!bg-red-500/10'
-                      : ''
+                className={`icon-btn rounded-md ${disabled || isProcessingSpeech ? '!opacity-35 cursor-not-allowed' : ''} ${
+                  isRecording ? '!text-cinnabar-primary animate-pulse hover:!bg-cinnabar-glow/30' : ''
                 }`}>
                 {isProcessingSpeech ? (
                   <AiOutlineLoading3Quarters className="size-4 animate-spin" />
@@ -287,12 +229,12 @@ export default function ChatInput({
             )}
           </div>
 
-          {/* 操作按钮组 */}
+          {/* 操作按钮 */}
           {showStopButton ? (
             <button
               type="button"
               onClick={onStopTask}
-              className="cyber-btn cyber-btn-danger rounded-lg px-4 py-1.5 text-xs font-medium tracking-wide transition-all duration-200">
+              className="jade-btn jade-btn-danger rounded-lg px-4 py-1.5 text-xs">
               {t('chat_buttons_stop')}
             </button>
           ) : historicalSessionId ? (
@@ -301,9 +243,7 @@ export default function ChatInput({
               onClick={handleReplay}
               disabled={!historicalSessionId}
               aria-disabled={!historicalSessionId}
-              className={`cyber-btn cyber-btn-success rounded-lg px-4 py-1.5 text-xs font-medium tracking-wide transition-all duration-200 ${
-                !historicalSessionId ? 'cursor-not-allowed opacity-50' : ''
-              }`}>
+              className={`jade-btn jade-btn-success rounded-lg px-4 py-1.5 text-xs ${!historicalSessionId ? '!opacity-45 cursor-not-allowed' : ''}`}>
               {t('chat_buttons_replay')}
             </button>
           ) : (
@@ -311,14 +251,7 @@ export default function ChatInput({
               type="submit"
               disabled={isSendButtonDisabled}
               aria-disabled={isSendButtonDisabled}
-              className={`cyber-btn rounded-lg px-5 py-1.5 text-xs font-semibold tracking-wider transition-all duration-300 ${
-                isDarkMode ? '' : ''
-              }`}
-              style={{
-                background: isDarkMode
-                  ? 'linear-gradient(135deg, #00F0FF, #0099CC)'
-                  : 'linear-gradient(135deg, #0EA5E9, #0284C7)',
-              }}>
+              className={`jade-btn rounded-lg px-5 py-1.5 text-xs font-semibold tracking-wider ${isSendButtonDisabled ? '!opacity-45' : ''}`}>
               {t('chat_buttons_send')}
             </button>
           )}

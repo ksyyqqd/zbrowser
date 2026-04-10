@@ -3,6 +3,9 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 // 导入UI图标组件
 import { FiSettings } from 'react-icons/fi';
+// 导入器灵遮罩注入脚本 URL（用于 files 注入）
+/* 注入脚本通过 chrome.scripting.executeScript({ files: ['spiritOverlayInject.js'] }) 加载，
+ * 不使用 ?raw import 或 eval，以兼容目标页面的 CSP 策略 */
 import { PiPlusBold } from 'react-icons/pi';
 import { GrHistory } from 'react-icons/gr';
 // 导入消息类型、角色枚举和存储相关功能
@@ -16,6 +19,7 @@ import MessageList from './components/MessageList';
 import ChatInput from './components/ChatInput';
 import ChatHistoryList from './components/ChatHistoryList';
 import BookmarkList from './components/BookmarkList';
+import SpiritDoll from './components/SpiritDoll';
 // 导入事件类型和执行状态
 import { EventType, type AgentEvent, ExecutionState } from './types/event';
 // 导入样式表
@@ -25,6 +29,15 @@ import './SidePanel.css';
 declare global {
   interface Window {
     chrome: typeof chrome;
+    __spirit_overlay__:
+      | {
+          showFireworksShow?: (duration?: number) => void;
+          writeText?: (text: string) => void;
+          celebrate?: (msg?: string) => void;
+          destroy?: () => void;
+          isActive?: () => boolean;
+        }
+      | undefined;
   }
 }
 
@@ -38,6 +51,8 @@ const SidePanel = () => {
   const [inputEnabled, setInputEnabled] = useState(true);
   // 是否显示停止按钮
   const [showStopButton, setShowStopButton] = useState(false);
+  // 当前执行步骤（传递给器灵显示）
+  const [currentStep, setCurrentStep] = useState<{ actor: string; content: string } | null>(null);
   // 当前会话ID
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
   // 是否显示历史记录
@@ -60,6 +75,8 @@ const SidePanel = () => {
   const [isProcessingSpeech, setIsProcessingSpeech] = useState(false);
   // 是否正在重播
   const [isReplaying, setIsReplaying] = useState(false);
+  // 快速入门步骤展开状态
+  const [showSteps, setShowSteps] = useState(false);
   // 是否启用重播功能
   const [replayEnabled, setReplayEnabled] = useState(false);
   // 会话ID引用
@@ -216,6 +233,7 @@ const SidePanel = () => {
               setInputEnabled(true);
               setShowStopButton(false);
               setIsReplaying(false);
+              setCurrentStep(null); // 任务完成，重置步骤
               skip = false;
               break;
             case ExecutionState.TASK_CANCEL:
@@ -223,6 +241,7 @@ const SidePanel = () => {
               setInputEnabled(true);
               setShowStopButton(false);
               setIsReplaying(false);
+              setCurrentStep(null); // 任务取消，重置步骤
               skip = false;
               break;
             case ExecutionState.TASK_PAUSE:
@@ -315,6 +334,12 @@ const SidePanel = () => {
           content: content || '',
           timestamp: timestamp,
         });
+
+        // 同步更新器灵的当前执行步骤（planner/navigator/validator 的步骤）
+        const isStepActor = ['planner', 'navigator', 'validator'].includes(actor);
+        if (isStepActor && content && !displayProgress) {
+          setCurrentStep({ actor, content });
+        }
       }
 
       // 如果需要显示进度，则添加进度消息
@@ -719,6 +744,7 @@ const SidePanel = () => {
     setShowStopButton(false);
     setIsFollowUpMode(false);
     setIsHistoricalSession(false);
+    setCurrentStep(null); // 新聊天，重置执行步骤
 
     // 断开任何现有连接
     stopConnection();
@@ -1062,57 +1088,36 @@ const SidePanel = () => {
   return (
     <div className={isDarkMode ? 'dark' : ''}>
       <div
-        className={`relative flex h-screen flex-col overflow-hidden border transition-all duration-500 ease-out ${
-          isDarkMode ? 'bg-cyber-dark border-cyber-border/50' : 'border-white/20'
-        }`}
-        style={
-          !isDarkMode
-            ? {
-                background: `
-            linear-gradient(135deg, #F0F4FF 0%, #E8F0FE 25%, #F5F8FF 50%, #EDF4FF 75%, #F0F7FF 100%)
-          `,
-              }
-            : undefined
-        }>
-        {/* 科幻光晕背景 */}
-        <div
-          className={`pointer-events-none absolute inset-0 transition-opacity duration-700 ${
-            isDarkMode ? 'opacity-100' : 'opacity-60'
-          }`}
-          style={{
-            background: isDarkMode
-              ? 'radial-gradient(ellipse at 30% 20%, rgba(0, 240, 255, 0.06) 0%, transparent 50%), radial-gradient(ellipse at 70% 80%, rgba(123, 104, 238, 0.05) 0%, transparent 50%)'
-              : 'radial-gradient(ellipse at 30% 20%, rgba(14, 165, 233, 0.08) 0%, transparent 50%), radial-gradient(ellipse at 70% 80%, rgba(59, 130, 246, 0.05) 0%, transparent 50%)',
-          }}
-        />
-        {/* 网格线装饰 - 双模式统一风格 */}
+        className="relative flex h-screen flex-col overflow-hidden border transition-all duration-500 ease-out"
+        style={{
+          borderColor: isDarkMode ? 'rgba(116,198,157,0.08)' : 'rgba(139,115,85,0.12)',
+          background: isDarkMode ? '#0F0E0C' : 'linear-gradient(180deg, #FAF8F5 0%, #F5F2ED 45%, #FAF8F5 100%)',
+        }}>
+        {/* 山水云雾背景 */}
         <div
           className="pointer-events-none absolute inset-0"
           style={{
-            opacity: isDarkMode ? 0.03 : 0.02,
-            backgroundImage: isDarkMode
-              ? `linear-gradient(rgba(0, 240, 255, 0.5) 1px, transparent 1px), linear-gradient(90deg, rgba(0, 240, 255, 0.5) 1px, transparent 1px)`
-              : `linear-gradient(rgba(14, 165, 233, 0.4) 1px, transparent 1px), linear-gradient(90deg, rgba(14, 165, 233, 0.4) 1px, transparent 1px)`,
-            backgroundSize: '40px 40px',
+            opacity: isDarkMode ? 1 : 1,
+            background: isDarkMode
+              ? undefined
+              : 'radial-gradient(ellipse at 20% 80%, rgba(64,145,108,0.07) 0%, transparent 50%), radial-gradient(ellipse at 80% 20%, rgba(217,119,6,0.04) 0%, transparent 50%)',
           }}
         />
 
-        <header className="header relative z-10">
+        {/* Header 头部 */}
+        <header className="header relative z-20">
           <div className="header-logo">
             {showHistory ? (
               <button
                 type="button"
                 onClick={() => handleBackToChat(false)}
-                className={`cursor-pointer font-medium transition-all duration-200 hover:brightness-125 ${
-                  isDarkMode ? 'text-cyber-primary' : 'text-neon-sky'
-                }`}
+                className="cursor-pointer font-medium transition-all duration-200"
+                style={{ color: 'var(--accent-color)' }}
                 aria-label={t('nav_back_a11y')}>
                 {t('nav_back')}
               </button>
             ) : (
-              <div className="relative">
-                <img src="/icon-128.png" alt="Extension Logo" className="size-7 drop-shadow-lg" />
-              </div>
+              <img src="/icon-128.png" alt="Extension Logo" className="size-6" />
             )}
           </div>
           <div className="header-icons">
@@ -1122,19 +1127,21 @@ const SidePanel = () => {
                   type="button"
                   onClick={handleNewChat}
                   onKeyDown={e => e.key === 'Enter' && handleNewChat()}
-                  className={`header-icon ${isDarkMode ? 'text-cyber-primary' : 'text-neon-sky'}`}
+                  className="header-icon"
+                  style={{ color: 'var(--accent-color)' }}
                   aria-label={t('nav_newChat_a11y')}
                   tabIndex={0}>
-                  <PiPlusBold size={18} />
+                  <PiPlusBold size={17} />
                 </button>
                 <button
                   type="button"
                   onClick={handleLoadHistory}
                   onKeyDown={e => e.key === 'Enter' && handleLoadHistory()}
-                  className={`header-icon ${isDarkMode ? 'text-cyber-primary' : 'text-neon-sky'}`}
+                  className="header-icon"
+                  style={{ color: 'var(--accent-color)' }}
                   aria-label={t('nav_loadHistory_a11y')}
                   tabIndex={0}>
-                  <GrHistory size={18} />
+                  <GrHistory size={17} />
                 </button>
               </>
             )}
@@ -1142,10 +1149,11 @@ const SidePanel = () => {
               type="button"
               onClick={() => chrome.runtime.openOptionsPage()}
               onKeyDown={e => e.key === 'Enter' && chrome.runtime.openOptionsPage()}
-              className={`header-icon ${isDarkMode ? 'text-cyber-primary' : 'text-neon-sky'}`}
+              className="header-icon"
+              style={{ color: 'var(--accent-color)' }}
               aria-label={t('nav_settings_a11y')}
               tabIndex={0}>
-              <FiSettings size={18} />
+              <FiSettings size={17} />
             </button>
           </div>
         </header>
@@ -1162,142 +1170,268 @@ const SidePanel = () => {
           </div>
         ) : (
           <>
-            {/* Show loading state while checking model configuration */}
             {hasConfiguredModels === null && (
-              <div
-                className={`relative z-10 flex flex-1 items-center justify-center p-8 ${isDarkMode ? 'text-cyber-primary/80' : 'text-neon-sky/70'}`}>
+              <div className="relative z-10 flex flex-1 items-center justify-center p-8">
                 <div className="text-center">
                   <div
-                    className="mx-auto mb-4 size-10 animate-spin rounded-full border-2 border-transparent"
+                    className="mx-auto mb-4 size-9 animate-spin rounded-full border-2 border-transparent"
                     style={{
-                      borderTopColor: isDarkMode ? '#00F0FF' : '#0EA5E9',
-                      boxShadow: `0 0 20px ${isDarkMode ? 'rgba(0, 240, 255, 0.3)' : 'rgba(14, 165, 233, 0.3)'}`,
+                      borderTopColor: isDarkMode ? '#74C69D' : '#40916C',
+                      boxShadow: '0 0 16px var(--accent-glow)',
                     }}
                   />
-                  <p className="font-medium tracking-wide">{t('status_checkingConfig')}</p>
+                  <p className="text-sm font-medium tracking-wide" style={{ color: 'var(--text-secondary)' }}>
+                    {t('status_checkingConfig')}
+                  </p>
                 </div>
               </div>
             )}
 
-            {/* Show setup message when no models are configured */}
             {hasConfiguredModels === false && (
-              <div
-                className={`relative z-10 flex flex-1 items-center justify-center p-8 ${isDarkMode ? 'text-cyber-primary/80' : 'text-neon-sky/70'}`}>
+              <div className="relative z-10 flex flex-1 items-center justify-center p-6">
                 <div className="max-w-md text-center">
-                  <div
-                    className="mx-auto mb-5 inline-flex size-16 items-center justify-center rounded-2xl"
-                    style={{
-                      background: isDarkMode
-                        ? 'linear-gradient(135deg, rgba(0, 240, 255, 0.15), rgba(123, 104, 238, 0.15))'
-                        : 'linear-gradient(135deg, rgba(14, 165, 233, 0.1), rgba(59, 130, 246, 0.1))',
-                      boxShadow: `0 0 30px ${isDarkMode ? 'rgba(0, 240, 255, 0.15)' : 'rgba(14, 165, 233, 0.1)'}`,
-                    }}>
-                    <img src="/icon-128.png" alt="Nanobrowser Logo" className="size-12" />
-                  </div>
-                  <h3
-                    className={`mb-3 text-xl font-semibold tracking-tight ${isDarkMode ? 'text-gray-100' : 'text-gray-800'}`}>
+                  <SpiritDoll isDarkMode={isDarkMode} isExecuting={false} currentStep={null} />
+                  <h3 className="my-2 text-lg font-bold tracking-wide" style={{ color: 'var(--text-primary)' }}>
                     {t('welcome_title')}
                   </h3>
-                  <p className="mb-5 text-sm leading-relaxed opacity-70">{t('welcome_instruction')}</p>
+                  <p className="mb-4 text-xs leading-relaxed" style={{ color: 'var(--text-muted)' }}>
+                    {t('welcome_instruction')}
+                  </p>
                   <button
                     onClick={() => chrome.runtime.openOptionsPage()}
-                    className="cyber-btn my-4 px-6 py-2.5 text-sm tracking-wide"
-                    style={{
-                      background: isDarkMode
-                        ? 'linear-gradient(135deg, #00F0FF, #0099CC)'
-                        : 'linear-gradient(135deg, #0EA5E9, #0284C7)',
-                    }}>
+                    className="jade-btn my-3 px-6 py-2 text-sm tracking-wide">
                     {t('welcome_openSettings')}
                   </button>
-                  <div className="mt-5 space-y-1 text-sm opacity-60">
-                    <a
-                      href="https://github.com/nanobrowser/nanobrowser?tab=readme-ov-file#-quick-start"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className={`transition-colors hover:brightness-125 ${isDarkMode ? 'text-cyber-primary/90 hover:text-cyber-primary' : 'text-neon-sky/80 hover:text-neon-sky'}`}>
-                      {t('welcome_quickStart')}
-                    </a>
-                    <span className="mx-2">•</span>
-                    <a
-                      href="https://discord.gg/NN3ABHggMK"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className={`transition-colors hover:brightness-125 ${isDarkMode ? 'text-cyber-primary/90 hover:text-cyber-primary' : 'text-neon-sky/80 hover:text-neon-sky'}`}>
-                      {t('welcome_joinCommunity')}
-                    </a>
+                  {/* 三步上手指南 */}
+                  <div className="mt-4 text-left" style={{ color: 'var(--text-muted)' }}>
+                    <button
+                      type="button"
+                      onClick={() => setShowSteps(!showSteps)}
+                      onKeyDown={e => {
+                        if (e.key === 'Enter' || e.key === ' ') e.currentTarget.click();
+                      }}
+                      className="flex items-center gap-1 cursor-pointer transition-opacity hover:!opacity-100 bg-transparent border-0 text-left p-0"
+                      style={{
+                        color: 'var(--accent-color)',
+                        opacity: 0.8,
+                        fontSize: 'inherit',
+                        fontFamily: 'inherit',
+                      }}>
+                      <span>
+                        {showSteps ? '▾' : '▸'} {t('welcome_quickStart')}
+                      </span>
+                    </button>
+                    {showSteps && (
+                      <div className="mt-3 space-y-3">
+                        {[
+                          { title: t('welcome_step1_title'), desc: t('welcome_step1_desc'), icon: '📦' },
+                          { title: t('welcome_step2_title'), desc: t('welcome_step2_desc'), icon: '🔑' },
+                          { title: t('welcome_step3_title'), desc: t('welcome_step3_desc'), icon: '💬' },
+                        ].map((step, i) => (
+                          <div
+                            key={i}
+                            className="flex gap-2.5 rounded-lg px-3 py-2.5 transition-all duration-200"
+                            style={{
+                              background:
+                                i === 0
+                                  ? isDarkMode
+                                    ? 'rgba(64,145,108,0.08)'
+                                    : 'rgba(64,145,108,0.06)'
+                                  : i === 1
+                                    ? isDarkMode
+                                      ? 'rgba(245,158,11,0.08)'
+                                      : 'rgba(245,158,11,0.06)'
+                                    : isDarkMode
+                                      ? 'rgba(167,139,250,0.08)'
+                                      : 'rgba(167,139,250,0.06)',
+                              border: '1px solid var(--border-color)',
+                            }}>
+                            <span className="text-base shrink-0">{step.icon}</span>
+                            <div className="min-w-0 flex-1">
+                              <div className="text-xs font-semibold mb-0.5" style={{ color: 'var(--text-primary)' }}>
+                                {step.title}
+                              </div>
+                              <div
+                                className="text-[10px] leading-relaxed"
+                                style={{ color: 'var(--text-secondary)', opacity: 0.85 }}>
+                                {step.desc}
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
             )}
 
-            {/* Show normal chat interface when models are configured */}
             {hasConfiguredModels === true && (
               <>
-                {messages.length === 0 && (
-                  <>
-                    <div
-                      className={`relative z-10 mb-2 rounded-xl p-2 shadow-glass backdrop-blur-md transition-all duration-300 ${
-                        isDarkMode ? 'border-cyber-border/40' : 'border-white/30'
-                      } border-t`}>
-                      <ChatInput
-                        onSendMessage={handleSendMessage}
-                        onStopTask={handleStopTask}
-                        onMicClick={handleMicClick}
-                        isRecording={isRecording}
-                        isProcessingSpeech={isProcessingSpeech}
-                        disabled={!inputEnabled || isHistoricalSession}
-                        showStopButton={showStopButton}
-                        setContent={setter => {
-                          setInputTextRef.current = setter;
-                        }}
-                        isDarkMode={isDarkMode}
-                        historicalSessionId={isHistoricalSession && replayEnabled ? currentSessionId : null}
-                        onReplay={handleReplay}
-                      />
-                    </div>
-                    <div className="relative z-10 flex-1 overflow-y-auto">
-                      <BookmarkList
-                        bookmarks={favoritePrompts}
-                        onBookmarkSelect={handleBookmarkSelect}
-                        onBookmarkUpdateTitle={handleBookmarkUpdateTitle}
-                        onBookmarkDelete={handleBookmarkDelete}
-                        onBookmarkReorder={handleBookmarkReorder}
-                        isDarkMode={isDarkMode}
-                      />
-                    </div>
-                  </>
-                )}
-                {messages.length > 0 && (
-                  <div
-                    className={`scrollbar-gutter-stable relative z-10 flex-1 space-y-1 overflow-x-hidden overflow-y-scroll scroll-smooth p-3 ${
-                      isDarkMode ? '' : ''
-                    }`}>
-                    <MessageList messages={messages} isDarkMode={isDarkMode} />
-                    <div ref={messagesEndRef} />
-                  </div>
-                )}
-                {messages.length > 0 && (
-                  <div
-                    className={`relative z-10 rounded-xl p-2 shadow-glass backdrop-blur-md transition-all duration-300 ${
-                      isDarkMode ? 'border-cyber-border/40' : 'border-white/30'
-                    } border-t`}>
-                    <ChatInput
-                      onSendMessage={handleSendMessage}
-                      onStopTask={handleStopTask}
-                      onMicClick={handleMicClick}
-                      isRecording={isRecording}
-                      isProcessingSpeech={isProcessingSpeech}
-                      disabled={!inputEnabled || isHistoricalSession}
-                      showStopButton={showStopButton}
-                      setContent={setter => {
-                        setInputTextRef.current = setter;
-                      }}
-                      isDarkMode={isDarkMode}
-                      historicalSessionId={isHistoricalSession && replayEnabled ? currentSessionId : null}
-                      onReplay={handleReplay}
-                    />
-                  </div>
-                )}
+                {/* ===== 器灵层 — 顶部独占，悬浮在对话框之上 ===== */}
+                <div className="relative z-10 shrink-0 border-b" style={{ borderColor: 'var(--border-color)' }}>
+                  <SpiritDoll
+                    isDarkMode={isDarkMode}
+                    isExecuting={showStopButton}
+                    currentStep={currentStep}
+                    onAutonomousAction={async (action: string, data?: string) => {
+                      console.log('[球球自主行为]', action);
+                      // 获取当前活动标签页（公共前置步骤，所有动作都需要 tabId）
+                      const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+                      const tabId = tabs[0]?.id;
+                      if (!tabId) return;
+
+                      if (action === 'scroll-page') {
+                        try {
+                          // 确保连接存在
+                          if (!portRef.current) setupConnection();
+
+                          // 先创建一个真实的会话，获取有效的 sessionId
+                          const mischiefSession = await chatHistoryStore.createSession('球球捣乱中...', 'ball');
+                          const mischiefTaskId = mischiefSession.id;
+
+                          // 用真实 sessionId 发起独立捣乱任务
+                          await sendMessage({
+                            type: 'new_task',
+                            task: '[球球捣乱] 请在当前页面上做一些轻微的、无伤大雅的小动作：比如随机滚动一下页面、鼠标悬停在某些按钮上假装要点击、如果页面有输入框就删除里面的一两个字符再补回来、轻微改变一下滚动位置等。操作要轻量有趣，不要造成任何实质性的破坏或数据丢失。',
+                            taskId: mischiefTaskId,
+                            tabId,
+                          });
+                        } catch (err) {
+                          console.error('球球捣乱失败:', err);
+                        }
+                      } else if (action.startsWith('overlay-')) {
+                        // 遮罩层效果：通过 files 注入脚本 + 直接函数调用（兼容 CSP，不使用 eval/new Function）
+                        try {
+                          // 检查页面是否允许注入（chrome:// 等页面会报错）
+                          const targetTab = tabs[0];
+                          if (
+                            !targetTab?.url ||
+                            targetTab.url.startsWith('chrome://') ||
+                            targetTab.url.startsWith('edge://') ||
+                            targetTab.url.startsWith('about:')
+                          ) {
+                            appendMessage({
+                              actor: Actors.SYSTEM,
+                              content: '\u26A0\uFE0F 当前页面不支持遮罩效果（系统页面限制）',
+                              timestamp: Date.now(),
+                            });
+                            return;
+                          }
+
+                          const overlayAction = action.replace('overlay-', '');
+
+                          // 第一步：用 files 参数注入脚本（不使用 eval，CSP 安全）
+                          // 路径相对于扩展根目录，构建后脚本位于 dist/side-panel/spiritOverlayInject.js
+                          await chrome.scripting.executeScript({
+                            target: { tabId },
+                            files: ['side-panel/spiritOverlayInject.js'],
+                          });
+
+                          // 第二步：直接函数调用 API（不用 new Function/eval）
+                          if (overlayAction === 'fireworks') {
+                            await chrome.scripting.executeScript({
+                              target: { tabId },
+                              func: () => {
+                                window.__spirit_overlay__?.showFireworksShow?.();
+                              },
+                            });
+                          } else if (overlayAction === 'write') {
+                            const text = data || '球球来啦~';
+                            await chrome.scripting.executeScript({
+                              target: { tabId },
+                              func: t => {
+                                window.__spirit_overlay__?.writeText?.(t);
+                              },
+                              args: [text],
+                            });
+                          } else if (overlayAction === 'celebrate') {
+                            const msg = data || '球球好开心！';
+                            await chrome.scripting.executeScript({
+                              target: { tabId },
+                              func: m => {
+                                window.__spirit_overlay__?.celebrate?.(m);
+                              },
+                              args: [msg],
+                            });
+                          }
+                          appendMessage({
+                            actor: Actors.SYSTEM,
+                            content:
+                              overlayAction === 'fireworks'
+                                ? '\u{1F386} 球球在页面上放烟花啦~'
+                                : overlayAction === 'write'
+                                  ? '\u270F\uFE0F 球球在留字...'
+                                  : '\u{1F389} 球球庆祝中！',
+                            timestamp: Date.now(),
+                          });
+                        } catch (err) {
+                          console.error('遮罩效果失败:', err);
+                        }
+                      }
+                    }}
+                  />
+                </div>
+
+                {/* ===== 对话内容层 ===== */}
+                <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+                  {messages.length === 0 && (
+                    <>
+                      <div className="px-2 pt-2 pb-1">
+                        <ChatInput
+                          onSendMessage={handleSendMessage}
+                          onStopTask={handleStopTask}
+                          onMicClick={handleMicClick}
+                          isRecording={isRecording}
+                          isProcessingSpeech={isProcessingSpeech}
+                          disabled={!inputEnabled || isHistoricalSession}
+                          showStopButton={showStopButton}
+                          setContent={setter => {
+                            setInputTextRef.current = setter;
+                          }}
+                          isDarkMode={isDarkMode}
+                          historicalSessionId={isHistoricalSession && replayEnabled ? currentSessionId : null}
+                          onReplay={handleReplay}
+                        />
+                      </div>
+                      <div className="flex-1 overflow-y-auto px-2 pb-2">
+                        <BookmarkList
+                          bookmarks={favoritePrompts}
+                          onBookmarkSelect={handleBookmarkSelect}
+                          onBookmarkUpdateTitle={handleBookmarkUpdateTitle}
+                          onBookmarkDelete={handleBookmarkDelete}
+                          onBookmarkReorder={handleBookmarkReorder}
+                          isDarkMode={isDarkMode}
+                        />
+                      </div>
+                    </>
+                  )}
+                  {messages.length > 0 && (
+                    <>
+                      <div className="scrollbar-gutter-stable flex-1 space-y-1 overflow-x-hidden overflow-y-scroll scroll-smooth px-3 py-2">
+                        <MessageList messages={messages} isDarkMode={isDarkMode} />
+                        <div ref={messagesEndRef} />
+                      </div>
+                      <div className="px-2 pb-2 pt-1">
+                        <ChatInput
+                          onSendMessage={handleSendMessage}
+                          onStopTask={handleStopTask}
+                          onMicClick={handleMicClick}
+                          isRecording={isRecording}
+                          isProcessingSpeech={isProcessingSpeech}
+                          disabled={!inputEnabled || isHistoricalSession}
+                          showStopButton={showStopButton}
+                          setContent={setter => {
+                            setInputTextRef.current = setter;
+                          }}
+                          isDarkMode={isDarkMode}
+                          historicalSessionId={isHistoricalSession && replayEnabled ? currentSessionId : null}
+                          onReplay={handleReplay}
+                        />
+                      </div>
+                    </>
+                  )}
+                </div>
               </>
             )}
           </>
