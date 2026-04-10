@@ -43,7 +43,7 @@ function MessageBlock({ message, isSameActor, isDarkMode = false }: MessageBlock
     try {
       await navigator.clipboard.writeText(message.content);
       setCopied(true);
-      setTimeout(() => setCopied(false), 2000); // Reset after 2 seconds
+      setTimeout(() => setCopied(false), 2000);
     } catch (err) {
       console.error('Failed to copy text: ', err);
     }
@@ -53,56 +53,68 @@ function MessageBlock({ message, isSameActor, isDarkMode = false }: MessageBlock
     <div
       className={`flex max-w-full gap-3 ${
         !isSameActor
-          ? `mt-4 border-t ${isDarkMode ? 'border-sky-800/50' : 'border-sky-200/50'} pt-4 first:mt-0 first:border-t-0 first:pt-0`
+          ? `mt-5 pt-5 first:mt-0 first:pt-0 ${
+              isDarkMode ? 'border-t border-cyber-border/30' : 'border-t border-neon-sky/10'
+            }`
           : ''
       }`}>
+      {/* 角色头像 - 科幻发光环 */}
       {!isSameActor && (
-        <div
-          className="flex size-8 shrink-0 items-center justify-center rounded-full"
-          style={{ backgroundColor: actor.iconBackground }}>
-          <img src={actor.icon} alt={actor.name} className="size-6" />
+        <div className={`avatar-ring shrink-0 ${!isDarkMode ? 'shadow-cyber-sm-light' : ''}`}>
+          <img src={actor.icon} alt={actor.name} />
         </div>
       )}
       {isSameActor && <div className="w-8" />}
 
       <div className="min-w-0 flex-1">
+        {/* 角色名称 */}
         {!isSameActor && (
-          <div className={`mb-1 text-sm font-semibold ${isDarkMode ? 'text-gray-200' : 'text-gray-900'}`}>
-            {actor.name}
+          <div
+            className={`mb-2 flex items-center gap-2 text-sm font-semibold tracking-wide ${
+              isDarkMode ? 'text-gray-100' : 'text-gray-800'
+            }`}>
+            <span>{actor.name}</span>
+            <span
+              className={`size-1.5 rounded-full ${isDarkMode ? 'bg-cyber-primary/60 animate-[cyber-pulse_2s_ease-in-out_infinite]' : 'bg-neon-sky/50'}`}
+            />
           </div>
         )}
 
-        <div className="space-y-0.5">
+        <div className="space-y-1">
           <div className="relative">
             <div
-              className={`whitespace-pre-wrap break-words text-sm ${isDarkMode ? 'text-gray-300' : 'text-gray-700'} pr-10`}>
+              className={`message-bubble whitespace-pre-wrap break-words text-sm pr-12 ${
+                isDarkMode ? 'text-gray-300' : 'text-gray-600'
+              }`}>
               {isProgress ? (
-                <div className={`h-1 overflow-hidden rounded ${isDarkMode ? 'bg-gray-700' : 'bg-gray-200'}`}>
-                  <div className="h-full animate-[progress] bg-blue-500" />
+                <div className="progress-bar-cyber my-2 overflow-hidden">
+                  <div className="progress-fill" style={{ width: '60%' }} />
                 </div>
               ) : (
                 message.content
               )}
             </div>
+            {/* 复制按钮 */}
             {!isProgress && (
               <button
                 onClick={copyToClipboard}
-                className={`absolute right-0 top-0 rounded p-1.5 text-xs ${
-                  isDarkMode
-                    ? copied
-                      ? 'text-green-400 hover:bg-gray-700'
-                      : 'text-gray-400 hover:bg-gray-700 hover:text-gray-200'
-                    : copied
-                      ? 'text-green-600 hover:bg-gray-200'
-                      : 'text-gray-500 hover:bg-gray-200 hover:text-gray-700'
+                className={`icon-btn absolute right-1 top-2 rounded-md p-1.5 transition-all duration-200 ${
+                  copied
+                    ? isDarkMode
+                      ? 'text-green-400'
+                      : 'text-green-500'
+                    : isDarkMode
+                      ? 'text-gray-500 hover:text-gray-200'
+                      : 'text-gray-400 hover:text-gray-700'
                 }`}
                 title={copied ? t('chat_copied') : t('chat_copy')}>
                 {copied ? <FiCheck size={14} /> : <FiCopy size={14} />}
               </button>
             )}
           </div>
+          {/* 时间戳 */}
           {!isProgress && (
-            <div className={`text-right text-xs ${isDarkMode ? 'text-gray-500' : 'text-gray-300'}`}>
+            <div className={`text-right text-xs tracking-wide ${isDarkMode ? 'text-gray-500/70' : 'text-gray-300'}`}>
               {formatTimestamp(message.timestamp)}
             </div>
           )}

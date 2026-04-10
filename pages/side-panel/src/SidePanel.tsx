@@ -2,7 +2,6 @@
 // 导入React相关Hook函数
 import { useState, useEffect, useCallback, useRef } from 'react';
 // 导入UI图标组件
-import { RxDiscordLogo } from 'react-icons/rx';
 import { FiSettings } from 'react-icons/fi';
 import { PiPlusBold } from 'react-icons/pi';
 import { GrHistory } from 'react-icons/gr';
@@ -1061,21 +1060,59 @@ const SidePanel = () => {
   };
 
   return (
-    <div>
+    <div className={isDarkMode ? 'dark' : ''}>
       <div
-        className={`flex h-screen flex-col ${isDarkMode ? 'bg-slate-900' : "bg-[url('/bg.jpg')] bg-cover bg-no-repeat"} overflow-hidden border ${isDarkMode ? 'border-sky-800' : 'border-[rgb(186,230,253)]'} rounded-2xl`}>
-        <header className="header relative">
+        className={`relative flex h-screen flex-col overflow-hidden border transition-all duration-500 ease-out ${
+          isDarkMode ? 'bg-cyber-dark border-cyber-border/50' : 'border-white/20'
+        }`}
+        style={
+          !isDarkMode
+            ? {
+                background: `
+            linear-gradient(135deg, #F0F4FF 0%, #E8F0FE 25%, #F5F8FF 50%, #EDF4FF 75%, #F0F7FF 100%)
+          `,
+              }
+            : undefined
+        }>
+        {/* 科幻光晕背景 */}
+        <div
+          className={`pointer-events-none absolute inset-0 transition-opacity duration-700 ${
+            isDarkMode ? 'opacity-100' : 'opacity-60'
+          }`}
+          style={{
+            background: isDarkMode
+              ? 'radial-gradient(ellipse at 30% 20%, rgba(0, 240, 255, 0.06) 0%, transparent 50%), radial-gradient(ellipse at 70% 80%, rgba(123, 104, 238, 0.05) 0%, transparent 50%)'
+              : 'radial-gradient(ellipse at 30% 20%, rgba(14, 165, 233, 0.08) 0%, transparent 50%), radial-gradient(ellipse at 70% 80%, rgba(59, 130, 246, 0.05) 0%, transparent 50%)',
+          }}
+        />
+        {/* 网格线装饰 - 双模式统一风格 */}
+        <div
+          className="pointer-events-none absolute inset-0"
+          style={{
+            opacity: isDarkMode ? 0.03 : 0.02,
+            backgroundImage: isDarkMode
+              ? `linear-gradient(rgba(0, 240, 255, 0.5) 1px, transparent 1px), linear-gradient(90deg, rgba(0, 240, 255, 0.5) 1px, transparent 1px)`
+              : `linear-gradient(rgba(14, 165, 233, 0.4) 1px, transparent 1px), linear-gradient(90deg, rgba(14, 165, 233, 0.4) 1px, transparent 1px)`,
+            backgroundSize: '40px 40px',
+          }}
+        />
+
+        <header className="header relative z-10">
           <div className="header-logo">
             {showHistory ? (
               <button
                 type="button"
                 onClick={() => handleBackToChat(false)}
-                className={`${isDarkMode ? 'text-sky-400 hover:text-sky-300' : 'text-sky-400 hover:text-sky-500'} cursor-pointer`}
+                className={`cursor-pointer font-medium transition-all duration-200 hover:brightness-125 ${
+                  isDarkMode ? 'text-cyber-primary' : 'text-neon-sky'
+                }`}
                 aria-label={t('nav_back_a11y')}>
                 {t('nav_back')}
               </button>
             ) : (
-              <img src="/icon-128.png" alt="Extension Logo" className="size-6" />
+              <div className="relative">
+                <img src="/icon-128.png" alt="Extension Logo" className="size-7 drop-shadow-lg" />
+              </div>
             )}
           </div>
           <div className="header-icons">
@@ -1085,42 +1122,35 @@ const SidePanel = () => {
                   type="button"
                   onClick={handleNewChat}
                   onKeyDown={e => e.key === 'Enter' && handleNewChat()}
-                  className={`header-icon ${isDarkMode ? 'text-sky-400 hover:text-sky-300' : 'text-sky-400 hover:text-sky-500'} cursor-pointer`}
+                  className={`header-icon ${isDarkMode ? 'text-cyber-primary' : 'text-neon-sky'}`}
                   aria-label={t('nav_newChat_a11y')}
                   tabIndex={0}>
-                  <PiPlusBold size={20} />
+                  <PiPlusBold size={18} />
                 </button>
                 <button
                   type="button"
                   onClick={handleLoadHistory}
                   onKeyDown={e => e.key === 'Enter' && handleLoadHistory()}
-                  className={`header-icon ${isDarkMode ? 'text-sky-400 hover:text-sky-300' : 'text-sky-400 hover:text-sky-500'} cursor-pointer`}
+                  className={`header-icon ${isDarkMode ? 'text-cyber-primary' : 'text-neon-sky'}`}
                   aria-label={t('nav_loadHistory_a11y')}
                   tabIndex={0}>
-                  <GrHistory size={20} />
+                  <GrHistory size={18} />
                 </button>
               </>
             )}
-            <a
-              href="https://discord.gg/NN3ABHggMK"
-              target="_blank"
-              rel="noopener noreferrer"
-              className={`header-icon ${isDarkMode ? 'text-sky-400 hover:text-sky-300' : 'text-sky-400 hover:text-sky-500'}`}>
-              <RxDiscordLogo size={20} />
-            </a>
             <button
               type="button"
               onClick={() => chrome.runtime.openOptionsPage()}
               onKeyDown={e => e.key === 'Enter' && chrome.runtime.openOptionsPage()}
-              className={`header-icon ${isDarkMode ? 'text-sky-400 hover:text-sky-300' : 'text-sky-400 hover:text-sky-500'} cursor-pointer`}
+              className={`header-icon ${isDarkMode ? 'text-cyber-primary' : 'text-neon-sky'}`}
               aria-label={t('nav_settings_a11y')}
               tabIndex={0}>
-              <FiSettings size={20} />
+              <FiSettings size={18} />
             </button>
           </div>
         </header>
         {showHistory ? (
-          <div className="flex-1 overflow-hidden">
+          <div className="relative z-10 flex-1 overflow-hidden">
             <ChatHistoryList
               sessions={chatSessions}
               onSessionSelect={handleSessionSelect}
@@ -1135,10 +1165,16 @@ const SidePanel = () => {
             {/* Show loading state while checking model configuration */}
             {hasConfiguredModels === null && (
               <div
-                className={`flex flex-1 items-center justify-center p-8 ${isDarkMode ? 'text-sky-300' : 'text-sky-600'}`}>
+                className={`relative z-10 flex flex-1 items-center justify-center p-8 ${isDarkMode ? 'text-cyber-primary/80' : 'text-neon-sky/70'}`}>
                 <div className="text-center">
-                  <div className="mx-auto mb-4 size-8 animate-spin rounded-full border-2 border-sky-400 border-t-transparent"></div>
-                  <p>{t('status_checkingConfig')}</p>
+                  <div
+                    className="mx-auto mb-4 size-10 animate-spin rounded-full border-2 border-transparent"
+                    style={{
+                      borderTopColor: isDarkMode ? '#00F0FF' : '#0EA5E9',
+                      boxShadow: `0 0 20px ${isDarkMode ? 'rgba(0, 240, 255, 0.3)' : 'rgba(14, 165, 233, 0.3)'}`,
+                    }}
+                  />
+                  <p className="font-medium tracking-wide">{t('status_checkingConfig')}</p>
                 </div>
               </div>
             )}
@@ -1146,26 +1182,39 @@ const SidePanel = () => {
             {/* Show setup message when no models are configured */}
             {hasConfiguredModels === false && (
               <div
-                className={`flex flex-1 items-center justify-center p-8 ${isDarkMode ? 'text-sky-300' : 'text-sky-600'}`}>
+                className={`relative z-10 flex flex-1 items-center justify-center p-8 ${isDarkMode ? 'text-cyber-primary/80' : 'text-neon-sky/70'}`}>
                 <div className="max-w-md text-center">
-                  <img src="/icon-128.png" alt="Nanobrowser Logo" className="mx-auto mb-4 size-12" />
-                  <h3 className={`mb-2 text-lg font-semibold ${isDarkMode ? 'text-sky-200' : 'text-sky-700'}`}>
+                  <div
+                    className="mx-auto mb-5 inline-flex size-16 items-center justify-center rounded-2xl"
+                    style={{
+                      background: isDarkMode
+                        ? 'linear-gradient(135deg, rgba(0, 240, 255, 0.15), rgba(123, 104, 238, 0.15))'
+                        : 'linear-gradient(135deg, rgba(14, 165, 233, 0.1), rgba(59, 130, 246, 0.1))',
+                      boxShadow: `0 0 30px ${isDarkMode ? 'rgba(0, 240, 255, 0.15)' : 'rgba(14, 165, 233, 0.1)'}`,
+                    }}>
+                    <img src="/icon-128.png" alt="Nanobrowser Logo" className="size-12" />
+                  </div>
+                  <h3
+                    className={`mb-3 text-xl font-semibold tracking-tight ${isDarkMode ? 'text-gray-100' : 'text-gray-800'}`}>
                     {t('welcome_title')}
                   </h3>
-                  <p className="mb-4">{t('welcome_instruction')}</p>
+                  <p className="mb-5 text-sm leading-relaxed opacity-70">{t('welcome_instruction')}</p>
                   <button
                     onClick={() => chrome.runtime.openOptionsPage()}
-                    className={`my-4 rounded-lg px-4 py-2 font-medium transition-colors ${
-                      isDarkMode ? 'bg-sky-600 text-white hover:bg-sky-700' : 'bg-sky-500 text-white hover:bg-sky-600'
-                    }`}>
+                    className="cyber-btn my-4 px-6 py-2.5 text-sm tracking-wide"
+                    style={{
+                      background: isDarkMode
+                        ? 'linear-gradient(135deg, #00F0FF, #0099CC)'
+                        : 'linear-gradient(135deg, #0EA5E9, #0284C7)',
+                    }}>
                     {t('welcome_openSettings')}
                   </button>
-                  <div className="mt-4 text-sm opacity-75">
+                  <div className="mt-5 space-y-1 text-sm opacity-60">
                     <a
                       href="https://github.com/nanobrowser/nanobrowser?tab=readme-ov-file#-quick-start"
                       target="_blank"
                       rel="noopener noreferrer"
-                      className={`${isDarkMode ? 'text-sky-400 hover:text-sky-300' : 'text-sky-700 hover:text-sky-600'}`}>
+                      className={`transition-colors hover:brightness-125 ${isDarkMode ? 'text-cyber-primary/90 hover:text-cyber-primary' : 'text-neon-sky/80 hover:text-neon-sky'}`}>
                       {t('welcome_quickStart')}
                     </a>
                     <span className="mx-2">•</span>
@@ -1173,7 +1222,7 @@ const SidePanel = () => {
                       href="https://discord.gg/NN3ABHggMK"
                       target="_blank"
                       rel="noopener noreferrer"
-                      className={`${isDarkMode ? 'text-sky-400 hover:text-sky-300' : 'text-sky-700 hover:text-sky-600'}`}>
+                      className={`transition-colors hover:brightness-125 ${isDarkMode ? 'text-cyber-primary/90 hover:text-cyber-primary' : 'text-neon-sky/80 hover:text-neon-sky'}`}>
                       {t('welcome_joinCommunity')}
                     </a>
                   </div>
@@ -1187,7 +1236,9 @@ const SidePanel = () => {
                 {messages.length === 0 && (
                   <>
                     <div
-                      className={`border-t ${isDarkMode ? 'border-sky-900' : 'border-sky-100'} mb-2 p-2 shadow-sm backdrop-blur-sm`}>
+                      className={`relative z-10 mb-2 rounded-xl p-2 shadow-glass backdrop-blur-md transition-all duration-300 ${
+                        isDarkMode ? 'border-cyber-border/40' : 'border-white/30'
+                      } border-t`}>
                       <ChatInput
                         onSendMessage={handleSendMessage}
                         onStopTask={handleStopTask}
@@ -1204,7 +1255,7 @@ const SidePanel = () => {
                         onReplay={handleReplay}
                       />
                     </div>
-                    <div className="flex-1 overflow-y-auto">
+                    <div className="relative z-10 flex-1 overflow-y-auto">
                       <BookmarkList
                         bookmarks={favoritePrompts}
                         onBookmarkSelect={handleBookmarkSelect}
@@ -1218,14 +1269,18 @@ const SidePanel = () => {
                 )}
                 {messages.length > 0 && (
                   <div
-                    className={`scrollbar-gutter-stable flex-1 overflow-x-hidden overflow-y-scroll scroll-smooth p-2 ${isDarkMode ? 'bg-slate-900/80' : ''}`}>
+                    className={`scrollbar-gutter-stable relative z-10 flex-1 space-y-1 overflow-x-hidden overflow-y-scroll scroll-smooth p-3 ${
+                      isDarkMode ? '' : ''
+                    }`}>
                     <MessageList messages={messages} isDarkMode={isDarkMode} />
                     <div ref={messagesEndRef} />
                   </div>
                 )}
                 {messages.length > 0 && (
                   <div
-                    className={`border-t ${isDarkMode ? 'border-sky-900' : 'border-sky-100'} p-2 shadow-sm backdrop-blur-sm`}>
+                    className={`relative z-10 rounded-xl p-2 shadow-glass backdrop-blur-md transition-all duration-300 ${
+                      isDarkMode ? 'border-cyber-border/40' : 'border-white/30'
+                    } border-t`}>
                     <ChatInput
                       onSendMessage={handleSendMessage}
                       onStopTask={handleStopTask}

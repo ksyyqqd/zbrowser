@@ -35,63 +35,62 @@ const ChatHistoryList: React.FC<ChatHistoryListProps> = ({
 
   return (
     <div className="h-full overflow-y-auto p-4">
-      <h2 className={`mb-4 text-lg font-semibold ${isDarkMode ? 'text-gray-200' : 'text-gray-800'}`}>
+      <h2 className={`mb-5 text-base font-bold tracking-wide ${isDarkMode ? 'text-gray-100' : 'text-gray-800'}`}>
         {t('chat_history_title')}
       </h2>
       {sessions.length === 0 ? (
-        <div
-          className={`rounded-lg ${isDarkMode ? 'bg-slate-800 text-gray-400' : 'bg-white/30 text-gray-500'} p-4 text-center backdrop-blur-sm`}>
-          {t('chat_history_empty')}
+        <div className="empty-state text-sm">
+          <p>{t('chat_history_empty')}</p>
         </div>
       ) : (
-        <div className="space-y-2">
-          {sessions.map(session => (
-            <div
-              key={session.id}
-              className={`group relative rounded-lg ${
-                isDarkMode ? 'bg-slate-800 hover:bg-slate-700' : 'bg-white/50 hover:bg-white/70'
-              } p-3 backdrop-blur-sm transition-all`}>
-              <button onClick={() => onSessionSelect(session.id)} className="w-full text-left" type="button">
-                <h3 className={`text-sm font-medium ${isDarkMode ? 'text-gray-200' : 'text-gray-900'}`}>
+        <div className="space-y-2.5">
+          {sessions.map((session, index) => (
+            <div key={session.id} className={`history-item group`} style={{ animationDelay: `${index * 60}ms` }}>
+              <button
+                onClick={() => onSessionSelect(session.id)}
+                className="relative z-10 w-full text-left"
+                type="button">
+                <h3
+                  className={`text-sm font-medium tracking-wide truncate pr-16 ${
+                    isDarkMode ? 'text-gray-200' : 'text-gray-800'
+                  }`}>
                   {session.title}
                 </h3>
-                <p className={`mt-1 text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                <p
+                  className={`mt-1.5 flex items-center gap-1.5 text-xs tracking-wide ${
+                    isDarkMode ? 'text-gray-500' : 'text-gray-400'
+                  }`}>
+                  <span className={`size-1 rounded-full ${isDarkMode ? 'bg-cyber-primary/40' : 'bg-neon-sky/30'}`} />
                   {formatDate(session.createdAt)}
                 </p>
               </button>
 
-              {/* Bookmark button - top right */}
+              {/* Bookmark button */}
               {onSessionBookmark && (
                 <button
                   onClick={e => {
                     e.stopPropagation();
                     onSessionBookmark(session.id);
                   }}
-                  className={`absolute right-2 top-2 rounded p-1 opacity-0 transition-opacity group-hover:opacity-100 ${
-                    isDarkMode
-                      ? 'bg-slate-700 text-sky-400 hover:bg-slate-600'
-                      : 'bg-white text-sky-500 hover:bg-gray-100'
+                  className={`icon-btn absolute right-9 top-3.5 opacity-0 transition-all duration-200 group-hover:opacity-100 z-10 ${
+                    isDarkMode ? '!text-cyber-primary' : '!text-neon-sky'
                   }`}
                   aria-label={t('chat_history_bookmark')}
                   type="button">
-                  <BsBookmark size={14} />
+                  <BsBookmark size={13} />
                 </button>
               )}
 
-              {/* Delete button - bottom right */}
+              {/* Delete button */}
               <button
                 onClick={e => {
                   e.stopPropagation();
                   onSessionDelete(session.id);
                 }}
-                className={`absolute bottom-2 right-2 rounded p-1 opacity-0 transition-opacity group-hover:opacity-100 ${
-                  isDarkMode
-                    ? 'bg-slate-700 text-gray-400 hover:bg-slate-600'
-                    : 'bg-white text-gray-500 hover:bg-gray-100'
-                }`}
+                className={`icon-btn absolute right-2.5 top-3.5 opacity-0 transition-all duration-200 group-hover:opacity-100 z-10`}
                 aria-label={t('chat_history_delete')}
                 type="button">
-                <FaTrash size={14} />
+                <FaTrash size={12} />
               </button>
             </div>
           ))}

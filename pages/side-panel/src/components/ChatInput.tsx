@@ -164,7 +164,7 @@ export default function ChatInput({
           type: file.type || 'text/plain',
         });
       } catch (error) {
-        console.error(`Error reading file ${file.name}:`, error);
+        console.error(`Error reading ${file.name}:`, error);
       }
     }
 
@@ -185,31 +185,23 @@ export default function ChatInput({
   return (
     <form
       onSubmit={handleSubmit}
-      className={`overflow-hidden rounded-lg border transition-colors ${disabled ? 'cursor-not-allowed' : 'focus-within:border-sky-400 hover:border-sky-400'} ${isDarkMode ? 'border-slate-700' : ''}`}
+      className={`relative overflow-hidden rounded-xl border transition-colors duration-300 ${
+        isDarkMode ? 'border-cyber-border/40 bg-cyber-card/30' : 'border-white/30 bg-white/50 backdrop-blur-sm'
+      }`}
       aria-label={t('chat_input_form')}>
       <div className="flex flex-col">
         {/* File attachments display */}
         {attachedFiles.length > 0 && (
           <div
-            className={`flex flex-wrap gap-2 border-b p-2 ${
-              isDarkMode ? 'border-slate-700 bg-slate-800' : 'border-gray-200 bg-gray-50'
+            className={`flex flex-wrap gap-2 border-b p-2.5 transition-colors ${
+              isDarkMode ? 'border-cyber-border/30 bg-cyber-card/50' : 'border-white/20 bg-white/50'
             }`}>
             {attachedFiles.map((file, index) => (
-              <div
-                key={index}
-                className={`flex items-center gap-1 rounded-md px-2 py-1 text-xs ${
-                  isDarkMode ? 'bg-slate-700 text-gray-300' : 'bg-gray-200 text-gray-700'
-                }`}>
-                <span className="text-xs">📎</span>
-                <span className="max-w-[150px] truncate">{file.name}</span>
-                <button
-                  type="button"
-                  onClick={() => handleRemoveFile(index)}
-                  className={`ml-1 rounded-sm transition-colors ${
-                    isDarkMode ? 'hover:bg-slate-600' : 'hover:bg-gray-300'
-                  }`}
-                  aria-label={`Remove ${file.name}`}>
-                  <span className="text-xs">✕</span>
+              <div key={index} className={`file-tag`}>
+                <span>📎</span>
+                <span className="truncate">{file.name}</span>
+                <button type="button" onClick={() => handleRemoveFile(index)} className="remove-btn">
+                  ✕
                 </button>
               </div>
             ))}
@@ -224,24 +216,25 @@ export default function ChatInput({
           disabled={disabled}
           aria-disabled={disabled}
           rows={5}
-          className={`w-full resize-none border-none p-2 focus:outline-none ${
+          className={`cyber-input w-full resize-none px-3 py-2.5 text-sm ${
             disabled
               ? isDarkMode
-                ? 'cursor-not-allowed bg-slate-800 text-gray-400'
-                : 'cursor-not-allowed bg-gray-100 text-gray-500'
+                ? 'cursor-not-allowed bg-slate-800/50 text-gray-500'
+                : 'cursor-not-allowed bg-gray-100 text-gray-400'
               : isDarkMode
-                ? 'bg-slate-800 text-gray-200'
-                : 'bg-white'
+                ? 'bg-transparent text-gray-200'
+                : 'bg-transparent text-gray-700'
           }`}
           placeholder={attachedFiles.length > 0 ? 'Add a message (optional)...' : t('chat_input_placeholder')}
           aria-label={t('chat_input_editor')}
         />
 
+        {/* 底部工具栏 */}
         <div
-          className={`flex items-center justify-between px-2 py-1.5 ${
-            disabled ? (isDarkMode ? 'bg-slate-800' : 'bg-gray-100') : isDarkMode ? 'bg-slate-800' : 'bg-white'
+          className={`flex items-center justify-between border-t px-3 py-2 transition-colors ${
+            isDarkMode ? 'border-cyber-border/20 bg-cyber-card/30' : 'border-white/20 bg-white/40'
           }`}>
-          <div className="flex gap-2 text-gray-500">
+          <div className={`flex gap-1 ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
             {/* File attachment button */}
             <button
               type="button"
@@ -249,14 +242,10 @@ export default function ChatInput({
               disabled={disabled}
               aria-label="Attach files"
               title="Attach text files (txt, md, json, csv, etc.)"
-              className={`rounded-md p-1.5 transition-colors ${
-                disabled
-                  ? 'cursor-not-allowed opacity-50'
-                  : isDarkMode
-                    ? 'text-gray-400 hover:bg-slate-700 hover:text-gray-200'
-                    : 'text-gray-500 hover:bg-gray-100 hover:text-gray-700'
+              className={`icon-btn rounded-lg transition-all duration-200 ${
+                disabled ? 'cursor-not-allowed opacity-40' : ''
               }`}>
-              <span className="text-lg">📎</span>
+              <span className="text-base">📎</span>
             </button>
 
             {/* Hidden file input */}
@@ -282,14 +271,12 @@ export default function ChatInput({
                       ? t('chat_stt_recording_stop')
                       : t('chat_stt_input_start')
                 }
-                className={`rounded-md p-1.5 transition-colors ${
+                className={`icon-btn rounded-lg transition-all duration-200 ${
                   disabled || isProcessingSpeech
-                    ? 'cursor-not-allowed opacity-50'
+                    ? 'cursor-not-allowed opacity-40'
                     : isRecording
-                      ? 'bg-red-500 text-white hover:bg-red-600'
-                      : isDarkMode
-                        ? 'text-gray-400 hover:bg-slate-700 hover:text-gray-200'
-                        : 'text-gray-500 hover:bg-gray-100 hover:text-gray-700'
+                      ? '!text-red-500 animate-pulse hover:!bg-red-500/10'
+                      : ''
                 }`}>
                 {isProcessingSpeech ? (
                   <AiOutlineLoading3Quarters className="size-4 animate-spin" />
@@ -300,11 +287,12 @@ export default function ChatInput({
             )}
           </div>
 
+          {/* 操作按钮组 */}
           {showStopButton ? (
             <button
               type="button"
               onClick={onStopTask}
-              className="rounded-md bg-red-500 px-3 py-1 text-white transition-colors hover:bg-red-600">
+              className="cyber-btn cyber-btn-danger rounded-lg px-4 py-1.5 text-xs font-medium tracking-wide transition-all duration-200">
               {t('chat_buttons_stop')}
             </button>
           ) : historicalSessionId ? (
@@ -313,7 +301,9 @@ export default function ChatInput({
               onClick={handleReplay}
               disabled={!historicalSessionId}
               aria-disabled={!historicalSessionId}
-              className={`rounded-md bg-green-500 px-3 py-1 text-white transition-colors hover:enabled:bg-green-600 ${!historicalSessionId ? 'cursor-not-allowed opacity-50' : ''}`}>
+              className={`cyber-btn cyber-btn-success rounded-lg px-4 py-1.5 text-xs font-medium tracking-wide transition-all duration-200 ${
+                !historicalSessionId ? 'cursor-not-allowed opacity-50' : ''
+              }`}>
               {t('chat_buttons_replay')}
             </button>
           ) : (
@@ -321,7 +311,14 @@ export default function ChatInput({
               type="submit"
               disabled={isSendButtonDisabled}
               aria-disabled={isSendButtonDisabled}
-              className={`rounded-md bg-[#19C2FF] px-3 py-1 text-white transition-colors hover:enabled:bg-[#0073DC] ${isSendButtonDisabled ? 'cursor-not-allowed opacity-50' : ''}`}>
+              className={`cyber-btn rounded-lg px-5 py-1.5 text-xs font-semibold tracking-wider transition-all duration-300 ${
+                isDarkMode ? '' : ''
+              }`}
+              style={{
+                background: isDarkMode
+                  ? 'linear-gradient(135deg, #00F0FF, #0099CC)'
+                  : 'linear-gradient(135deg, #0EA5E9, #0284C7)',
+              }}>
               {t('chat_buttons_send')}
             </button>
           )}
