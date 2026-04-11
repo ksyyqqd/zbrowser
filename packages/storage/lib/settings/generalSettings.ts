@@ -13,6 +13,8 @@ export interface GeneralSettingsConfig {
   displayHighlights: boolean;
   minWaitPageLoad: number;
   replayHistoricalTasks: boolean;
+  /** AI接管时是否显示遮罩（默认开启） */
+  showSpotlight: boolean;
 }
 
 export type GeneralSettingsStorage = BaseStorage<GeneralSettingsConfig> & {
@@ -32,6 +34,7 @@ export const DEFAULT_GENERAL_SETTINGS: GeneralSettingsConfig = {
   displayHighlights: true,
   minWaitPageLoad: 250,
   replayHistoricalTasks: false,
+  showSpotlight: true,
 };
 
 const storage = createStorage<GeneralSettingsConfig>('general-settings', DEFAULT_GENERAL_SETTINGS, {

@@ -49,6 +49,24 @@
   "welcome_quickStart": {
     "message": "Guia de Início Rápido"
   },
+  "welcome_step1_title": {
+    "message": "Passo 1: Instalar Extensão"
+  },
+  "welcome_step1_desc": {
+    "message": "Pesquise \"Ball\" na Chrome Web Store e clique em Adicionar ao Chrome. Modo dev: carregue a pasta dist."
+  },
+  "welcome_step2_title": {
+    "message": "Passo 2: Configurar Modelo"
+  },
+  "welcome_step2_desc": {
+    "message": "Clique em ⚙️ Configurações, adicione uma API Key de IA. Recomendado: DeepSeek, Qwen, GLM ou outros modelos."
+  },
+  "welcome_step3_title": {
+    "message": "Passo 3: Começar a Conversar"
+  },
+  "welcome_step3_desc": {
+    "message": "Diga ao Ball o que precisa — \"Verificar o tempo\", \"Organizar esta tabela\", \"Traduzir este texto\" — ele vai te ajudar!"
+  },
   "welcome_joinCommunity": {
     "message": "Junte-se à Nossa Comunidade"
   },
@@ -86,7 +104,7 @@
     "message": "Excluir sessão"
   },
   "chat_bookmarks_header": {
-    "message": "Início Rápido"
+    "message": "Acesso Rápido"
   },
   "chat_bookmarks_saveEdit": {
     "message": "Salvar alterações"
@@ -261,6 +279,12 @@
   },
   "options_general_replayHistoricalTasks_desc": {
     "message": "Ativar o armazenamento e a reprodução do histórico de passos do agente (experimental, pode ter problemas)"
+  },
+  "options_general_showSpotlight": {
+    "message": "Mostrar Sobreposição da IA"
+  },
+  "options_general_showSpotlight_desc": {
+    "message": "Exibir uma sobreposição semi-transparente na página enquanto a IA está executando tarefas (desativar não afeta a funcionalidade)"
   },
   "options_models_providers_header": {
     "message": "Provedores de LLM"

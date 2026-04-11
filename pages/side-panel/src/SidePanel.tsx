@@ -2,7 +2,7 @@
 // 导入React相关Hook函数
 import { useState, useEffect, useCallback, useRef } from 'react';
 // 导入UI图标组件
-import { FiSettings } from 'react-icons/fi';
+import { FiSettings, FiBookmark, FiSun, FiMoon } from 'react-icons/fi';
 // 导入器灵遮罩注入脚本 URL（用于 files 注入）
 /* 注入脚本通过 chrome.scripting.executeScript({ files: ['spiritOverlayInject.js'] }) 加载，
  * 不使用 ?raw import 或 eval，以兼容目标页面的 CSP 策略 */
@@ -26,18 +26,40 @@ import { EventType, type AgentEvent, ExecutionState } from './types/event';
 import './SidePanel.css';
 
 // 声明Chrome API类型
+/** 球球遮罩层 API（烟花/写字/庆祝） */
+interface SpiritOverlayAPI {
+  showFireworksShow?: (duration?: number) => void;
+  writeText?: (text: string) => void;
+  celebrate?: (msg?: string) => void;
+  destroy?: () => void;
+  isActive?: () => boolean;
+}
+
+/** 球球接管遮罩 API（全屏半透明 + 科幻呼吸灯） */
+interface BallSpotlightAPI {
+  show?: (opts?: { mode?: 'planning' | 'executing'; label?: string }) => void;
+  hide?: () => void;
+  setMode?: (mode: 'planning' | 'executing') => void;
+  isActive?: () => boolean;
+  getMode?: () => string;
+  destroy?: () => void;
+}
+
+/** 球球网页实体 API（物理碰撞 + 捣乱） */
+interface BallEntityAPI {
+  launch?: (opts?: { targetSelector?: string; duration?: number }) => void;
+  isActive?: () => boolean;
+  getPosition?: () => { x: number; y: number };
+  getVelocity?: () => { vx: number; vy: number };
+  destroy?: () => void;
+}
+
 declare global {
   interface Window {
     chrome: typeof chrome;
-    __spirit_overlay__:
-      | {
-          showFireworksShow?: (duration?: number) => void;
-          writeText?: (text: string) => void;
-          celebrate?: (msg?: string) => void;
-          destroy?: () => void;
-          isActive?: () => boolean;
-        }
-      | undefined;
+    __spirit_overlay__?: SpiritOverlayAPI;
+    __ball_spotlight__?: BallSpotlightAPI;
+    __ball_entity__?: BallEntityAPI;
   }
 }
 
@@ -57,6 +79,8 @@ const SidePanel = () => {
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
   // 是否显示历史记录
   const [showHistory, setShowHistory] = useState(false);
+  // 是否显示书签面板
+  const [showBookmarks, setShowBookmarks] = useState(false);
   // 聊天会话列表
   const [chatSessions, setChatSessions] = useState<Array<{ id: string; title: string; createdAt: number }>>([]);
   // 是否处于跟进模式
@@ -67,6 +91,21 @@ const SidePanel = () => {
   const [isDarkMode, setIsDarkMode] = useState(false);
   // 收藏的提示词列表
   const [favoritePrompts, setFavoritePrompts] = useState<FavoritePrompt[]>([]);
+  // 已收藏的会话ID集合（用于显示收藏/取消收藏状态）— 以 sessionId 为唯一标识
+  const [bookmarkedSessionIds, setBookmarkedSessionIds] = useState<Set<string>>(new Set());
+
+  // 收藏会话映射：sessionId → favoritePromptId（存储在 localStorage，避免按内容误匹配）
+  const BOOKMARK_MAP_KEY = 'chat_bookmark_session_map';
+  const getBookmarkMap = (): Record<string, number> => {
+    try {
+      return JSON.parse(localStorage.getItem(BOOKMARK_MAP_KEY) || '{}');
+    } catch {
+      return {};
+    }
+  };
+  const saveBookmarkMap = (map: Record<string, number>) => {
+    localStorage.setItem(BOOKMARK_MAP_KEY, JSON.stringify(map));
+  };
   // 是否已配置模型（null=加载中，false=无模型，true=有模型）
   const [hasConfiguredModels, setHasConfiguredModels] = useState<boolean | null>(null);
   // 是否正在录音
@@ -77,8 +116,10 @@ const SidePanel = () => {
   const [isReplaying, setIsReplaying] = useState(false);
   // 快速入门步骤展开状态
   const [showSteps, setShowSteps] = useState(false);
-  // 是否启用重播功能
-  const [replayEnabled, setReplayEnabled] = useState(false);
+  // 重播功能始终开启
+  const replayEnabled = true;
+  // AI接管遮罩开关
+  const [showSpotlightEnabled, setShowSpotlightEnabled] = useState(true);
   // 会话ID引用
   const sessionIdRef = useRef<string | null>(null);
   // 重播状态引用
@@ -98,20 +139,34 @@ const SidePanel = () => {
   // 录音计时器引用
   const recordingTimerRef = useRef<number | null>(null);
 
-  // 检查暗色模式偏好
+  // 检查暗色模式偏好（从 localStorage 恢复，默认跟随系统）
   useEffect(() => {
-    // 获取系统暗色模式设置
-    const darkModeMediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
-    setIsDarkMode(darkModeMediaQuery.matches);
+    try {
+      const saved = localStorage.getItem('nanobrowser_dark_mode');
+      if (saved === 'true') {
+        setIsDarkMode(true);
+      } else if (saved === 'false') {
+        setIsDarkMode(false);
+      } else {
+        // 首次访问，跟随系统偏好
+        setIsDarkMode(window.matchMedia('(prefers-color-scheme: dark)').matches);
+      }
+    } catch {
+      setIsDarkMode(window.matchMedia('(prefers-color-scheme: dark)').matches);
+    }
+  }, []);
 
-    // 监听暗色模式变化
-    const handleChange = (e: MediaQueryListEvent) => {
-      setIsDarkMode(e.matches);
-    };
-
-    darkModeMediaQuery.addEventListener('change', handleChange);
-    // 清理事件监听器
-    return () => darkModeMediaQuery.removeEventListener('change', handleChange);
+  /** 手动切换暗色/亮色模式 */
+  const toggleDarkMode = useCallback(() => {
+    setIsDarkMode(prev => {
+      const next = !prev;
+      try {
+        localStorage.setItem('nanobrowser_dark_mode', String(next));
+      } catch {
+        /* ignore */
+      }
+      return next;
+    });
   }, []);
 
   // 检查模型配置情况
@@ -127,39 +182,34 @@ const SidePanel = () => {
       console.error('检查模型配置时出错:', error);
       setHasConfiguredModels(false);
     }
-  }, []);
 
-  // 加载通用设置以检查是否启用了重播功能
-  const loadGeneralSettings = useCallback(async () => {
+    // 加载遮罩开关设置
     try {
       const settings = await generalSettingsStore.getSettings();
-      setReplayEnabled(settings.replayHistoricalTasks);
+      setShowSpotlightEnabled(settings.showSpotlight);
     } catch (error) {
-      console.error('加载通用设置时出错:', error);
-      setReplayEnabled(false);
+      console.error('加载遮罩设置时出错:', error);
+      setShowSpotlightEnabled(true); // 默认开启
     }
   }, []);
 
   // 在挂载时检查模型配置
   useEffect(() => {
     checkModelConfiguration();
-    loadGeneralSettings();
-  }, [checkModelConfiguration, loadGeneralSettings]);
+  }, [checkModelConfiguration]);
 
   // 当侧面板再次变为可见时重新检查模型配置
   useEffect(() => {
     const handleVisibilityChange = () => {
       if (!document.hidden) {
-        // 面板变为可见，重新检查配置和设置
+        // 面板变为可见，重新检查配置
         checkModelConfiguration();
-        loadGeneralSettings();
       }
     };
 
     const handleFocus = () => {
-      // 面板获得焦点，重新检查配置和设置
+      // 面板获得焦点，重新检查配置
       checkModelConfiguration();
-      loadGeneralSettings();
     };
 
     document.addEventListener('visibilitychange', handleVisibilityChange);
@@ -169,7 +219,7 @@ const SidePanel = () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       window.removeEventListener('focus', handleFocus);
     };
-  }, [checkModelConfiguration, loadGeneralSettings]);
+  }, [checkModelConfiguration]);
 
   // 同步当前会话ID到引用
   useEffect(() => {
@@ -205,6 +255,221 @@ const SidePanel = () => {
     }
   }, []);
 
+  // ===== 球球接管遮罩（全屏半透明 + 科幻呼吸灯）=====
+  const spotlightActiveRef = useRef(false);
+  /** 捣乱模式标记 — 捣乱时不显示遮罩 */
+  const isMischiefModeRef = useRef(false);
+  /** 任务目标标签ID — 记住任务发起时的标签，切换标签后仍能正确操作 */
+  const targetTabIdRef = useRef<number | null>(null);
+
+  /** 静默隐藏指定标签上的遮罩（不修改状态标记，用于迁移场景） */
+  const _hideSpotlightSilent = useCallback(async (tabId: number) => {
+    try {
+      await chrome.scripting.executeScript({
+        target: { tabId },
+        func: () => {
+          window.__ball_spotlight__?.hide?.();
+        },
+      });
+    } catch {
+      // 静默失败——标签可能已关闭或导航离开
+    }
+  }, []);
+
+  const _showSpotlight = useCallback(
+    async (mode: 'planning' | 'executing' = 'planning') => {
+      // 检查遮罩开关
+      if (!showSpotlightEnabled) return;
+
+      try {
+        // 策略：优先使用缓存的目标标签，但始终验证其有效性；
+        // 若目标标签已失效或非当前活动标签，则自动跟随到当前活动标签
+        let targetTab: chrome.tabs.Tab | undefined;
+        const cachedTabId = targetTabIdRef.current;
+
+        if (cachedTabId) {
+          const cachedTab = await chrome.tabs.get(cachedTabId).catch(() => null);
+          if (
+            cachedTab?.url &&
+            !cachedTab.url.startsWith('chrome://') &&
+            !cachedTab.url.startsWith('edge://') &&
+            !cachedTab.url.startsWith('about:') &&
+            !cachedTab.url.startsWith('chrome-extension://')
+          ) {
+            targetTab = cachedTab;
+          }
+        }
+
+        // 回退：获取当前活动标签
+        if (!targetTab) {
+          const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+          targetTab = tabs[0];
+          // 同步更新缓存的目标标签ID
+          if (targetTab?.id) {
+            targetTabIdRef.current = targetTab.id;
+          }
+        }
+
+        if (!targetTab?.id || !targetTab.url) {
+          console.warn('[Spotlight] ⚠️ 无有效标签页');
+          return;
+        }
+        if (
+          targetTab.url.startsWith('chrome://') ||
+          targetTab.url.startsWith('edge://') ||
+          targetTab.url.startsWith('about:') ||
+          targetTab.url.startsWith('chrome-extension://')
+        ) {
+          console.warn('[Spotlight] ⚠️ 系统页面跳过:', targetTab.url);
+          return;
+        }
+
+        // 如果之前有遮罩在不同标签上，先清理（跨标签迁移场景）
+        if (spotlightActiveRef.current && targetTabIdRef.current && targetTabIdRef.current !== targetTab.id) {
+          await _hideSpotlightSilent(targetTabIdRef.current);
+        }
+
+        // 更新目标标签引用
+        targetTabIdRef.current = targetTab.id;
+
+        // 注入脚本（幂等——IIFE 内有 __spotlight_inited__ 守卫）
+        await chrome.scripting.executeScript({
+          target: { tabId: targetTab.id },
+          files: ['side-panel/spotlightInject.js'],
+        });
+
+        // 调用显示 API，传入模式
+        await chrome.scripting.executeScript({
+          target: { tabId: targetTab.id },
+          func: m => {
+            window.__ball_spotlight__?.show?.({ mode: m });
+          },
+          args: [mode],
+        });
+
+        spotlightActiveRef.current = true;
+        console.log('[Spotlight] ✅ 遮罩已显示', { mode, tabId: targetTab.id, url: targetTab.url });
+      } catch (err) {
+        console.error('[Spotlight] ❌ 显示遮罩失败:', err);
+        spotlightActiveRef.current = false;
+      }
+    },
+    [_hideSpotlightSilent, showSpotlightEnabled],
+  );
+
+  /** 动态切换遮罩模式（规划↔执行）—— 支持自动跟随当前活动标签 */
+  const _setSpotlightMode = useCallback(
+    async (mode: 'planning' | 'executing') => {
+      if (!spotlightActiveRef.current) return;
+      try {
+        // 策略：先尝试在缓存标签上操作；若失败或该标签已非活动标签，
+        // 则自动迁移遮罩到当前活动标签
+        let tabId = targetTabIdRef.current;
+        let targetTab: chrome.tabs.Tab | undefined;
+
+        if (tabId) {
+          targetTab = await chrome.tabs.get(tabId).catch(() => undefined);
+          // 检查缓存的标签是否仍然有效且是活动标签
+          const activeTabs = await chrome.tabs.query({ active: true, currentWindow: true });
+          const activeTab = activeTabs[0];
+
+          if (
+            !targetTab ||
+            !activeTab ||
+            targetTab.id !== activeTab.id ||
+            !activeTab.url ||
+            activeTab.url.startsWith('chrome://') ||
+            activeTab.url.startsWith('edge://') ||
+            activeTab.url.startsWith('about:') ||
+            activeTab.url.startsWith('chrome-extension://')
+          ) {
+            // 缓存标签失效或已不是活动标签 → 迁移到新标签
+            if (
+              activeTab?.id &&
+              activeTab.url &&
+              !activeTab.url.startsWith('chrome://') &&
+              !activeTab.url.startsWith('edge://') &&
+              !activeTab.url.startsWith('about:') &&
+              !activeTab.url.startsWith('chrome-extension://')
+            ) {
+              console.log('[Spotlight] 🔄 检测到标签切换，迁移遮罩', { from: tabId, to: activeTab.id });
+
+              // 先在旧标签隐藏
+              if (tabId) await _hideSpotlightSilent(tabId);
+              // 更新目标引用
+              targetTabIdRef.current = activeTab.id;
+              tabId = activeTab.id;
+
+              // 在新标签注入并显示
+              await chrome.scripting.executeScript({
+                target: { tabId },
+                files: ['side-panel/spotlightInject.js'],
+              });
+              await chrome.scripting.executeScript({
+                target: { tabId },
+                func: m => {
+                  window.__ball_spotlight__?.show?.({ mode: m });
+                },
+                args: [mode],
+              });
+              return;
+            }
+          }
+        }
+
+        if (!tabId || !targetTab) return;
+
+        // 正常情况：在同一标签上切换模式
+        await chrome.scripting.executeScript({
+          target: { tabId },
+          func: m => {
+            window.__ball_spotlight__?.setMode?.(m);
+          },
+          args: [mode],
+        });
+      } catch {
+        console.error('[Spotlight] 切换模式失败');
+      }
+    },
+    [_hideSpotlightSilent],
+  );
+
+  /** 隐藏接管遮罩 */
+  const _hideSpotlight = useCallback(async () => {
+    if (!spotlightActiveRef.current) return;
+    try {
+      const tabId = targetTabIdRef.current;
+      let targetTab: chrome.tabs.Tab | undefined;
+
+      if (tabId) {
+        targetTab = await chrome.tabs.get(tabId).catch(() => undefined);
+      }
+      if (!targetTab) {
+        const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+        targetTab = tabs[0];
+      }
+
+      if (!targetTab?.id) {
+        console.warn('[Spotlight] 隐藏遮罩：无有效标签页');
+        spotlightActiveRef.current = false;
+        return;
+      }
+
+      await chrome.scripting.executeScript({
+        target: { tabId: targetTab.id },
+        func: () => {
+          window.__ball_spotlight__?.hide?.();
+        },
+      });
+
+      console.log('[Spotlight] 遮罩已隐藏', { tabId: targetTab.id });
+      spotlightActiveRef.current = false;
+    } catch (err) {
+      console.error('[Spotlight] 隐藏遮罩失败:', err);
+      spotlightActiveRef.current = false;
+    }
+  }, []);
+
   // 处理任务状态变化
   const handleTaskState = useCallback(
     (event: AgentEvent) => {
@@ -219,29 +484,38 @@ const SidePanel = () => {
         case Actors.SYSTEM:
           switch (state) {
             case ExecutionState.TASK_START:
-              // 重置历史会话标志
+              // 重置历史会话标志 + 显示接管遮罩（捣乱模式除外）
               setIsHistoricalSession(false);
+              if (!isMischiefModeRef.current) {
+                _showSpotlight('planning');
+              }
               break;
             case ExecutionState.TASK_OK:
+              isMischiefModeRef.current = false; // 重置捣乱标记
               setIsFollowUpMode(true);
               setInputEnabled(true);
               setShowStopButton(false);
               setIsReplaying(false);
+              _hideSpotlight();
               break;
             case ExecutionState.TASK_FAIL:
+              isMischiefModeRef.current = false;
               setIsFollowUpMode(true);
               setInputEnabled(true);
               setShowStopButton(false);
               setIsReplaying(false);
-              setCurrentStep(null); // 任务完成，重置步骤
+              setCurrentStep(null);
+              _hideSpotlight();
               skip = false;
               break;
             case ExecutionState.TASK_CANCEL:
+              isMischiefModeRef.current = false;
               setIsFollowUpMode(false);
               setInputEnabled(true);
               setShowStopButton(false);
               setIsReplaying(false);
-              setCurrentStep(null); // 任务取消，重置步骤
+              setCurrentStep(null);
+              _hideSpotlight(); // 取消时清理聚焦
               skip = false;
               break;
             case ExecutionState.TASK_PAUSE:
@@ -259,6 +533,7 @@ const SidePanel = () => {
           switch (state) {
             case ExecutionState.STEP_START:
               displayProgress = true;
+              _setSpotlightMode('planning'); // 规划阶段：蓝青色
               break;
             case ExecutionState.STEP_OK:
               skip = false;
@@ -277,6 +552,7 @@ const SidePanel = () => {
           switch (state) {
             case ExecutionState.STEP_START:
               displayProgress = true;
+              _setSpotlightMode('executing'); // 执行阶段：琥珀金
               break;
             case ExecutionState.STEP_OK:
               displayProgress = false;
@@ -287,6 +563,7 @@ const SidePanel = () => {
               break;
             case ExecutionState.STEP_CANCEL:
               displayProgress = false;
+              _hideSpotlight();
               break;
             case ExecutionState.ACT_START:
               if (content !== 'cache_content') {
@@ -351,7 +628,7 @@ const SidePanel = () => {
         });
       }
     },
-    [appendMessage],
+    [appendMessage, _hideSpotlight, _showSpotlight, _setSpotlightMode],
   );
 
   // 停止心跳并关闭连接
@@ -470,9 +747,11 @@ const SidePanel = () => {
 
   // 处理重播命令
   const handleReplay = async (historySessionId: string): Promise<void> => {
+    console.log('[重播] 开始', { historySessionId, replayEnabled });
     try {
       // 检查设置中是否启用了重播
       if (!replayEnabled) {
+        console.warn('[重播] ❌ 重播功能未启用');
         appendMessage({
           actor: Actors.SYSTEM,
           content: t('chat_replay_disabled'),
@@ -483,7 +762,9 @@ const SidePanel = () => {
 
       // 检查历史记录是否存在，使用loadAgentStepHistory
       const historyData = await chatHistoryStore.loadAgentStepHistory(historySessionId);
+      console.log('[重播] 历史数据:', historyData ? '有数据' : 'null');
       if (!historyData) {
+        console.warn('[重播] ❌ 没有历史步骤数据');
         appendMessage({
           actor: Actors.SYSTEM,
           content: t('chat_replay_noHistory', historySessionId.substring(0, 20)),
@@ -492,12 +773,17 @@ const SidePanel = () => {
         return;
       }
 
-      // 获取当前标签页ID
-      const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
-      const tabId = tabs[0]?.id;
+      // 获取目标标签页ID（优先使用记住的，回退到活动标签）
+      let tabId = targetTabIdRef.current;
+      if (!tabId) {
+        const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+        tabId = tabs[0]?.id ?? null;
+      }
       if (!tabId) {
         throw new Error('未找到活动标签页');
       }
+
+      console.log('[重播] 使用目标标签', { tabId });
 
       // 如果我们在历史会话中，则清除消息
       if (isHistoricalSession) {
@@ -530,9 +816,17 @@ const SidePanel = () => {
       // 将用户消息添加到新会话
       appendMessage(userMessage, sessionIdRef.current);
 
-      // 如果不存在则设置连接
+      // 确保连接已建立（必须等待，否则 postMessage 会静默丢失）
       if (!portRef.current) {
         setupConnection();
+        // 等待连接就绪
+        await new Promise<void>(resolve => {
+          const check = () => {
+            if (portRef.current) resolve();
+            else setTimeout(check, 50);
+          };
+          check();
+        });
       }
 
       // 发送重播命令到后台，附带历史任务
@@ -543,6 +837,8 @@ const SidePanel = () => {
         historySessionId: historySessionId,
         task: historyData.task, // 添加来自历史的任务
       });
+
+      console.log('[重播] 已发送到后台', { newTaskId, tabId, historySessionId, task: historyData.task });
 
       appendMessage({
         actor: Actors.SYSTEM,
@@ -648,6 +944,9 @@ const SidePanel = () => {
       if (!tabId) {
         throw new Error('未找到活动标签页');
       }
+
+      // 记住目标标签ID，供遮罩/重播等功能使用（切换标签后仍能操作）
+      targetTabIdRef.current = tabId;
 
       setInputEnabled(false);
       setShowStopButton(true);
@@ -808,32 +1107,91 @@ const SidePanel = () => {
     }
   };
 
-  // 处理会话收藏
+  // 处理会话收藏 — 加入/取消书签（切换模式，基于 sessionId 唯一标识）
   const handleSessionBookmark = async (sessionId: string) => {
     try {
       const fullSession = await chatHistoryStore.getSession(sessionId);
 
-      if (fullSession && fullSession.messages.length > 0) {
-        // 获取会话标题
-        const sessionTitle = fullSession.title;
-        // 获取标题的前8个单词
-        const title = sessionTitle.split(' ').slice(0, 8).join(' ');
+      if (!fullSession) {
+        appendMessage({
+          actor: Actors.SYSTEM,
+          content: '⚠️ 找不到该会话，操作失败',
+          timestamp: Date.now(),
+        });
+        return;
+      }
 
-        // 获取第一条消息内容（任务）
-        const taskContent = fullSession.messages[0]?.content || '';
+      if (fullSession.messages.length === 0) {
+        appendMessage({
+          actor: Actors.SYSTEM,
+          content: '⚠️ 该会话没有内容，无法收藏',
+          timestamp: Date.now(),
+        });
+        return;
+      }
 
-        // 添加到收藏存储
-        await favoritesStorage.addPrompt(title, taskContent);
+      // 检查是否已通过 sessionId 映射收藏
+      const bookmarkMap = getBookmarkMap();
+      const existingPromptId = bookmarkMap[sessionId];
 
-        // 在UI中更新收藏
+      if (existingPromptId !== undefined) {
+        // 已收藏 → 取消收藏：从 favoritesStorage 删除 + 清除映射
+        await favoritesStorage.removePrompt(existingPromptId);
+
+        const newMap = { ...bookmarkMap };
+        delete newMap[sessionId];
+        saveBookmarkMap(newMap);
+
+        setBookmarkedSessionIds(prev => {
+          const next = new Set(prev);
+          next.delete(sessionId);
+          return next;
+        });
+
         const prompts = await favoritesStorage.getAllPrompts();
         setFavoritePrompts(prompts);
 
-        // 更新后返回聊天视图
-        handleBackToChat(true);
+        appendMessage({
+          actor: Actors.SYSTEM,
+          content: '🗑️ 已取消收藏',
+          timestamp: Date.now(),
+        });
+        return;
       }
+
+      // 未收藏 → 添加收藏
+      const sessionTitle = fullSession.title;
+      const title = sessionTitle.length > 20 ? sessionTitle.slice(0, 20) + '...' : sessionTitle;
+      const taskContent = fullSession.messages[0].content || '';
+      const content = taskContent.length > 100 ? taskContent.slice(0, 100) + '...' : taskContent;
+
+      const newPrompt = await favoritesStorage.addPrompt(title, content);
+
+      // 写入 sessionId → promptId 映射
+      const newMap = { ...bookmarkMap, [sessionId]: (newPrompt as any).id };
+      saveBookmarkMap(newMap);
+
+      setBookmarkedSessionIds(prev => {
+        const next = new Set(prev);
+        next.add(sessionId);
+        return next;
+      });
+
+      const prompts = await favoritesStorage.getAllPrompts();
+      setFavoritePrompts(prompts);
+
+      appendMessage({
+        actor: Actors.SYSTEM,
+        content: `✅ 已将「${title}」加入书签`,
+        timestamp: Date.now(),
+      });
     } catch (error) {
-      console.error('收藏会话到收藏夹失败:', error);
+      console.error('收藏/取消收藏操作失败:', error);
+      appendMessage({
+        actor: Actors.SYSTEM,
+        content: '❌ 操作失败，请稍后再试',
+        timestamp: Date.now(),
+      });
     }
   };
 
@@ -897,6 +1255,18 @@ const SidePanel = () => {
 
     loadFavorites();
   }, []);
+
+  // 当会话列表变化时，从映射中恢复已收藏的 sessionId 集合
+  useEffect(() => {
+    const map = getBookmarkMap();
+    const ids = new Set<string>();
+    for (const sid of chatSessions) {
+      if (map[sid.id] !== undefined) {
+        ids.add(sid.id);
+      }
+    }
+    setBookmarkedSessionIds(ids);
+  }, [chatSessions]);
 
   // 清理卸载时
   useEffect(() => {
@@ -1117,7 +1487,18 @@ const SidePanel = () => {
                 {t('nav_back')}
               </button>
             ) : (
-              <img src="/icon-128.png" alt="Extension Logo" className="size-6" />
+              <button
+                type="button"
+                onClick={toggleDarkMode}
+                className="flex size-7 items-center justify-center rounded-full transition-all duration-300 hover:scale-110"
+                style={{
+                  color: isDarkMode ? '#FCD34D' : '#F59E0B',
+                  background: isDarkMode ? 'rgba(252,211,77,0.12)' : 'rgba(245,158,11,0.10)',
+                }}
+                aria-label={isDarkMode ? '切换到亮色模式' : '切换到暗色模式'}
+                title={isDarkMode ? '🌙 暗色模式' : '☀️ 亮色模式'}>
+                {isDarkMode ? <FiMoon size={15} /> : <FiSun size={15} />}
+              </button>
             )}
           </div>
           <div className="header-icons">
@@ -1143,6 +1524,33 @@ const SidePanel = () => {
                   tabIndex={0}>
                   <GrHistory size={17} />
                 </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowBookmarks(!showBookmarks);
+                    setShowHistory(false);
+                  }}
+                  onKeyDown={e => e.key === 'Enter' && setShowBookmarks(!showBookmarks)}
+                  className="header-icon relative"
+                  style={{
+                    color: showBookmarks ? 'var(--gold-color)' : 'var(--accent-color)',
+                  }}
+                  aria-label="书签收藏"
+                  tabIndex={0}>
+                  <FiBookmark size={16} />
+                  {/* 书签数量角标 */}
+                  {favoritePrompts.length > 0 && (
+                    <span
+                      className="absolute -right-1.5 -top-1 flex size-3.5 items-center justify-center rounded-full text-[8px] font-bold leading-none"
+                      style={{
+                        background: 'var(--gold-color)',
+                        color: '#fff',
+                        transform: favoritePrompts.length > 9 ? '' : 'scale(0.9)',
+                      }}>
+                      {favoritePrompts.length > 9 ? '9+' : String(favoritePrompts.length)}
+                    </span>
+                  )}
+                </button>
               </>
             )}
             <button
@@ -1164,9 +1572,43 @@ const SidePanel = () => {
               onSessionSelect={handleSessionSelect}
               onSessionDelete={handleSessionDelete}
               onSessionBookmark={handleSessionBookmark}
+              bookmarkedSessionIds={bookmarkedSessionIds}
+              onFillInputFromHistory={content => {
+                if (setInputTextRef.current) setInputTextRef.current(content);
+                setShowHistory(false); // 填充后关闭历史面板，回到聊天
+              }}
+              onReplay={handleReplay}
               visible={true}
               isDarkMode={isDarkMode}
             />
+          </div>
+        ) : showBookmarks ? (
+          <div className="relative z-10 flex flex-col overflow-hidden">
+            {/* 书签面板标题 */}
+            <div
+              className="flex items-center justify-between border-b px-4 py-3"
+              style={{ borderColor: 'var(--border-color)' }}>
+              <h2 className="text-base font-bold tracking-wide" style={{ color: 'var(--text-primary)' }}>
+                📚 书签收藏
+                <span className="ml-2 text-xs font-normal" style={{ color: 'var(--text-muted)' }}>
+                  ({favoritePrompts.length})
+                </span>
+              </h2>
+            </div>
+            {/* 书签列表 */}
+            <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3 pb-6">
+              <BookmarkList
+                bookmarks={favoritePrompts}
+                onBookmarkSelect={content => {
+                  handleBookmarkSelect(content);
+                  setShowBookmarks(false); // 选择后自动关闭面板，回到聊天
+                }}
+                onBookmarkUpdateTitle={handleBookmarkUpdateTitle}
+                onBookmarkDelete={handleBookmarkDelete}
+                onBookmarkReorder={handleBookmarkReorder}
+                isDarkMode={isDarkMode}
+              />
+            </div>
           </div>
         ) : (
           <>
@@ -1283,20 +1725,50 @@ const SidePanel = () => {
 
                       if (action === 'scroll-page') {
                         try {
-                          // 确保连接存在
-                          if (!portRef.current) setupConnection();
+                          // 标记捣乱模式（不显示遮罩）
+                          isMischiefModeRef.current = true;
 
-                          // 先创建一个真实的会话，获取有效的 sessionId
-                          const mischiefSession = await chatHistoryStore.createSession('球球捣乱中...', 'ball');
-                          const mischiefTaskId = mischiefSession.id;
+                          // ===== 球球实体进入网页！=====
+                          try {
+                            const mTabs = await chrome.tabs.query({ active: true, currentWindow: true });
+                            const mt = mTabs[0];
+                            if (
+                              mt?.id &&
+                              mt.url &&
+                              !mt.url.startsWith('chrome://') &&
+                              !mt.url.startsWith('edge://') &&
+                              !mt.url.startsWith('about:')
+                            ) {
+                              // 注入球球实体脚本
+                              await chrome.scripting.executeScript({
+                                target: { tabId: mt.id },
+                                files: ['side-panel/ballInject.js'],
+                              });
 
-                          // 用真实 sessionId 发起独立捣乱任务
-                          await sendMessage({
-                            type: 'new_task',
-                            task: '[球球捣乱] 请在当前页面上做一些轻微的、无伤大雅的小动作：比如随机滚动一下页面、鼠标悬停在某些按钮上假装要点击、如果页面有输入框就删除里面的一两个字符再补回来、轻微改变一下滚动位置等。操作要轻量有趣，不要造成任何实质性的破坏或数据丢失。',
-                            taskId: mischiefTaskId,
-                            tabId,
-                          });
+                              // 发射球球到页面中！（固定右上角飞入）
+                              await chrome.scripting.executeScript({
+                                target: { tabId: mt.id },
+                                func: () => {
+                                  window.__ball_entity__?.launch?.({ duration: 6000 });
+                                },
+                              });
+
+                              appendMessage({
+                                actor: Actors.SYSTEM,
+                                content: '\u{1F608} \u7403\u7403\u4ECE\u53F3\u4E0A\u89D2\u5192\u8FDB\u6765\u5566~',
+                                timestamp: Date.now(),
+                              });
+                            }
+                          } catch (ballErr) {
+                            console.warn('球球进入网页失败:', ballErr);
+                          }
+
+                          // 不再创建会话和发送任务 — 只发射实体捣乱，不触发 AI 执行流程
+
+                          // 7秒后重置捣乱标记（球球存活6s + 1s缓冲）
+                          setTimeout(() => {
+                            isMischiefModeRef.current = false;
+                          }, 7000);
                         } catch (err) {
                           console.error('球球捣乱失败:', err);
                         }

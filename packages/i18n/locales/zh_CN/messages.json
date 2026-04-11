@@ -5,7 +5,7 @@
   },
   "app_metadata_name": {
     "description": "Extension name",
-    "message": "球球助手：AI 宠物网页伴侣"
+    "message": "养个球：AI 宠物助手"
   },
   "errors_unknown": {
     "message": "发生未知错误"
@@ -38,7 +38,7 @@
     "message": "回到对话"
   },
   "welcome_title": {
-    "message": "欢迎使用球球助手！"
+    "message": "欢迎使用养个球！"
   },
   "welcome_instruction": {
     "message": "开始使用前，请先完成 API 密钥的设置。"
@@ -53,7 +53,7 @@
     "message": "第一步：安装扩展"
   },
   "welcome_step1_desc": {
-    "message": "从 Chrome 网上应用店搜索「Ball」或「球球助手」，点击添加到 Chrome 即可。开发者模式：解压后加载 dist 目录。"
+    "message": "从 Chrome 网上应用店搜索「Ball」或「养个球」，点击添加到 Chrome 即可。开发者模式：解压后加载 dist 目录。"
   },
   "welcome_step2_title": {
     "message": "第二步：配置模型"
@@ -104,7 +104,7 @@
     "message": "删除工作阶段"
   },
   "chat_bookmarks_header": {
-    "message": "快速入门"
+    "message": "快速访问"
   },
   "chat_bookmarks_saveEdit": {
     "message": "保存更改"
@@ -279,6 +279,12 @@
   },
   "options_general_replayHistoricalTasks_desc": {
     "message": "启用储存与重播代理程序的步骤历史记录 (此为实验性功能，可能存在问題)"
+  },
+  "options_general_showSpotlight": {
+    "message": "AI接管时显示遮罩"
+  },
+  "options_general_showSpotlight_desc": {
+    "message": "AI执行任务时在页面显示半透明遮罩提示（关闭后不影响功能）"
   },
   "options_models_providers_header": {
     "message": "LLM 提供者"

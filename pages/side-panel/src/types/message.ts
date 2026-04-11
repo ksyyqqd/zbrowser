@@ -1,26 +1,26 @@
 export const ACTOR_PROFILES = {
   user: {
-    name: 'User',
+    name: '用户',
     icon: 'icons/user.svg',
     iconBackground: '#4CAF50',
   },
   system: {
-    name: 'System',
+    name: '系统',
     icon: 'icons/system.svg',
     iconBackground: '#2196F3',
   },
   planner: {
-    name: 'Planner',
+    name: '规划师',
     icon: 'icons/planner.svg',
     iconBackground: '#FF9800',
   },
   navigator: {
-    name: 'Navigator',
+    name: '导航员',
     icon: 'icons/navigator.svg',
     iconBackground: '#40A9FF',
   },
   validator: {
-    name: 'Validator',
+    name: '验证员',
     icon: 'icons/validator.svg',
     iconBackground: '#EC407A',
   },

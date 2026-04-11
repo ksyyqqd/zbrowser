@@ -49,6 +49,24 @@
   "welcome_quickStart": {
     "message": "Quick Start Guide"
   },
+  "welcome_step1_title": {
+    "message": "Step 1: Install Extension"
+  },
+  "welcome_step1_desc": {
+    "message": "Search \"Ball\" in Chrome Web Store and click Add to Chrome. Dev mode: load the dist directory."
+  },
+  "welcome_step2_title": {
+    "message": "Step 2: Configure AI Model"
+  },
+  "welcome_step2_desc": {
+    "message": "Click ⚙️ Settings, add an AI API Key. Recommended: DeepSeek, Qwen, GLM, or other domestic models."
+  },
+  "welcome_step3_title": {
+    "message": "Step 3: Start Chatting"
+  },
+  "welcome_step3_desc": {
+    "message": "Tell Ball what you need — \"Check the weather\", \"Organize this table\", \"Translate this text\" — it will help you!"
+  },
   "welcome_joinCommunity": {
     "message": "Join Our Community"
   },
@@ -86,7 +104,7 @@
     "message": "Delete session"
   },
   "chat_bookmarks_header": {
-    "message": "Quick Start"
+    "message": "Quick Access"
   },
   "chat_bookmarks_saveEdit": {
     "message": "Save changes"
@@ -261,6 +279,12 @@
   },
   "options_general_replayHistoricalTasks_desc": {
     "message": "Enable storing and replaying of agent step history (experimental, may have issues)"
+  },
+  "options_general_showSpotlight": {
+    "message": "Show AI Takeover Overlay"
+  },
+  "options_general_showSpotlight_desc": {
+    "message": "Display a semi-transparent overlay on the page while AI is executing tasks (disabling won't affect functionality)"
   },
 
   "options_models_providers_header": {

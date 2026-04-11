@@ -38,7 +38,7 @@ export default memo(function MessageList({ messages, isDarkMode = false }: Messa
         <button
           onClick={() => setShowSteps(!showSteps)}
           className={`flex w-full items-center gap-2 rounded-lg px-3 py-2 text-xs transition-all duration-200 ${
-            isDarkMode ? 'text-gray-400 hover:bg-white/5' : 'text-gray-500 hover:bg-black/[0.03]'
+            isDarkMode ? 'text-[#95D5B2] hover:bg-white/5' : 'text-[#78716C] hover:bg-black/[0.03]'
           }`}
           type="button">
           {showSteps ? <FiChevronDown size={14} /> : <FiChevronRight size={14} />}
@@ -77,15 +77,25 @@ interface MessageBlockProps {
   isStep?: boolean;
 }
 
-// 折叠状态下的最新消息预览
-function LatestStepPreview({ message }: { message: Message }) {
+// 折叠状态下的最新消息预览 — 显示完整内容
+function LatestStepPreview({ message, isDarkMode = false }: { message: Message; isDarkMode?: boolean }) {
   const actor = ACTOR_PROFILES[message.actor as keyof typeof ACTOR_PROFILES];
-  // 截断过长内容
-  const preview = message.content.length > 80 ? message.content.slice(0, 80) + '...' : message.content;
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    try {
+      await navigator.clipboard.writeText(message.content);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      /* ignore */
+    }
+  };
 
   return (
     <div
-      className="flex items-start gap-2.5 rounded-lg px-3 py-2 text-xs transition-all duration-200 cursor-pointer hover:bg-[var(--bg-card-hover)]"
+      className="group flex items-start gap-2.5 rounded-lg px-3 py-2 text-xs transition-all duration-200 cursor-pointer hover:bg-[var(--bg-card-hover)]"
       style={{
         background: 'var(--bg-card)',
         border: '1px dashed var(--border-color)',
@@ -101,17 +111,34 @@ function LatestStepPreview({ message }: { message: Message }) {
       {/* 小头像 */}
       <div
         className="shrink-0 size-6 rounded-full overflow-hidden ring-1"
-        style={{ borderColor: 'var(--border-color)', opacity: 0.7 }}>
+        style={{
+          borderColor: isDarkMode ? 'rgba(116,198,157,0.25)' : 'rgba(139,115,85,0.3)',
+          background: (actor as any).iconBackground || '#6B7280',
+        }}>
         <img src={actor.icon} alt={actor.name} className="size-full object-cover" />
       </div>
       <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-1.5 mb-0.5">
+        <div className="mb-0.5 flex items-center justify-between">
           <span className="font-medium shrink-0" style={{ color: 'var(--text-muted)' }}>
             {actor.name}
           </span>
-          <span className="truncate" style={{ color: 'var(--text-secondary)', opacity: 0.8 }}>
-            {preview}
-          </span>
+          <button
+            onClick={handleCopy}
+            className={`rounded-md p-1 transition-all duration-200 opacity-0 group-hover:opacity-100 ${
+              copied ? '!text-green-500' : ''
+            }`}
+            style={copied ? undefined : { color: isDarkMode ? '#95D5B2' : '#78716C' }}
+            title={copied ? t('chat_copied') : t('chat_copy')}
+            type="button"
+            aria-label={t('chat_copy')}>
+            {copied ? <FiCheck size={11} /> : <FiCopy size={11} />}
+          </button>
+        </div>
+        {/* 完整显示消息内容，自动换行，不截断 */}
+        <div
+          className="whitespace-pre-wrap break-words leading-relaxed pr-4"
+          style={{ color: 'var(--text-secondary)', opacity: isDarkMode ? 0.95 : 0.85 }}>
+          {message.content}
         </div>
       </div>
     </div>
@@ -146,10 +173,15 @@ function MessageBlock({ message, isSameActor, isDarkMode = false, isStep = false
             }`
           : ''
       } ${isStep ? 'opacity-70' : ''}`}>
-      {/* 角色头像 - 灵珠光环 */}
+      {/* 角色头像 - 圆形小头像 */}
       {!isSameActor && (
-        <div className="spirit-ring shrink-0">
-          <img src={actor.icon} alt={actor.name} />
+        <div
+          className="shrink-0 size-8 rounded-full overflow-hidden ring-1"
+          style={{
+            borderColor: isDarkMode ? 'rgba(116,198,157,0.25)' : 'rgba(139,115,85,0.3)',
+            background: (actor as any).iconBackground || '#6B7280',
+          }}>
+          <img src={actor.icon} alt={actor.name} className="size-full object-cover" />
         </div>
       )}
       {isSameActor && <div className="w-8" />}
@@ -197,6 +229,7 @@ function MessageBlock({ message, isSameActor, isDarkMode = false, isStep = false
                 className={`icon-btn absolute right-1 top-2 rounded-md p-1.5 transition-all duration-200 ${
                   copied ? '!text-green-500' : ''
                 }`}
+                style={copied ? undefined : { color: isDarkMode ? '#95D5B2' : '#78716C' }}
                 title={copied ? t('chat_copied') : t('chat_copy')}>
                 {copied ? <FiCheck size={13} /> : <FiCopy size={13} />}
               </button>
@@ -204,7 +237,9 @@ function MessageBlock({ message, isSameActor, isDarkMode = false, isStep = false
           </div>
           {/* 时间戳 */}
           {!isProgress && (
-            <div className="text-right text-xs tracking-wide" style={{ color: 'var(--text-muted)', opacity: 0.7 }}>
+            <div
+              className="text-right text-xs tracking-wide"
+              style={{ color: isDarkMode ? '#78716C' : '#A8A29E', opacity: 0.85 }}>
               {formatTimestamp(message.timestamp)}
             </div>
           )}

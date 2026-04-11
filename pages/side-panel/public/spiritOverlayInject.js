@@ -15,6 +15,8 @@
     _pts = [],
     _wts = [];
   var _active = false;
+  var _idleStart = 0; // 开始空闲的时间戳
+  var _IDLE_TIMEOUT = 2000; // 空闲2秒后自动销毁（等淡出完成）
   var _CLRS = ['#D97706', '#DC2626', '#40916C', '#A78BFA', '#EC4899', '#06B6D4', '#F97316', '#FAF8F5'];
   // 注意：下面用到 _CLTRS（历史拼写），保持兼容
   var _CLTRS = _CLRS;
@@ -53,12 +55,30 @@
   function _loop() {
     if (!_cx || !_cv) return;
     _cx.clearRect(0, 0, _cv.width, _cv.height);
+
+    // 更新各系统
     _updFW();
     _drawFW();
     _updPT();
     _drawPT();
-    _updWT();
+    var hasText = _updWT(); // 返回是否还有活跃的文字
     _drawWT();
+
+    // 检测是否有任何活跃效果
+    var hasActive = _fws.length > 0 || _pts.length > 0 || hasText;
+
+    if (hasActive) {
+      // 有活跃效果，重置空闲计时
+      _idleStart = 0;
+    } else if (!_idleStart) {
+      // 刚进入空闲状态，记录时间
+      _idleStart = Date.now();
+    } else if (Date.now() - _idleStart > _IDLE_TIMEOUT) {
+      // 空闲超时，自动销毁整个 Canvas 遮罩
+      _destroy();
+      return;
+    }
+
     _aid = requestAnimationFrame(_loop);
   }
 
@@ -206,21 +226,31 @@
   }
   function _updWT() {
     var now = Date.now();
+    var hasActive = false;
     for (var i = _wts.length - 1; i >= 0; i--) {
       var w = _wts[i],
         age = now - w.birthTime;
       if (age > w.duration) {
-        w.targetAlpha = 0;
-        if (w.currentAlpha <= 0.01) {
+        // 淡出：每帧递减 currentAlpha
+        w.currentAlpha *= 0.92;
+        if (w.currentAlpha <= 0.02) {
           _wts.splice(i, 1);
           continue;
         }
+        hasActive = true;
       } else if (age < 500) {
+        // 淡入
         w.currentAlpha = age / 500;
         w.scale = 0.3 + (age / 500) * 0.7;
+        hasActive = true;
+      } else {
+        // 稳定显示
+        w.currentAlpha = 1;
+        hasActive = true;
       }
       if (w.type === 'floating') w.y += Math.sin(age * 0.002) * 0.3;
     }
+    return hasActive;
   }
 
   function _drawWT() {

@@ -5,7 +5,7 @@
   },
   "app_metadata_name": {
     "description": "Extension name",
-    "message": "球球助手：AI 寵物網頁夥伴"
+    "message": "养个球：AI 寵物網頁夥伴"
   },
   "errors_unknown": {
     "message": "發生未知錯誤"
@@ -38,7 +38,7 @@
     "message": "回到對話"
   },
   "welcome_title": {
-    "message": "歡迎使用球球助手！"
+    "message": "歡迎使用养个球！"
   },
   "welcome_instruction": {
     "message": "開始使用前，請先完成 API 金鑰的設定。"
@@ -48,6 +48,24 @@
   },
   "welcome_quickStart": {
     "message": "快速入門指南"
+  },
+  "welcome_step1_title": {
+    "message": "第一步：安裝擴充功能"
+  },
+  "welcome_step1_desc": {
+    "message": "從 Chrome 網上應用店搜尋「Ball」或「养个球」，點選新增到 Chrome 即可。開發者模式：解壓後載入 dist 目錄。"
+  },
+  "welcome_step2_title": {
+    "message": "第二步：設定模型"
+  },
+  "welcome_step2_desc": {
+    "message": "點選右上角 ⚙️ 設定，新增 AI 模型 API Key。建議使用 DeepSeek、通義千問、智譜 GLM 等國產大模型。"
+  },
+  "welcome_step3_title": {
+    "message": "第三步：開始對話"
+  },
+  "welcome_step3_desc": {
+    "message": "在輸入框告訴球球你想做什麼——「幫我查一下天氣」「整理這個表格」「截圖翻譯這段文字」，球球會自動幫你完成！"
   },
   "welcome_joinCommunity": {
     "message": "加入我們的社群"
@@ -86,7 +104,7 @@
     "message": "刪除工作階段"
   },
   "chat_bookmarks_header": {
-    "message": "快速入門"
+    "message": "快速存取"
   },
   "chat_bookmarks_saveEdit": {
     "message": "儲存變更"
@@ -261,6 +279,12 @@
   },
   "options_general_replayHistoricalTasks_desc": {
     "message": "啟用儲存與重播代理程式的步驟歷史紀錄 (此為實驗性功能，可能存在問題)"
+  },
+  "options_general_showSpotlight": {
+    "message": "AI接管時顯示遮罩"
+  },
+  "options_general_showSpotlight_desc": {
+    "message": "AI執行任務時在頁面顯示半透明遮罩提示（關閉後不影響功能）"
   },
   "options_models_providers_header": {
     "message": "LLM 提供者"

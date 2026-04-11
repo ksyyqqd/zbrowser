@@ -387,16 +387,14 @@ const SpiritDoll: React.FC<SpiritDollProps> = ({
   const triggerAutonomousBehavior = useCallback(() => {
     if (!autonomousEnabledRef.current || isExecuting || currentStep || manualMode !== 'auto') return;
 
+    // 自动模式：仅做表情/气泡动画，不发射球球实体（实体仅在捣乱模式下触发）
     const actions = [
       () => showSpiritMessage('idle'),
       () => showSpiritMessage('curious'),
-      () => {
-        showSpiritMessage('mischief');
-        onAutonomousAction?.('scroll-page');
-      },
+      () => showSpiritMessage('mischief'), // 只显示捣乱表情，不发 scroll-page
       () => showSpiritMessage('sleepy'),
     ];
-    const weights = [45, 35, 12, 8];
+    const weights = [48, 32, 12, 8]; // 调整权重（去掉 scroll-page 后 idle 分配多余权重）
     const totalWeight = weights.reduce((a, b) => a + b, 0);
     let rand = Math.random() * totalWeight;
     let actionIdx = 0;
@@ -583,7 +581,7 @@ const SpiritDoll: React.FC<SpiritDollProps> = ({
           {/* 标题 */}
           <div
             className="text-[10px] font-medium mb-1.5 px-1"
-            style={{ color: 'var(--text-muted)', letterSpacing: '0.05em' }}>
+            style={{ color: isDarkMode ? '#95D5B2' : '#78716C', letterSpacing: '0.05em' }}>
             · 球球状态 ·
           </div>
           {/* 模式按钮网格 */}
@@ -601,10 +599,14 @@ const SpiritDoll: React.FC<SpiritDollProps> = ({
                     background: isActive ? 'var(--accent-glow)' : 'transparent',
                     ...(isActive ? {} : {}),
                   }}>
-                  <span className="text-sm leading-none">{cfg.icon}</span>
+                  <span
+                    className="text-sm leading-none"
+                    style={{ color: isActive ? 'var(--accent-color)' : isDarkMode ? '#A8A29E' : '#78716C' }}>
+                    {cfg.icon}
+                  </span>
                   <span
                     className="text-[9px] leading-none font-medium"
-                    style={{ color: isActive ? 'var(--accent-color)' : 'var(--text-muted)' }}>
+                    style={{ color: isActive ? 'var(--accent-color)' : isDarkMode ? '#A8A29E' : '#78716C' }}>
                     {cfg.label}
                   </span>
                 </button>
@@ -612,7 +614,7 @@ const SpiritDoll: React.FC<SpiritDollProps> = ({
             })}
           </div>
           {/* 模式描述 */}
-          <p className="mt-1.5 text-[9px] px-1" style={{ color: 'var(--text-muted)', opacity: 0.75 }}>
+          <p className="mt-1.5 text-[9px] px-1" style={{ color: isDarkMode ? '#95D5B2' : '#A8A29E', opacity: 0.85 }}>
             {MODE_CONFIG[manualMode].desc}
           </p>
           {/* 遮罩效果快捷按钮 */}
@@ -628,7 +630,7 @@ const SpiritDoll: React.FC<SpiritDollProps> = ({
                 className="flex-1 rounded-md px-1 py-1 text-[8px] transition-all duration-200 cursor-pointer border"
                 style={{
                   borderColor: 'var(--border-color)',
-                  color: 'var(--text-muted)',
+                  color: isDarkMode ? '#95D5B2' : '#78716C',
                   background: 'transparent',
                 }}
                 onMouseEnter={e => {
@@ -639,7 +641,7 @@ const SpiritDoll: React.FC<SpiritDollProps> = ({
                 onMouseLeave={e => {
                   e.currentTarget.style.background = 'transparent';
                   e.currentTarget.style.borderColor = 'var(--border-color)';
-                  e.currentTarget.style.color = 'var(--text-muted)';
+                  e.currentTarget.style.color = isDarkMode ? '#95D5B2' : '#78716C';
                 }}
                 title={`${btn.label}效果`}>
                 {btn.icon} {btn.label}

@@ -292,6 +292,7 @@ code {
   background: linear-gradient(135deg, transparent 40%, var(--spirit-aura) 100%);
   opacity: 0;
   transition: opacity 0.3s ease;
+  pointer-events: none; /* 不拦截子元素的点击事件 */
 }
 .bookmark-scroll:hover {
   border-color: var(--accent-color);
