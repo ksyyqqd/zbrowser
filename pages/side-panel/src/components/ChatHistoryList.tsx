@@ -158,9 +158,18 @@ const ChatHistoryList: React.FC<ChatHistoryListProps> = ({
               onSessionBookmark(detailSessionId);
             }}
             className="icon-btn flex items-center justify-center transition-all duration-200"
-            style={{ color: bookmarkedSessionIds?.has(detailSessionId) ? 'var(--gold-color)' : 'var(--gold-color)' }}
+            style={{
+              color: bookmarkedSessionIds?.has(detailSessionId) ? '#FFF' : isDarkMode ? '#D4A017' : '#B8860B',
+              background: bookmarkedSessionIds?.has(detailSessionId)
+                ? 'linear-gradient(135deg, #F59E0B, #D97706)'
+                : undefined,
+              boxShadow: bookmarkedSessionIds?.has(detailSessionId) ? '0 2px 8px rgba(245,158,11,0.35)' : undefined,
+            }}
             aria-label="收藏">
-            <BsBookmark size={13} fill={bookmarkedSessionIds?.has(detailSessionId) ? 'currentColor' : undefined} />
+            <BsBookmark
+              size={13}
+              fill={bookmarkedSessionIds?.has(detailSessionId) ? '#FFF' : isDarkMode ? '#D4A017' : '#B8860B'}
+            />
           </button>
           <button
             type="button"
@@ -397,13 +406,13 @@ const ChatHistoryList: React.FC<ChatHistoryListProps> = ({
                           }}
                           className="absolute right-9 top-2.5 z-20 flex items-center justify-center size-6 rounded-full transition-all duration-200"
                           style={{
-                            color: isBookmarked ? '#FFF' : 'var(--gold-color)',
+                            color: isBookmarked ? '#FFF' : isDarkMode ? '#D4A017' : '#B8860B',
                             background: isBookmarked ? 'linear-gradient(135deg, #F59E0B, #D97706)' : undefined,
                             boxShadow: isBookmarked ? '0 2px 8px rgba(245,158,11,0.35)' : undefined,
                           }}
                           aria-label={isBookmarked ? '取消收藏' : '收藏'}
                           type="button">
-                          <BsBookmark size={11} fill={isBookmarked ? '#FFF' : undefined} />
+                          <BsBookmark size={11} fill={isBookmarked ? '#FFF' : isDarkMode ? '#D4A017' : '#B8860B'} />
                         </button>
                       );
                     })()}

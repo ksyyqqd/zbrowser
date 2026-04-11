@@ -773,8 +773,19 @@ const SidePanel = () => {
         return;
       }
 
-      // 获取目标标签页ID（优先使用记住的，回退到活动标签）
+      // 获取目标标签页ID — 必须验证有效性（重播场景下缓存的旧标签可能已关闭）
       let tabId = targetTabIdRef.current;
+
+      if (tabId) {
+        // 验证缓存的标签是否仍有效
+        const existingTab = await chrome.tabs.get(tabId).catch(() => null);
+        if (!existingTab) {
+          console.warn('[重播] ⚠️ 缓存的标签已关闭，回退到活动标签');
+          tabId = null;
+          targetTabIdRef.current = null;
+        }
+      }
+
       if (!tabId) {
         const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
         tabId = tabs[0]?.id ?? null;
@@ -784,6 +795,9 @@ const SidePanel = () => {
       }
 
       console.log('[重播] 使用目标标签', { tabId });
+
+      // 更新目标标签引用（供后续遮罩等功能使用）
+      targetTabIdRef.current = tabId;
 
       // 如果我们在历史会话中，则清除消息
       if (isHistoricalSession) {
