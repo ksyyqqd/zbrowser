@@ -6,6 +6,8 @@ import type MessageManager from './messages/service';
 import type { EventManager } from './event/manager';
 import { type Actors, type ExecutionState, AgentEvent } from './event/types';
 import { AgentStepHistory } from './history';
+import type { ToolExecutionResult, MCPTool } from '@extension/mcp-client';
+import type { Skill, SkillExecutionResult } from '@extension/skills';
 
 export interface AgentOptions {
   maxSteps: number;
@@ -49,6 +51,14 @@ export class AgentContext {
   stateMessageAdded: boolean;
   history: AgentStepHistory;
   finalAnswer: string | null;
+
+  // MCP and Skills service methods (optional - set by services)
+  executeMCPTool?: (serverId: string, toolName: string, args: Record<string, unknown>) => Promise<ToolExecutionResult>;
+  listMCPTools?: (serverId?: string) => Promise<MCPTool[]>;
+  getMCPStatus?: (serverId?: string) => Promise<Record<string, unknown>>;
+  executeSkill?: (skillId: string, params: Record<string, unknown>, mode?: string) => Promise<SkillExecutionResult>;
+  listSkills?: (category?: string) => Promise<Skill[]>;
+  getSkillInfo?: (skillId: string) => Promise<Skill | undefined>;
 
   constructor(
     taskId: string,

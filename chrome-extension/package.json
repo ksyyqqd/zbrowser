@@ -1,6 +1,6 @@
 {
   "name": "chrome-extension",
-  "version": "0.1.13",
+  "version": "0.0.1",
   "description": "chrome extension - core settings",
   "type": "module",
   "scripts": {
@@ -17,6 +17,8 @@
   },
   "dependencies": {
     "@extension/i18n": "workspace:*",
+    "@extension/mcp-client": "workspace:*",
+    "@extension/skills": "workspace:*",
     "@extension/shared": "workspace:*",
     "@extension/storage": "workspace:*",
     "@langchain/anthropic": "0.3.33",

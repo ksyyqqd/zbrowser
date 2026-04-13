@@ -466,6 +466,180 @@
   "options_firewall_howItWorks": {
     "message": "防火牆包含一個拒絕清單和一個允許清單。\n- 如果兩個清單都為空，則允許所有 URL。\n- 拒絕清單具有較高優先順序。如果一個 URL 符合任何拒絕清單中的項目，它將被封鎖。\n- 當允許清單為空時，所有未被拒絕的 URL 都會被允許。\n- 當允許清單不為空時，只有符合清單中項目的 URL 才被允許。\n- 目前尚不支援萬用字元。\n- 建議優先使用允許清單，而非拒絕清單。"
   },
+
+  "options_tabs_mcp": {
+    "message": "MCP 伺服器"
+  },
+  "options_tabs_skills": {
+    "message": "技能"
+  },
+  "options_mcp_header": {
+    "message": "MCP 伺服器"
+  },
+  "options_mcp_addServer": {
+    "message": "新增伺服器"
+  },
+  "options_mcp_description": {
+    "message": "設定 MCP（模型上下文協定）伺服器以擴充代理程式的能力，如檔案系統、資料庫、網頁搜尋等外部工具。"
+  },
+  "options_mcp_noServers": {
+    "message": "尚未設定 MCP 伺服器。新增伺服器以擴充代理程式的能力。"
+  },
+  "options_mcp_serverName": {
+    "message": "伺服器名稱"
+  },
+  "options_mcp_transportType": {
+    "message": "傳輸類型"
+  },
+  "options_mcp_websocketUrl": {
+    "message": "WebSocket URL"
+  },
+  "options_mcp_sseUrl": {
+    "message": "SSE URL"
+  },
+  "options_mcp_command": {
+    "message": "指令"
+  },
+  "options_mcp_args": {
+    "message": "參數（空格分隔）"
+  },
+  "options_mcp_enabled": {
+    "message": "啟用"
+  },
+  "options_mcp_autoConnect": {
+    "message": "自動連線"
+  },
+  "options_mcp_timeout": {
+    "message": "逾時時間（毫秒）"
+  },
+  "options_mcp_addModalTitle": {
+    "message": "新增 MCP 伺服器"
+  },
+  "options_mcp_editModalTitle": {
+    "message": "編輯 MCP 伺服器"
+  },
+  "options_mcp_cancel": {
+    "message": "取消"
+  },
+  "options_mcp_update": {
+    "message": "更新"
+  },
+  "options_mcp_add": {
+    "message": "新增"
+  },
+  "options_mcp_testConnection": {
+    "message": "測試連線"
+  },
+  "options_mcp_editServer": {
+    "message": "編輯伺服器"
+  },
+  "options_mcp_deleteServer": {
+    "message": "刪除伺服器"
+  },
+  "options_mcp_toggleServer": {
+    "message": "啟用/停用伺服器"
+  },
+  "options_mcp_statusUnknown": {
+    "message": "未知"
+  },
+  "options_mcp_statusConnected": {
+    "message": "已連線"
+  },
+  "options_mcp_statusDisconnected": {
+    "message": "已斷線"
+  },
+  "options_mcp_statusDisabled": {
+    "message": "已停用"
+  },
+
+  "options_skills_header": {
+    "message": "技能"
+  },
+  "options_skills_import": {
+    "message": "匯入"
+  },
+  "options_skills_export": {
+    "message": "匯出"
+  },
+  "options_skills_description": {
+    "message": "技能是預先定義的任務範本，用於自動化常見工作流程。內建技能由 Nanobrowser 提供，自訂技能可從 JSON 檔案匯入。"
+  },
+  "options_skills_builtin": {
+    "message": "內建技能"
+  },
+  "options_skills_custom": {
+    "message": "自訂技能"
+  },
+  "options_skills_noCustom": {
+    "message": "沒有自訂技能。從 JSON 匯入以新增您自己的技能範本。"
+  },
+  "options_skills_category": {
+    "message": "類別"
+  },
+  "options_skills_steps": {
+    "message": "步驟"
+  },
+  "options_skills_parameters": {
+    "message": "參數"
+  },
+  "options_skills_viewDetails": {
+    "message": "查看詳情"
+  },
+  "options_skills_deleteSkill": {
+    "message": "刪除技能"
+  },
+  "options_skills_detailModalTitle": {
+    "message": "技能詳情"
+  },
+  "options_skills_id": {
+    "message": "ID"
+  },
+  "options_skills_version": {
+    "message": "版本"
+  },
+  "options_skills_executionMode": {
+    "message": "執行模式"
+  },
+  "options_skills_executionSteps": {
+    "message": "執行步驟"
+  },
+  "options_skills_noParameters": {
+    "message": "無需參數"
+  },
+  "options_skills_required": {
+    "message": "必填"
+  },
+  "options_skills_close": {
+    "message": "關閉"
+  },
+  "options_skills_importModalTitle": {
+    "message": "匯入技能"
+  },
+  "options_skills_importDescription": {
+    "message": "貼上 JSON 陣列或單一技能定義以匯入："
+  },
+  "options_skills_importNote": {
+    "message": "每個技能必須包含：id、name、description、category、parameters 陣列、steps 陣列、executionMode"
+  },
+  "options_skills_categoryNavigation": {
+    "message": "導航"
+  },
+  "options_skills_categoryDataExtraction": {
+    "message": "資料提取"
+  },
+  "options_skills_categoryFormInteraction": {
+    "message": "表單互動"
+  },
+  "options_skills_categoryAnalysis": {
+    "message": "分析"
+  },
+  "options_skills_categoryAutomation": {
+    "message": "自動化"
+  },
+  "options_skills_categoryCustom": {
+    "message": "自訂"
+  },
+
   "bg_errors_noTabId": {
     "message": "未提供分頁 ID"
   },

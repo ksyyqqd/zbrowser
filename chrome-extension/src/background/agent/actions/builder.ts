@@ -23,6 +23,8 @@ import {
   scrollToTopActionSchema,
   scrollToBottomActionSchema,
 } from './schemas';
+import { mcpToolActionSchema, mcpListToolsActionSchema, mcpGetStatusActionSchema } from './mcpSchemas';
+import { skillInvokeActionSchema, skillListActionSchema, skillGetInfoActionSchema } from './skillSchemas';
 import { z } from 'zod';
 import { createLogger } from '@src/background/log';
 import { ExecutionState, Actors } from '../event/types';
@@ -701,6 +703,208 @@ export class ActionBuilder {
       true,
     );
     actions.push(selectDropdownOption);
+
+    return actions;
+  }
+
+  /**
+   * Build MCP-related actions
+   * These actions allow the agent to interact with MCP servers and tools
+   */
+  buildMCPActions(): Action[] {
+    const actions: Action[] = [];
+    const context = this.context;
+
+    // MCP Tool execution action
+    const mcpTool = new Action(async (input: z.infer<typeof mcpToolActionSchema.schema>) => {
+      const intent = input.intent || `Executing MCP tool: ${input.tool_name}`;
+      context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_START, intent);
+
+      // Note: Actual MCP execution is handled by MCPService
+      // This action will communicate with the service via context
+      try {
+        // Placeholder - actual implementation connects to MCPService
+        const result = await context.executeMCPTool?.(input.server_id, input.tool_name, input.arguments);
+
+        if (result?.isError) {
+          context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_FAIL, result.error ?? 'MCP tool failed');
+          return new ActionResult({
+            error: result.error,
+            includeInMemory: true,
+          });
+        }
+
+        const msg = `MCP tool ${input.tool_name} executed successfully`;
+        context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_OK, msg);
+        return new ActionResult({
+          extractedContent: result?.content ? JSON.stringify(result.content) : msg,
+          includeInMemory: true,
+        });
+      } catch (error) {
+        const errorMsg = error instanceof Error ? error.message : 'MCP tool execution failed';
+        context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_FAIL, errorMsg);
+        return new ActionResult({
+          error: errorMsg,
+          includeInMemory: true,
+        });
+      }
+    }, mcpToolActionSchema);
+    actions.push(mcpTool);
+
+    // List MCP tools action
+    const mcpListTools = new Action(async (input: z.infer<typeof mcpListToolsActionSchema.schema>) => {
+      const intent = input.intent || 'Listing MCP tools';
+      context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_START, intent);
+
+      try {
+        const tools = await context.listMCPTools?.(input.server_id);
+        const toolList =
+          tools?.map(t => `${t.serverId}/${t.name}: ${t.description}`).join('\n') ?? 'No tools available';
+
+        context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_OK, `Found ${tools?.length ?? 0} MCP tools`);
+        return new ActionResult({
+          extractedContent: toolList,
+          includeInMemory: true,
+        });
+      } catch (error) {
+        const errorMsg = error instanceof Error ? error.message : 'Failed to list MCP tools';
+        context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_FAIL, errorMsg);
+        return new ActionResult({
+          error: errorMsg,
+          includeInMemory: true,
+        });
+      }
+    }, mcpListToolsActionSchema);
+    actions.push(mcpListTools);
+
+    // Get MCP status action
+    const mcpGetStatus = new Action(async (input: z.infer<typeof mcpGetStatusActionSchema.schema>) => {
+      const intent = input.intent || 'Getting MCP server status';
+      context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_START, intent);
+
+      try {
+        const status = await context.getMCPStatus?.(input.server_id);
+        const statusStr = JSON.stringify(status, null, 2);
+
+        context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_OK, 'MCP status retrieved');
+        return new ActionResult({
+          extractedContent: statusStr,
+          includeInMemory: true,
+        });
+      } catch (error) {
+        const errorMsg = error instanceof Error ? error.message : 'Failed to get MCP status';
+        context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_FAIL, errorMsg);
+        return new ActionResult({
+          error: errorMsg,
+          includeInMemory: true,
+        });
+      }
+    }, mcpGetStatusActionSchema);
+    actions.push(mcpGetStatus);
+
+    return actions;
+  }
+
+  /**
+   * Build Skill-related actions
+   * These actions allow the agent to invoke predefined skill templates
+   */
+  buildSkillActions(): Action[] {
+    const actions: Action[] = [];
+    const context = this.context;
+
+    // Skill invoke action
+    const skillInvoke = new Action(async (input: z.infer<typeof skillInvokeActionSchema.schema>) => {
+      const intent = input.intent || `Invoking skill: ${input.skill_id}`;
+      context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_START, intent);
+
+      try {
+        // Note: Actual skill execution is handled by SkillsService
+        const result = await context.executeSkill?.(input.skill_id, input.parameters, input.execution_mode);
+
+        if (!result?.success) {
+          context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_FAIL, result?.error ?? 'Skill execution failed');
+          return new ActionResult({
+            error: result?.error,
+            includeInMemory: true,
+          });
+        }
+
+        const msg = `Skill ${input.skill_id} completed successfully`;
+        context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_OK, msg);
+        return new ActionResult({
+          extractedContent: result.output ? JSON.stringify(result.output) : msg,
+          includeInMemory: true,
+          isDone: false, // Skills don't mark task as done
+        });
+      } catch (error) {
+        const errorMsg = error instanceof Error ? error.message : 'Skill invocation failed';
+        context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_FAIL, errorMsg);
+        return new ActionResult({
+          error: errorMsg,
+          includeInMemory: true,
+        });
+      }
+    }, skillInvokeActionSchema);
+    actions.push(skillInvoke);
+
+    // List skills action
+    const skillList = new Action(async (input: z.infer<typeof skillListActionSchema.schema>) => {
+      const intent = input.intent || 'Listing available skills';
+      context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_START, intent);
+
+      try {
+        const skills = await context.listSkills?.(input.category);
+        const skillList = skills?.map(s => `${s.id}: ${s.name} - ${s.description}`).join('\n') ?? 'No skills available';
+
+        context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_OK, `Found ${skills?.length ?? 0} skills`);
+        return new ActionResult({
+          extractedContent: skillList,
+          includeInMemory: true,
+        });
+      } catch (error) {
+        const errorMsg = error instanceof Error ? error.message : 'Failed to list skills';
+        context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_FAIL, errorMsg);
+        return new ActionResult({
+          error: errorMsg,
+          includeInMemory: true,
+        });
+      }
+    }, skillListActionSchema);
+    actions.push(skillList);
+
+    // Get skill info action
+    const skillGetInfo = new Action(async (input: z.infer<typeof skillGetInfoActionSchema.schema>) => {
+      const intent = input.intent || `Getting skill info: ${input.skill_id}`;
+      context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_START, intent);
+
+      try {
+        const skill = await context.getSkillInfo?.(input.skill_id);
+
+        if (!skill) {
+          context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_FAIL, `Skill not found: ${input.skill_id}`);
+          return new ActionResult({
+            error: `Skill not found: ${input.skill_id}`,
+            includeInMemory: true,
+          });
+        }
+
+        const skillInfo = JSON.stringify(skill, null, 2);
+        context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_OK, `Skill info retrieved`);
+        return new ActionResult({
+          extractedContent: skillInfo,
+          includeInMemory: true,
+        });
+      } catch (error) {
+        const errorMsg = error instanceof Error ? error.message : 'Failed to get skill info';
+        context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_FAIL, errorMsg);
+        return new ActionResult({
+          error: errorMsg,
+          includeInMemory: true,
+        });
+      }
+    }, skillGetInfoActionSchema);
+    actions.push(skillGetInfo);
 
     return actions;
   }

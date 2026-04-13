@@ -18,6 +18,8 @@ import { DEFAULT_AGENT_OPTIONS } from './agent/types';
 import { SpeechToTextService } from './services/speechToText';
 import { injectBuildDomTreeScripts } from './browser/dom/service';
 import { analytics } from './services/analytics';
+import { MCPService } from './services/mcp';
+import { SkillsService } from './services/skills';
 
 const logger = createLogger('background');
 
@@ -25,6 +27,10 @@ const browserContext = new BrowserContext({});
 let currentExecutor: Executor | null = null;
 let currentPort: chrome.runtime.Port | null = null;
 const SIDE_PANEL_URL = chrome.runtime.getURL('side-panel/index.html');
+
+// Initialize MCP and Skills services
+const mcpService = new MCPService();
+const skillsService = new SkillsService();
 
 // Setup side panel behavior
 chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(error => console.error(error));
@@ -54,6 +60,15 @@ chrome.tabs.onRemoved.addListener(tabId => {
 
 logger.info('background loaded');
 
+// Initialize MCP and Skills services
+Promise.all([mcpService.initialize(), skillsService.initialize()])
+  .then(() => {
+    logger.info('MCP and Skills services initialized');
+  })
+  .catch(error => {
+    logger.error('Failed to initialize MCP/Skills services:', error);
+  });
+
 // Initialize analytics
 analytics.init().catch(error => {
   logger.error('Failed to initialize analytics:', error);
@@ -67,11 +82,62 @@ analyticsSettingsStore.subscribe(() => {
 });
 
 // Listen for simple messages (e.g., from options page)
-chrome.runtime.onMessage.addListener(() => {
-  // Handle other message types if needed in the future
-  // Return false if response is not sent asynchronously
-  // return false;
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  // Handle MCP related messages
+  if (message.type === 'MCP_TEST_CONNECTION') {
+    handleMCPTestConnection(message.config)
+      .then(result => sendResponse(result))
+      .catch(error => sendResponse({ success: false, error: error instanceof Error ? error.message : 'Test failed' }));
+    return true; // Keep the message channel open for async response
+  }
+
+  if (message.type === 'MCP_LIST_TOOLS') {
+    handleMCPListTools(message.serverId)
+      .then(result => sendResponse(result))
+      .catch(error => sendResponse({ tools: [], error: error instanceof Error ? error.message : 'Failed' }));
+    return true;
+  }
+
+  if (message.type === 'SKILLS_LIST') {
+    handleSkillsList(message.category)
+      .then(result => sendResponse(result))
+      .catch(error => sendResponse({ skills: [], error: error instanceof Error ? error.message : 'Failed' }));
+    return true;
+  }
+
+  return false;
 });
+
+// Handler functions for MCP/Skills messages
+async function handleMCPTestConnection(config: unknown): Promise<{ success: boolean; error?: string }> {
+  try {
+    const result = await mcpService.testConnection(config as Parameters<typeof mcpService.testConnection>[0]);
+    return result;
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Test failed',
+    };
+  }
+}
+
+async function handleMCPListTools(serverId?: string): Promise<{ tools: unknown[] }> {
+  try {
+    const tools = await mcpService.listTools(serverId);
+    return { tools };
+  } catch {
+    return { tools: [] };
+  }
+}
+
+async function handleSkillsList(category?: string): Promise<{ skills: unknown[] }> {
+  try {
+    const skills = skillsService.listSkills(category);
+    return { skills };
+  } catch {
+    return { skills: [] };
+  }
+}
 
 // Setup connection listener for long-lived connections (e.g., side panel)
 chrome.runtime.onConnect.addListener(port => {
@@ -330,6 +396,8 @@ async function setupExecutor(taskId: string, task: string, browserContext: Brows
       planningInterval: generalSettings.planningInterval,
     },
     generalSettings: generalSettings,
+    mcpService: mcpService,
+    skillsService: skillsService,
   });
 
   return executor;

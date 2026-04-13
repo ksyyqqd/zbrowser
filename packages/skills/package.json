@@ -1,0 +1,30 @@
+{
+  "name": "@extension/skills",
+  "version": "0.1.13",
+  "description": "Skills system for Nanobrowser - predefined task templates",
+  "private": true,
+  "sideEffects": false,
+  "files": [
+    "dist/**"
+  ],
+  "types": "index.ts",
+  "main": "./dist/index.js",
+  "scripts": {
+    "clean:bundle": "rimraf dist",
+    "clean:node_modules": "pnpx rimraf node_modules",
+    "clean:turbo": "rimraf .turbo",
+    "clean": "pnpm clean:bundle && pnpm clean:node_modules && pnpm clean:turbo",
+    "ready": "node build.mjs",
+    "lint": "eslint . --ext .ts,.tsx",
+    "lint:fix": "pnpm lint --fix",
+    "prettier": "prettier . --write --ignore-path ../../.prettierignore",
+    "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@extension/tsconfig": "workspace:*",
+    "rimraf": "^6.0.1"
+  }
+}

@@ -472,6 +472,179 @@
     "message": "O firewall contém uma lista de negações e uma lista de permissões.\nSe ambas as listas estiverem vazias, todos os URLs são permitidos\nA lista de negações tem prioridade - se um URL corresponder a qualquer entrada da lista de negações, ele será bloqueado\nQuando a lista de permissões está vazia, todos os URLs não negados são permitidos\nQuando a lista de permissões não está vazia, apenas os URLs correspondentes são permitidos\nCuringas ainda NÃO são suportados\nA lista de permissões é preferível à lista de negações"
   },
 
+  "options_tabs_mcp": {
+    "message": "Servidores MCP"
+  },
+  "options_tabs_skills": {
+    "message": "Skills"
+  },
+  "options_mcp_header": {
+    "message": "Servidores MCP"
+  },
+  "options_mcp_addServer": {
+    "message": "Adicionar Servidor"
+  },
+  "options_mcp_description": {
+    "message": "Configure servidores MCP (Model Context Protocol) para estender as capacidades do agente com ferramentas externas como sistema de arquivos, banco de dados, busca web, etc."
+  },
+  "options_mcp_noServers": {
+    "message": "Nenhum servidor MCP configurado. Adicione um servidor para estender as capacidades do agente."
+  },
+  "options_mcp_serverName": {
+    "message": "Nome do Servidor"
+  },
+  "options_mcp_transportType": {
+    "message": "Tipo de Transporte"
+  },
+  "options_mcp_websocketUrl": {
+    "message": "URL WebSocket"
+  },
+  "options_mcp_sseUrl": {
+    "message": "URL SSE"
+  },
+  "options_mcp_command": {
+    "message": "Comando"
+  },
+  "options_mcp_args": {
+    "message": "Argumentos (separados por espaço)"
+  },
+  "options_mcp_enabled": {
+    "message": "Ativado"
+  },
+  "options_mcp_autoConnect": {
+    "message": "Conectar automaticamente"
+  },
+  "options_mcp_timeout": {
+    "message": "Timeout (ms)"
+  },
+  "options_mcp_addModalTitle": {
+    "message": "Adicionar Servidor MCP"
+  },
+  "options_mcp_editModalTitle": {
+    "message": "Editar Servidor MCP"
+  },
+  "options_mcp_cancel": {
+    "message": "Cancelar"
+  },
+  "options_mcp_update": {
+    "message": "Atualizar"
+  },
+  "options_mcp_add": {
+    "message": "Adicionar"
+  },
+  "options_mcp_testConnection": {
+    "message": "Testar conexão"
+  },
+  "options_mcp_editServer": {
+    "message": "Editar servidor"
+  },
+  "options_mcp_deleteServer": {
+    "message": "Excluir servidor"
+  },
+  "options_mcp_toggleServer": {
+    "message": "Ativar/desativar servidor"
+  },
+  "options_mcp_statusUnknown": {
+    "message": "Desconhecido"
+  },
+  "options_mcp_statusConnected": {
+    "message": "Conectado"
+  },
+  "options_mcp_statusDisconnected": {
+    "message": "Desconectado"
+  },
+  "options_mcp_statusDisabled": {
+    "message": "Desativado"
+  },
+
+  "options_skills_header": {
+    "message": "Skills"
+  },
+  "options_skills_import": {
+    "message": "Importar"
+  },
+  "options_skills_export": {
+    "message": "Exportar"
+  },
+  "options_skills_description": {
+    "message": "Skills são templates de tarefas predefinidas que automatizam fluxos de trabalho comuns. Skills embutidos são fornecidos pelo Nanobrowser, enquanto skills customizados podem ser importados de arquivos JSON."
+  },
+  "options_skills_builtin": {
+    "message": "Skills Embutidos"
+  },
+  "options_skills_custom": {
+    "message": "Skills Customizados"
+  },
+  "options_skills_noCustom": {
+    "message": "Nenhum skill customizado. Importe de JSON para adicionar seus próprios templates de skill."
+  },
+  "options_skills_category": {
+    "message": "Categoria"
+  },
+  "options_skills_steps": {
+    "message": "Passos"
+  },
+  "options_skills_parameters": {
+    "message": "Parâmetros"
+  },
+  "options_skills_viewDetails": {
+    "message": "Ver detalhes"
+  },
+  "options_skills_deleteSkill": {
+    "message": "Excluir skill"
+  },
+  "options_skills_detailModalTitle": {
+    "message": "Detalhes do Skill"
+  },
+  "options_skills_id": {
+    "message": "ID"
+  },
+  "options_skills_version": {
+    "message": "Versão"
+  },
+  "options_skills_executionMode": {
+    "message": "Modo de Execução"
+  },
+  "options_skills_executionSteps": {
+    "message": "Passos de Execução"
+  },
+  "options_skills_noParameters": {
+    "message": "Nenhum parâmetro necessário"
+  },
+  "options_skills_required": {
+    "message": "obrigatório"
+  },
+  "options_skills_close": {
+    "message": "Fechar"
+  },
+  "options_skills_importModalTitle": {
+    "message": "Importar Skills"
+  },
+  "options_skills_importDescription": {
+    "message": "Cole um array JSON ou definição de skill única para importar:"
+  },
+  "options_skills_importNote": {
+    "message": "Cada skill deve ter: id, name, description, category, array parameters, array steps, executionMode"
+  },
+  "options_skills_categoryNavigation": {
+    "message": "Navegação"
+  },
+  "options_skills_categoryDataExtraction": {
+    "message": "Extração de Dados"
+  },
+  "options_skills_categoryFormInteraction": {
+    "message": "Interação com Formulários"
+  },
+  "options_skills_categoryAnalysis": {
+    "message": "Análise"
+  },
+  "options_skills_categoryAutomation": {
+    "message": "Automação"
+  },
+  "options_skills_categoryCustom": {
+    "message": "Customizado"
+  },
+
   "bg_errors_noTabId": {
     "message": "Nenhum ID de aba fornecido"
   },

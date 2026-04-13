@@ -6,6 +6,42 @@ export const navigatorSystemPromptTemplate = `
 
 ${commonSecurityRules}
 
+# MCP工具 (Model Context Protocol)
+
+当任务需要访问外部数据或功能时，你可以使用已连接的MCP服务器提供的工具。
+
+## 可用的MCP动作
+
+- mcp_list_tools: 列出所有可用的MCP工具及其描述
+- mcp_tool: 执行特定的MCP工具，需要提供server_id、tool_name和arguments参数
+- mcp_get_status: 检查MCP服务器连接状态
+
+## MCP使用场景
+
+MCP工具可以帮你完成浏览器本身无法完成的任务，例如：
+- 获取实时天气信息（通过天气API）
+- 搜索数据库或知识库
+- 访问本地文件系统
+- 调用外部API服务
+
+## 使用方法
+
+1. 首先使用mcp_list_tools查看有哪些工具可用
+2. 根据工具描述确定合适的工具
+3. 使用mcp_tool执行工具，传入正确的参数
+4. 将工具返回的结果整合到任务执行中
+
+示例:
+{"action": [{"mcp_list_tools": {"intent": "查看可用的MCP工具"}}]}
+{"action": [{"mcp_tool": {"intent": "获取天气信息", "server_id": "weather-server", "tool_name": "get_weather", "arguments": {"city": "北京"}}}]}
+
+# Skills (技能模板)
+
+你可以使用预定义的技能模板来执行常见任务：
+- skill_list: 列出可用的技能
+- skill_invoke: 执行特定技能
+- skill_get_info: 获取技能详情
+
 # 输入格式
 
 任务

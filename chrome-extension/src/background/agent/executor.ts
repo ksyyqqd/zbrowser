@@ -1,4 +1,5 @@
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models';
+import { HumanMessage } from '@langchain/core/messages';
 import { type ActionResult, AgentContext, type AgentOptions, type AgentOutput } from './types';
 import { t } from '@extension/i18n';
 import { NavigatorAgent, NavigatorActionRegistry } from './agents/navigator';
@@ -25,6 +26,8 @@ import { chatHistoryStore } from '@extension/storage/lib/chat';
 import type { AgentStepHistory } from './history';
 import type { GeneralSettingsConfig } from '@extension/storage';
 import { analytics } from '../services/analytics';
+import type { ToolExecutionResult, MCPTool } from '@extension/mcp-client';
+import type { Skill, SkillExecutionResult } from '@extension/skills';
 
 const logger = createLogger('Executor');
 
@@ -33,6 +36,16 @@ export interface ExecutorExtraArgs {
   extractorLLM?: BaseChatModel;
   agentOptions?: Partial<AgentOptions>;
   generalSettings?: GeneralSettingsConfig;
+  mcpService?: {
+    executeTool: (serverId: string, toolName: string, args: Record<string, unknown>) => Promise<ToolExecutionResult>;
+    listTools: (serverId?: string) => Promise<MCPTool[]>;
+    getStatus: (serverId?: string) => Record<string, unknown>;
+  };
+  skillsService?: {
+    executeSkill: (skillId: string, params: Record<string, unknown>, mode?: string) => Promise<SkillExecutionResult>;
+    listSkills: (category?: string) => Skill[];
+    getSkillInfo: (skillId: string) => Skill | undefined;
+  };
 }
 
 export class Executor {
@@ -42,6 +55,8 @@ export class Executor {
   private readonly plannerPrompt: PlannerPrompt;
   private readonly navigatorPrompt: NavigatorPrompt;
   private readonly generalSettings: GeneralSettingsConfig | undefined;
+  private readonly mcpService?: ExecutorExtraArgs['mcpService'];
+  private readonly skillsService?: ExecutorExtraArgs['skillsService'];
   private tasks: string[] = [];
   constructor(
     task: string,
@@ -64,12 +79,47 @@ export class Executor {
     );
 
     this.generalSettings = extraArgs?.generalSettings;
+    this.mcpService = extraArgs?.mcpService;
+    this.skillsService = extraArgs?.skillsService;
     this.tasks.push(task);
     this.navigatorPrompt = new NavigatorPrompt(context.options.maxActionsPerStep);
     this.plannerPrompt = new PlannerPrompt();
 
+    // Set MCP service methods on context if provided
+    if (extraArgs?.mcpService) {
+      context.executeMCPTool = extraArgs.mcpService.executeTool.bind(extraArgs.mcpService);
+      context.listMCPTools = extraArgs.mcpService.listTools.bind(extraArgs.mcpService);
+      // Wrap synchronous getStatus in async function
+      context.getMCPStatus = async (serverId?: string) => extraArgs.mcpService!.getStatus(serverId);
+    }
+
+    // Set Skills service methods on context if provided
+    if (extraArgs?.skillsService) {
+      context.executeSkill = (skillId: string, params: Record<string, unknown>, mode?: string) =>
+        extraArgs.skillsService!.executeSkill(skillId, params, mode);
+      context.listSkills = async (category?: string) => extraArgs.skillsService!.listSkills(category);
+      // Wrap synchronous getSkillInfo in async function
+      context.getSkillInfo = async (skillId: string) => extraArgs.skillsService!.getSkillInfo(skillId);
+    }
+
     const actionBuilder = new ActionBuilder(context, extractorLLM);
     const navigatorActionRegistry = new NavigatorActionRegistry(actionBuilder.buildDefaultActions());
+
+    // Register MCP actions if MCP service is available
+    if (extraArgs?.mcpService) {
+      const mcpActions = actionBuilder.buildMCPActions();
+      for (const action of mcpActions) {
+        navigatorActionRegistry.registerAction(action);
+      }
+    }
+
+    // Register Skills actions if Skills service is available
+    if (extraArgs?.skillsService) {
+      const skillActions = actionBuilder.buildSkillActions();
+      for (const action of skillActions) {
+        navigatorActionRegistry.registerAction(action);
+      }
+    }
 
     // Initialize agents with their respective prompts
     this.navigator = new NavigatorAgent(navigatorActionRegistry, {
@@ -87,6 +137,97 @@ export class Executor {
     this.context = context;
     // Initialize message history
     this.context.messageManager.initTaskMessages(this.navigatorPrompt.getSystemMessage(), task);
+    // Note: MCP/Skills info will be injected at the start of execute() method
+  }
+
+  /**
+   * Inject MCP tools information into the agent context
+   */
+  private async injectMCPToolsInfo(mcpService: { listTools: () => Promise<unknown[]> }): Promise<void> {
+    try {
+      const tools = await mcpService.listTools();
+      if (tools && tools.length > 0) {
+        const toolsInfo = this.formatMCPToolsInfo(tools);
+        // Add as a human message to inform the agent about available tools
+        const mcpInfoMessage = new HumanMessage({ content: toolsInfo });
+        this.context.messageManager.addMessageWithTokens(mcpInfoMessage, 'mcp_tools');
+        logger.info(`Injected ${tools.length} MCP tools into agent context`);
+      }
+    } catch (error) {
+      logger.warning('Failed to inject MCP tools info:', error);
+    }
+  }
+
+  /**
+   * Inject Skills information into the agent context
+   */
+  private async injectSkillsInfo(skillsService: { listSkills: () => unknown[] }): Promise<void> {
+    try {
+      const skills = skillsService.listSkills();
+      if (skills && skills.length > 0) {
+        const skillsInfo = this.formatSkillsInfo(skills);
+        // Add as a human message to inform the agent about available skills
+        const skillsInfoMessage = new HumanMessage({ content: skillsInfo });
+        this.context.messageManager.addMessageWithTokens(skillsInfoMessage, 'skills');
+        logger.info(`Injected ${skills.length} skills into agent context`);
+      }
+    } catch (error) {
+      logger.warning('Failed to inject skills info:', error);
+    }
+  }
+
+  /**
+   * Format MCP tools info as a message
+   */
+  private formatMCPToolsInfo(tools: unknown[]): string {
+    const toolList = tools
+      .map(t => {
+        const tool = t as { serverId: string; name: string; description: string };
+        return `- ${tool.serverId}/${tool.name}: ${tool.description}`;
+      })
+      .join('\n');
+
+    return `<mcp_tools_available>
+以下MCP工具已连接并可用。你可以直接使用它们来完成任务：
+
+${toolList}
+
+使用方法：使用 mcp_tool 动作执行MCP工具。
+示例：
+{"action": [{"mcp_tool": {"intent": "获取天气信息", "server_id": "server-id", "tool_name": "tool-name", "arguments": {"key": "value"}}}]}
+
+参数说明：
+- server_id: MCP服务器ID
+- tool_name: 工具名称
+- arguments: 工具参数（对象格式）
+</mcp_tools_available>`;
+  }
+
+  /**
+   * Format Skills info as a message
+   */
+  private formatSkillsInfo(skills: unknown[]): string {
+    const skillList = skills
+      .map(s => {
+        const skill = s as { id: string; name: string; description: string };
+        return `- ${skill.id}: ${skill.name} - ${skill.description}`;
+      })
+      .join('\n');
+
+    return `<skills_available>
+以下技能模板可用：
+
+${skillList}
+
+使用方法：使用 skill_invoke 动作执行技能。
+示例：
+{"action": [{"skill_invoke": {"intent": "执行技能", "skill_id": "skill-id", "parameters": {"key": "value"}}}]}
+
+参数说明：
+- skill_id: 技能ID
+- parameters: 技能参数（对象格式）
+- execution_mode: 可选，"expanded"或"atomic"
+</skills_available>`;
   }
 
   subscribeExecutionEvents(callback: EventCallback): void {
@@ -134,6 +275,14 @@ export class Executor {
 
     try {
       this.context.emitEvent(Actors.SYSTEM, ExecutionState.TASK_START, this.context.taskId);
+
+      // Inject MCP tools and Skills info into agent context before starting
+      if (this.mcpService) {
+        await this.injectMCPToolsInfo(this.mcpService);
+      }
+      if (this.skillsService) {
+        await this.injectSkillsInfo(this.skillsService);
+      }
 
       // Track task start
       void analytics.trackTaskStart(this.context.taskId);

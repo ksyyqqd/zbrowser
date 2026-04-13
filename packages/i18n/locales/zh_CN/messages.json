@@ -466,6 +466,180 @@
   "options_firewall_howItWorks": {
     "message": "防火墙包含一个拒绝清单和一个允许清单。\n- 如果两个清单都为空，则允许所有 URL。\n- 拒绝清单具有较高优先级。如果一个 URL 符合任何拒绝清单中的项目，它将被阻止。\n- 当允许清单为空时，所有未被拒绝的 URL 都会被允许。\n- 当允许清单不为空时，只有符合清单中项目的 URL 才被允许。\n- 目前尚不支持通配符。\n- 建议优先使用允许清单，而非拒绝清单。"
   },
+
+  "options_tabs_mcp": {
+    "message": "MCP 服务器"
+  },
+  "options_tabs_skills": {
+    "message": "技能"
+  },
+  "options_mcp_header": {
+    "message": "MCP 服务器"
+  },
+  "options_mcp_addServer": {
+    "message": "添加服务器"
+  },
+  "options_mcp_description": {
+    "message": "配置 MCP（模型上下文协议）服务器以扩展代理程序的能力，如文件系统、数据库、网页搜索等外部工具。"
+  },
+  "options_mcp_noServers": {
+    "message": "尚未配置 MCP 服务器。添加服务器以扩展代理程序的能力。"
+  },
+  "options_mcp_serverName": {
+    "message": "服务器名称"
+  },
+  "options_mcp_transportType": {
+    "message": "传输类型"
+  },
+  "options_mcp_websocketUrl": {
+    "message": "WebSocket URL"
+  },
+  "options_mcp_sseUrl": {
+    "message": "SSE URL"
+  },
+  "options_mcp_command": {
+    "message": "命令"
+  },
+  "options_mcp_args": {
+    "message": "参数（空格分隔）"
+  },
+  "options_mcp_enabled": {
+    "message": "启用"
+  },
+  "options_mcp_autoConnect": {
+    "message": "自动连接"
+  },
+  "options_mcp_timeout": {
+    "message": "超时时间（毫秒）"
+  },
+  "options_mcp_addModalTitle": {
+    "message": "添加 MCP 服务器"
+  },
+  "options_mcp_editModalTitle": {
+    "message": "编辑 MCP 服务器"
+  },
+  "options_mcp_cancel": {
+    "message": "取消"
+  },
+  "options_mcp_update": {
+    "message": "更新"
+  },
+  "options_mcp_add": {
+    "message": "添加"
+  },
+  "options_mcp_testConnection": {
+    "message": "测试连接"
+  },
+  "options_mcp_editServer": {
+    "message": "编辑服务器"
+  },
+  "options_mcp_deleteServer": {
+    "message": "删除服务器"
+  },
+  "options_mcp_toggleServer": {
+    "message": "启用/禁用服务器"
+  },
+  "options_mcp_statusUnknown": {
+    "message": "未知"
+  },
+  "options_mcp_statusConnected": {
+    "message": "已连接"
+  },
+  "options_mcp_statusDisconnected": {
+    "message": "已断开"
+  },
+  "options_mcp_statusDisabled": {
+    "message": "已禁用"
+  },
+
+  "options_skills_header": {
+    "message": "技能"
+  },
+  "options_skills_import": {
+    "message": "导入"
+  },
+  "options_skills_export": {
+    "message": "导出"
+  },
+  "options_skills_description": {
+    "message": "技能是预定义的任务模板，用于自动化常见工作流程。内置技能由 Nanobrowser 提供，自定义技能可从 JSON 文件导入。"
+  },
+  "options_skills_builtin": {
+    "message": "内置技能"
+  },
+  "options_skills_custom": {
+    "message": "自定义技能"
+  },
+  "options_skills_noCustom": {
+    "message": "没有自定义技能。从 JSON 导入以添加您自己的技能模板。"
+  },
+  "options_skills_category": {
+    "message": "类别"
+  },
+  "options_skills_steps": {
+    "message": "步骤"
+  },
+  "options_skills_parameters": {
+    "message": "参数"
+  },
+  "options_skills_viewDetails": {
+    "message": "查看详情"
+  },
+  "options_skills_deleteSkill": {
+    "message": "删除技能"
+  },
+  "options_skills_detailModalTitle": {
+    "message": "技能详情"
+  },
+  "options_skills_id": {
+    "message": "ID"
+  },
+  "options_skills_version": {
+    "message": "版本"
+  },
+  "options_skills_executionMode": {
+    "message": "执行模式"
+  },
+  "options_skills_executionSteps": {
+    "message": "执行步骤"
+  },
+  "options_skills_noParameters": {
+    "message": "无需参数"
+  },
+  "options_skills_required": {
+    "message": "必填"
+  },
+  "options_skills_close": {
+    "message": "关闭"
+  },
+  "options_skills_importModalTitle": {
+    "message": "导入技能"
+  },
+  "options_skills_importDescription": {
+    "message": "粘贴 JSON 数组或单个技能定义以导入："
+  },
+  "options_skills_importNote": {
+    "message": "每个技能必须包含：id、name、description、category、parameters 数组、steps 数组、executionMode"
+  },
+  "options_skills_categoryNavigation": {
+    "message": "导航"
+  },
+  "options_skills_categoryDataExtraction": {
+    "message": "数据提取"
+  },
+  "options_skills_categoryFormInteraction": {
+    "message": "表单交互"
+  },
+  "options_skills_categoryAnalysis": {
+    "message": "分析"
+  },
+  "options_skills_categoryAutomation": {
+    "message": "自动化"
+  },
+  "options_skills_categoryCustom": {
+    "message": "自定义"
+  },
+
   "bg_errors_noTabId": {
     "message": "未提供标签页 ID"
   },
@@ -830,6 +1004,14 @@
         "example": "5"
       }
     }
+  },
+  "act_errors_pageAlreadyAtTop": {
+    "message": "页面已在顶端，无法滚动至上一页",
+    "placeholders": {}
+  },
+  "act_errors_pageAlreadyAtBottom": {
+    "message": "页面已在底端，无法滚动至下一页",
+    "placeholders": {}
   },
   "act_scrollToText_start": {
     "message": "正在滚动至文字：\"$TEXT$\"，第 $OCCURRENCE$ 次出现的位置",

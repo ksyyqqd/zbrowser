@@ -1,0 +1,5 @@
+{
+  "permissions": {
+    "allow": ["Bash(grep -l \"act_errors_pageAlreadyAtTop\" packages/i18n/locales/*/messages.json)"]
+  }
+}

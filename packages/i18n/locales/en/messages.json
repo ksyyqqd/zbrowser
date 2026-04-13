@@ -473,6 +473,179 @@
     "message": "The firewall contains a deny list and an allow list.\nIf both lists are empty, all URLs are allowed\nDeny list takes priority - if a URL matches any deny list entry, it's blocked\nWhen allow list is empty, all non-denied URLs are allowed\nWhen allow list is not empty, only matching URLs are allowed\nWildcards are NOT supported yet\nAllow list is preferred over deny list"
   },
 
+  "options_tabs_mcp": {
+    "message": "MCP Servers"
+  },
+  "options_tabs_skills": {
+    "message": "Skills"
+  },
+  "options_mcp_header": {
+    "message": "MCP Servers"
+  },
+  "options_mcp_addServer": {
+    "message": "Add Server"
+  },
+  "options_mcp_description": {
+    "message": "Configure MCP (Model Context Protocol) servers to extend the agent's capabilities with external tools like filesystem, database, web search, etc."
+  },
+  "options_mcp_noServers": {
+    "message": "No MCP servers configured. Add a server to extend agent capabilities."
+  },
+  "options_mcp_serverName": {
+    "message": "Server Name"
+  },
+  "options_mcp_transportType": {
+    "message": "Transport Type"
+  },
+  "options_mcp_websocketUrl": {
+    "message": "WebSocket URL"
+  },
+  "options_mcp_sseUrl": {
+    "message": "SSE URL"
+  },
+  "options_mcp_command": {
+    "message": "Command"
+  },
+  "options_mcp_args": {
+    "message": "Arguments (space-separated)"
+  },
+  "options_mcp_enabled": {
+    "message": "Enabled"
+  },
+  "options_mcp_autoConnect": {
+    "message": "Auto-connect"
+  },
+  "options_mcp_timeout": {
+    "message": "Timeout (ms)"
+  },
+  "options_mcp_addModalTitle": {
+    "message": "Add MCP Server"
+  },
+  "options_mcp_editModalTitle": {
+    "message": "Edit MCP Server"
+  },
+  "options_mcp_cancel": {
+    "message": "Cancel"
+  },
+  "options_mcp_update": {
+    "message": "Update"
+  },
+  "options_mcp_add": {
+    "message": "Add"
+  },
+  "options_mcp_testConnection": {
+    "message": "Test connection"
+  },
+  "options_mcp_editServer": {
+    "message": "Edit server"
+  },
+  "options_mcp_deleteServer": {
+    "message": "Delete server"
+  },
+  "options_mcp_toggleServer": {
+    "message": "Enable/disable server"
+  },
+  "options_mcp_statusUnknown": {
+    "message": "Unknown"
+  },
+  "options_mcp_statusConnected": {
+    "message": "Connected"
+  },
+  "options_mcp_statusDisconnected": {
+    "message": "Disconnected"
+  },
+  "options_mcp_statusDisabled": {
+    "message": "Disabled"
+  },
+
+  "options_skills_header": {
+    "message": "Skills"
+  },
+  "options_skills_import": {
+    "message": "Import"
+  },
+  "options_skills_export": {
+    "message": "Export"
+  },
+  "options_skills_description": {
+    "message": "Skills are pre-defined task templates that automate common workflows. Built-in skills are provided by Nanobrowser, while custom skills can be imported from JSON files."
+  },
+  "options_skills_builtin": {
+    "message": "Built-in Skills"
+  },
+  "options_skills_custom": {
+    "message": "Custom Skills"
+  },
+  "options_skills_noCustom": {
+    "message": "No custom skills. Import from JSON to add your own skill templates."
+  },
+  "options_skills_category": {
+    "message": "Category"
+  },
+  "options_skills_steps": {
+    "message": "Steps"
+  },
+  "options_skills_parameters": {
+    "message": "Parameters"
+  },
+  "options_skills_viewDetails": {
+    "message": "View details"
+  },
+  "options_skills_deleteSkill": {
+    "message": "Delete skill"
+  },
+  "options_skills_detailModalTitle": {
+    "message": "Skill Details"
+  },
+  "options_skills_id": {
+    "message": "ID"
+  },
+  "options_skills_version": {
+    "message": "Version"
+  },
+  "options_skills_executionMode": {
+    "message": "Execution Mode"
+  },
+  "options_skills_executionSteps": {
+    "message": "Execution Steps"
+  },
+  "options_skills_noParameters": {
+    "message": "No parameters required"
+  },
+  "options_skills_required": {
+    "message": "required"
+  },
+  "options_skills_close": {
+    "message": "Close"
+  },
+  "options_skills_importModalTitle": {
+    "message": "Import Skills"
+  },
+  "options_skills_importDescription": {
+    "message": "Paste a JSON array or single skill definition to import:"
+  },
+  "options_skills_importNote": {
+    "message": "Each skill must have: id, name, description, category, parameters array, steps array, executionMode"
+  },
+  "options_skills_categoryNavigation": {
+    "message": "Navigation"
+  },
+  "options_skills_categoryDataExtraction": {
+    "message": "Data Extraction"
+  },
+  "options_skills_categoryFormInteraction": {
+    "message": "Form Interaction"
+  },
+  "options_skills_categoryAnalysis": {
+    "message": "Analysis"
+  },
+  "options_skills_categoryAutomation": {
+    "message": "Automation"
+  },
+  "options_skills_categoryCustom": {
+    "message": "Custom"
+  },
+
   "bg_errors_noTabId": {
     "message": "No tab ID provided"
   },
