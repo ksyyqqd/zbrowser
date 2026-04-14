@@ -2,6 +2,7 @@ import { HumanMessage, type SystemMessage } from '@langchain/core/messages';
 import type { AgentContext } from '@src/background/agent/types';
 import { wrapUntrustedContent } from '../messages/utils';
 import { createLogger } from '@src/background/log';
+import { supportsVision } from '../helper';
 
 const logger = createLogger('BasePrompt');
 /**
@@ -27,8 +28,29 @@ abstract class BasePrompt {
    * @returns HumanMessage from LangChain
    */
   async buildBrowserStateUserMessage(context: AgentContext): Promise<HumanMessage> {
-    const browserState = await context.browserContext.getState(context.options.useVision);
+    // Check if the model supports vision before using it
+    const modelSupportsVision = supportsVision(context.navigatorProvider, context.navigatorModelName);
+    const effectiveUseVision = context.options.useVision && modelSupportsVision;
+
+    // Log vision capability check
+    if (context.options.useVision && !modelSupportsVision) {
+      logger.warning(
+        `Vision mode is enabled but model ${context.navigatorProvider}/${context.navigatorModelName} does not support image input. Vision is automatically disabled.`,
+      );
+    }
+
+    const browserState = await context.browserContext.getState(effectiveUseVision);
     const rawElementsText = browserState.elementTree.clickableElementsToString(context.options.includeAttributes);
+
+    // Debug: 输出页面内容解析结果
+    const selectorMapSize = browserState.selectorMap.size;
+    logger.info('--- Page Content Debug ---');
+    logger.info(`URL: ${browserState.url}`);
+    logger.info(`Title: ${browserState.title}`);
+    logger.info(`Interactive elements count: ${selectorMapSize}`);
+    logger.info(`Raw elements text length: ${rawElementsText.length} chars`);
+    logger.info('--- Raw Elements Text ---');
+    logger.info(rawElementsText || '(empty)');
 
     let formattedElementsText = '';
     if (rawElementsText !== '') {
@@ -39,6 +61,11 @@ abstract class BasePrompt {
     } else {
       formattedElementsText = 'empty page';
     }
+
+    // Debug: 输出格式化后的元素文本
+    logger.info('--- Formatted Page Content ---');
+    logger.info(`Formatted text length: ${formattedElementsText.length} chars`);
+    logger.info(formattedElementsText);
 
     let stepInfoDescription = '';
     if (context.stepInfo) {
@@ -80,7 +107,15 @@ ${stepInfoDescription}
 ${actionResultsDescription}
 `;
 
-    if (browserState.screenshot && context.options.useVision) {
+    // Debug: 输出最终传递给 AI 的完整用户消息
+    logger.info('--- Final User Message to AI ---');
+    logger.info(`Total message length: ${stateDescription.length} chars`);
+    logger.info(`Has screenshot: ${!!browserState.screenshot && effectiveUseVision}`);
+    logger.info('--- Complete State Description ---');
+    logger.info(stateDescription);
+
+    // Only add screenshot if model supports vision
+    if (browserState.screenshot && effectiveUseVision) {
       return new HumanMessage({
         content: [
           { type: 'text', text: stateDescription },

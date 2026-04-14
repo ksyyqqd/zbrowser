@@ -885,7 +885,7 @@ export default class Page {
             if (visibleElements.length >= nth) {
               const targetElement = visibleElements[nth - 1]; // Convert to 0-indexed
               await this._scrollIntoViewIfNeeded(targetElement);
-              await new Promise(resolve => setTimeout(resolve, 500)); // Wait for scroll to complete
+              await this._waitForScrollStability(); // Wait for scroll to complete (smart wait)
 
               // Dispose of all element handles to prevent memory leaks
               for (const element of elements) {
@@ -1617,6 +1617,170 @@ export default class Page {
       }
 
       throw new URLNotAllowedError(errorMessage);
+    }
+  }
+
+  /**
+   * Smart wait for page stability after action
+   * Combines network stability + DOM stability checks
+   * Returns early when page is stable, otherwise waits up to maxTimeout
+   */
+  async waitForPageStability(options?: { maxTimeout?: number; domStableTime?: number }): Promise<void> {
+    const maxTimeout = (options?.maxTimeout ?? this._config.smartWaitMaxTimeout ?? 2.0) * 1000;
+    const domStableTime = (options?.domStableTime ?? this._config.smartWaitDomStableTime ?? 0.1) * 1000;
+
+    // If smart wait disabled, use fixed wait from config
+    if (this._config.smartWaitEnabled === false) {
+      const fixedWait = (this._config.waitBetweenActions ?? 0.5) * 1000;
+      await new Promise(resolve => setTimeout(resolve, fixedWait));
+      return;
+    }
+
+    if (!this._puppeteerPage) {
+      // No puppeteer page, minimal wait
+      await new Promise(resolve => setTimeout(resolve, 50));
+      return;
+    }
+
+    const startTime = Date.now();
+    let lastDomChangeTime = Date.now();
+    let lastMutationCount = 0;
+    let mutationObserverSetup = false;
+
+    try {
+      // Setup MutationObserver for DOM changes
+      try {
+        await this._puppeteerPage.evaluate(() => {
+          // Initialize global mutation counter
+          (window as unknown as Record<string, unknown>).__domMutationCount = 0;
+          (window as unknown as Record<string, unknown>).__mutationObserver = new MutationObserver(() => {
+            ((window as unknown as Record<string, unknown>).__domMutationCount as number)++;
+          });
+          ((window as unknown as Record<string, unknown>).__mutationObserver as MutationObserver).observe(
+            document.body || document.documentElement,
+            {
+              childList: true,
+              subtree: true,
+              attributes: true,
+            },
+          );
+        });
+        mutationObserverSetup = true;
+      } catch (e) {
+        // Failed to setup observer, continue without DOM mutation tracking
+        logger.debug('Failed to setup MutationObserver, using fallback', e);
+      }
+
+      // Polling loop for stability
+      while (Date.now() - startTime < maxTimeout) {
+        // 1. Quick network stability check
+        const networkStable = await this._checkNetworkStableQuick();
+
+        // 2. DOM stability check via mutation count
+        let domStable = true;
+        if (mutationObserverSetup) {
+          const currentMutationCount = await this._getMutationCount();
+          if (currentMutationCount !== lastMutationCount) {
+            lastDomChangeTime = Date.now();
+            lastMutationCount = currentMutationCount;
+          }
+          domStable = Date.now() - lastDomChangeTime >= domStableTime;
+        }
+
+        // Both stable -> return early
+        if (networkStable && domStable) {
+          logger.debug(`Page stabilized in ${((Date.now() - startTime) / 1000).toFixed(2)}s`);
+          return;
+        }
+
+        // Wait before next check
+        await new Promise(resolve => setTimeout(resolve, 50));
+      }
+
+      logger.debug(`Smart wait timeout after ${maxTimeout / 1000}s`);
+    } finally {
+      // Cleanup MutationObserver
+      if (mutationObserverSetup) {
+        await this._cleanupMutationObserver();
+      }
+    }
+  }
+
+  /**
+   * Quick check if network is stable (no pending requests)
+   * Uses a lightweight approach compared to full _waitForStableNetwork
+   */
+  private async _checkNetworkStableQuick(): Promise<boolean> {
+    if (!this._puppeteerPage) {
+      return true;
+    }
+
+    try {
+      // Check if there are any active fetch/XHR requests
+      const hasActiveRequests = await this._puppeteerPage.evaluate(() => {
+        // Check for active XMLHttpRequest or fetch requests
+        // This is a simple heuristic - mutation observer will catch DOM changes from async updates
+        const activeCount = (window as unknown as Record<string, unknown>).__activeRequestCount;
+        return (typeof activeCount === 'number' && activeCount > 0) || document.readyState === 'loading';
+      });
+      return !hasActiveRequests;
+    } catch {
+      return true;
+    }
+  }
+
+  /**
+   * Get current DOM mutation count from the injected observer
+   */
+  private async _getMutationCount(): Promise<number> {
+    if (!this._puppeteerPage) return 0;
+    try {
+      const count = await this._puppeteerPage.evaluate(
+        () => (window as unknown as Record<string, unknown>).__domMutationCount as number,
+      );
+      return count ?? 0;
+    } catch {
+      return 0;
+    }
+  }
+
+  /**
+   * Cleanup MutationObserver from the page
+   */
+  private async _cleanupMutationObserver(): Promise<void> {
+    if (!this._puppeteerPage) return;
+    try {
+      await this._puppeteerPage.evaluate(() => {
+        const observer = (window as unknown as Record<string, unknown>).__mutationObserver as
+          | MutationObserver
+          | undefined;
+        if (observer) {
+          observer.disconnect();
+        }
+        (window as unknown as Record<string, unknown>).__domMutationCount = 0;
+        (window as unknown as Record<string, unknown>).__mutationObserver = undefined;
+      });
+    } catch {
+      // Ignore cleanup errors
+    }
+  }
+
+  /**
+   * Wait for scroll position to stabilize
+   */
+  private async _waitForScrollStability(timeout = 300): Promise<void> {
+    if (!this._puppeteerPage) return;
+
+    const startTime = Date.now();
+    let lastScrollY = await this._puppeteerPage.evaluate(() => window.scrollY);
+
+    while (Date.now() - startTime < timeout) {
+      await new Promise(resolve => setTimeout(resolve, 30));
+      const currentScrollY = await this._puppeteerPage.evaluate(() => window.scrollY);
+      if (currentScrollY === lastScrollY) {
+        return; // Scroll position stable
+      }
+      lastScrollY = currentScrollY;
     }
   }
 }

@@ -383,6 +383,7 @@ async function setupExecutor(taskId: string, task: string, browserContext: Brows
   browserContext.updateConfig({
     minimumWaitPageLoadTime: generalSettings.minWaitPageLoad / 1000.0,
     displayHighlights: generalSettings.displayHighlights,
+    viewportExpansion: generalSettings.viewportExpansion,
   });
 
   const executor = new Executor(task, taskId, browserContext, navigatorLLM, {
@@ -396,6 +397,10 @@ async function setupExecutor(taskId: string, task: string, browserContext: Brows
       planningInterval: generalSettings.planningInterval,
     },
     generalSettings: generalSettings,
+    navigatorProvider: navigatorModel.provider,
+    navigatorModelName: navigatorModel.modelName,
+    plannerProvider: plannerModel?.provider ?? navigatorModel.provider,
+    plannerModelName: plannerModel?.modelName ?? navigatorModel.modelName,
     mcpService: mcpService,
     skillsService: skillsService,
   });

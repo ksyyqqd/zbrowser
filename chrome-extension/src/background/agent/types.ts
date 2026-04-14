@@ -51,6 +51,11 @@ export class AgentContext {
   stateMessageAdded: boolean;
   history: AgentStepHistory;
   finalAnswer: string | null;
+  // Provider and model info for vision capability check
+  navigatorProvider: string;
+  navigatorModelName: string;
+  plannerProvider: string;
+  plannerModelName: string;
 
   // MCP and Skills service methods (optional - set by services)
   executeMCPTool?: (serverId: string, toolName: string, args: Record<string, unknown>) => Promise<ToolExecutionResult>;
@@ -66,6 +71,10 @@ export class AgentContext {
     messageManager: MessageManager,
     eventManager: EventManager,
     options: Partial<AgentOptions>,
+    navigatorProvider: string = '',
+    navigatorModelName: string = '',
+    plannerProvider: string = '',
+    plannerModelName: string = '',
   ) {
     this.controller = new AbortController();
     this.taskId = taskId;
@@ -73,6 +82,10 @@ export class AgentContext {
     this.messageManager = messageManager;
     this.eventManager = eventManager;
     this.options = { ...DEFAULT_AGENT_OPTIONS, ...options };
+    this.navigatorProvider = navigatorProvider;
+    this.navigatorModelName = navigatorModelName;
+    this.plannerProvider = plannerProvider;
+    this.plannerModelName = plannerModelName;
 
     this.paused = false;
     this.stopped = false;

@@ -351,6 +351,17 @@ export default class BrowserContext {
     return browserState;
   }
 
+  /**
+   * Smart wait for page stability after action
+   * @param options - Optional parameters for timeout and stability time
+   */
+  public async waitForPageStability(options?: { maxTimeout?: number; domStableTime?: number }): Promise<void> {
+    const page = await this.getCurrentPage();
+    if (page) {
+      await page.waitForPageStability(options);
+    }
+  }
+
   public async removeHighlight(): Promise<void> {
     const page = await this.getCurrentPage();
     if (page) {

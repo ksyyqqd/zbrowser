@@ -11,6 +11,77 @@ import { ChatDeepSeek } from '@langchain/deepseek';
 
 const maxTokens = 1024 * 4;
 
+// Providers and models that do NOT support vision/image input
+const NON_VISION_PROVIDERS: Set<string> = new Set([
+  ProviderTypeEnum.DeepSeek,
+  ProviderTypeEnum.Groq,
+  ProviderTypeEnum.Cerebras,
+  ProviderTypeEnum.Llama,
+]);
+
+// Specific models that do NOT support vision (even within vision-capable providers)
+const NON_VISION_MODELS: Set<string> = new Set([
+  // DeepSeek models
+  'deepseek-chat',
+  'deepseek-reasoner',
+  'deepseek-r1',
+  // Ollama models (most don't support vision by default)
+  'qwen3:14b',
+  'falcon3:10b',
+  'qwen2.5-coder:14b',
+  'mistral-small:24b',
+  // Groq models
+  'llama-3.3-70b-versatile',
+  // Cerebras models
+  'llama-3.3-70b',
+  // Llama models
+  'Llama-3.3-70B-Instruct',
+  'Llama-3.3-8B-Instruct',
+  'Llama-4-Maverick-17B-128E-Instruct-FP8',
+  'Llama-4-Scout-17B-16E-Instruct-FP8',
+]);
+
+/**
+ * Check if a model supports vision/image input
+ * @param provider - The provider type
+ * @param modelName - The model name
+ * @returns true if the model supports vision, false otherwise
+ */
+export function supportsVision(provider: string, modelName: string): boolean {
+  // Check if provider is in non-vision providers list
+  if (NON_VISION_PROVIDERS.has(provider)) {
+    return false;
+  }
+
+  // Check if model is in non-vision models list
+  // Normalize model name (remove provider prefix if present)
+  let normalizedModelName = modelName;
+  if (modelName.includes('/')) {
+    normalizedModelName = modelName.split('/').pop() || modelName;
+  }
+
+  if (NON_VISION_MODELS.has(normalizedModelName)) {
+    return false;
+  }
+
+  // For custom providers, assume no vision support by default
+  if (provider === ProviderTypeEnum.CustomOpenAI) {
+    // Could be enhanced to check if the custom provider supports vision
+    return false;
+  }
+
+  // Ollama: most models don't support vision, but some like llava do
+  if (provider === ProviderTypeEnum.Ollama) {
+    // Check for vision-capable Ollama models
+    const ollamaVisionModels = ['llava', 'moondream', 'bakllava'];
+    return ollamaVisionModels.some(vm => normalizedModelName.toLowerCase().includes(vm));
+  }
+
+  // Default: assume vision is supported for known providers
+  // OpenAI (gpt-4o, gpt-4-vision), Anthropic, Gemini, Grok all support vision
+  return true;
+}
+
 // Custom ChatLlama class to handle Llama API response format
 class ChatLlama extends ChatOpenAI {
   constructor(args: any) {

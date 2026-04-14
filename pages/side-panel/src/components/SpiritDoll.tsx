@@ -21,8 +21,8 @@ import { useState, useEffect, useCallback, useRef } from 'react';
    curious   → 好奇模式（四处探索）
 ================================================ */
 
-export type SpiritMood = 'idle' | 'thinking' | 'working' | 'happy' | 'mischief' | 'sleepy' | 'curious';
-export type ManualMode = 'auto' | 'mischief' | 'sleepy' | 'curious';
+export type SpiritMood = 'idle' | 'thinking' | 'working' | 'happy' | 'mischief' | 'sleepy' | 'curious' | 'farmer';
+export type ManualMode = 'auto' | 'mischief' | 'sleepy' | 'curious' | 'farmer';
 
 // 当前执行步骤信息
 export interface ExecutionStep {
@@ -36,6 +36,8 @@ interface SpiritDollProps {
   /** 当前正在执行的步骤（用于在气泡中显示） */
   currentStep?: ExecutionStep | null;
   onAutonomousAction?: (action: string, data?: string) => void;
+  /** 模式变化回调，通知父组件当前模式 */
+  onModeChange?: (mode: ManualMode) => void;
 }
 
 // 手动模式配置
@@ -44,6 +46,7 @@ const MODE_CONFIG: Record<ManualMode, { label: string; icon: string; desc: strin
   mischief: { label: '捣乱', icon: '✦', desc: '球球要捣蛋啦！', mood: 'mischief' },
   sleepy: { label: '睡觉', icon: '☾', desc: '球球困了想睡...', mood: 'sleepy' },
   curious: { label: '探索', icon: '◎', desc: '球球到处嗅嗅~', mood: 'curious' },
+  farmer: { label: '农场主', icon: '🌾', desc: '球球去各个AI农场采集信息~', mood: 'farmer' },
 };
 
 // 宠物球球闲聊/撒娇语料库 — 按场景分类
@@ -94,6 +97,13 @@ const SPIRIT_LINES: Record<SpiritMood, string[]> = {
     '让球球仔细嗅嗅这里...',
     '有意思...主人可知此处有何宝藏？',
   ],
+  farmer: [
+    '球球出发啦！去DeepSeek挖点宝藏~',
+    '千问农场有好货！球球去看看...',
+    'GLM这块地不错，球球来嗅嗅~',
+    'Kimi的农场真热闹！',
+    '球球要把各个AI农场的精华都带回来！',
+  ],
 };
 
 // SVG 器灵形象 — 根据心情变化表情和颜色
@@ -118,6 +128,7 @@ function SpiritAvatar({
     mischief: { primary: '#EF4444', glow: 'rgba(239,68,68,0.2)', cheek: '#F8717144' },
     sleepy: { primary: '#A78BFA', glow: 'rgba(167,139,250,0.18)' },
     curious: { primary: '#EC4899', glow: 'rgba(236,72,153,0.2)' },
+    farmer: { primary: '#10B981', glow: 'rgba(16,185,129,0.25)', cheek: '#A7F3D033' }, // 翠绿色（农作物）
   };
   const c = colorMap[mood];
 
@@ -145,6 +156,7 @@ function SpiritAvatar({
     mischief: 'M11 21 Q15 18 19 21', // 坏笑
     sleepy: 'M12 21 Q15 21 18 21', // 平淡
     curious: 'M13.5 19.5 A1.5 1.5 0 1 0 16.5 19.5 A1.5 1.5 0 1 0 13.5 19.5', // 小o嘴（用椭圆弧线）
+    farmer: 'M12 21 Q15 23 18 21', // 微笑带得意
   };
 
   return (
@@ -269,6 +281,12 @@ function SpiritAvatar({
             ?
           </text>
         )}
+        {mood === 'farmer' && (
+          // 小麦装饰
+          <text x="23" y="7" fontSize="4" fill="#10B981" opacity="0.7">
+            🌾
+          </text>
+        )}
       </svg>
     </div>
   );
@@ -280,6 +298,7 @@ const SpiritDoll: React.FC<SpiritDollProps> = ({
   isExecuting = false,
   currentStep = null,
   onAutonomousAction,
+  onModeChange,
 }) => {
   const [mood, setMood] = useState<SpiritMood>('idle');
   const [bubbleText, setBubbleText] = useState('');
@@ -343,6 +362,9 @@ const SpiritDoll: React.FC<SpiritDollProps> = ({
       setManualMode(mode);
       setShowPanel(false);
 
+      // 通知父组件模式变化
+      onModeChange?.(mode);
+
       // 清理捣乱定时器
       if (mischiefTimerRef.current) {
         clearTimeout(mischiefTimerRef.current);
@@ -378,9 +400,13 @@ const SpiritDoll: React.FC<SpiritDollProps> = ({
         bubbleTimerRef.current = setTimeout(() => setShowBubble(false), 3000);
       } else if (mode === 'curious') {
         bubbleTimerRef.current = setTimeout(() => setShowBubble(false), 3000);
+      } else if (mode === 'farmer') {
+        // 农场主模式：显示提示，等待用户输入
+        showSpiritMessage('farmer', '农场主模式已开启，请输入您的任务~');
+        bubbleTimerRef.current = setTimeout(() => setShowBubble(false), 4000);
       }
     },
-    [onAutonomousAction, showSpiritMessage],
+    [onAutonomousAction, showSpiritMessage, onModeChange],
   );
 
   // 自主行为系统 — 仅在非执行状态 + 自动模式下触发

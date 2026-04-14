@@ -255,6 +255,32 @@ export const GeneralSettings = ({ isDarkMode = false }: GeneralSettingsProps) =>
               </label>
             </div>
           </div>
+
+          {/* 视口扩展范围 */}
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className={`text-base font-medium ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
+                {t('options_general_viewportExpansion')}
+              </h3>
+              <p className={`text-sm font-normal ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                {t('options_general_viewportExpansion_desc')}
+              </p>
+            </div>
+            <label htmlFor="viewportExpansion" className="sr-only">
+              {t('options_general_viewportExpansion')}
+            </label>
+            <select
+              id="viewportExpansion"
+              value={settings.viewportExpansion}
+              onChange={e => updateSetting('viewportExpansion', Number.parseInt(e.target.value, 10))}
+              className={`w-36 rounded-md border ${isDarkMode ? 'border-slate-600 bg-slate-700 text-gray-200' : 'border-gray-300 bg-white text-gray-700'} px-3 py-2`}>
+              <option value={0}>{t('options_general_viewportExpansion_option_visible')}</option>
+              <option value={-1}>{t('options_general_viewportExpansion_option_all')}</option>
+              <option value={100}>{t('options_general_viewportExpansion_option_expanded', ['100'])}</option>
+              <option value={200}>{t('options_general_viewportExpansion_option_expanded', ['200'])}</option>
+              <option value={500}>{t('options_general_viewportExpansion_option_expanded', ['500'])}</option>
+            </select>
+          </div>
         </div>
       </div>
     </section>

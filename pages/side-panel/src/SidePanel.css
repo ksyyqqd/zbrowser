@@ -10,18 +10,18 @@
 /* ========== CSS 变量：双模式主题 ======== */
 :root {
   /* 白天模式 - 宣纸暖色调 */
-  --bg-primary: #FAF8F5;
-  --bg-secondary: #F5F2ED;
+  --bg-primary: #faf8f5;
+  --bg-secondary: #f5f2ed;
   --bg-surface: rgba(255, 253, 249, 0.82);
   --bg-card: rgba(255, 252, 247, 0.92);
   --bg-card-hover: rgba(255, 250, 242, 0.96);
-  --text-primary: #1C1917;
-  --text-secondary: #57534E;
-  --text-muted: #A8A29E;
-  --accent-color: #40916C;
-  --accent-light: #52B788;
+  --text-primary: #1c1917;
+  --text-secondary: #57534e;
+  --text-muted: #a8a29e;
+  --accent-color: #40916c;
+  --accent-light: #52b788;
   --accent-glow: rgba(64, 145, 108, 0.15);
-  --gold-color: #D97706;
+  --gold-color: #d97706;
   --gold-glow: rgba(217, 119, 6, 0.1);
   --border-color: rgba(139, 115, 85, 0.15);
   --border-hover: rgba(64, 145, 108, 0.25);
@@ -29,10 +29,10 @@
   --shadow-md: 0 4px 18px rgba(139, 115, 85, 0.09);
   --shadow-lg: 0 8px 30px rgba(139, 115, 85, 0.11);
   --glass-bg: rgba(255, 252, 247, 0.72);
-  --scrollbar-track: #F0EDE6;
+  --scrollbar-track: #f0ede6;
   --scrollbar-thumb: rgba(149, 213, 178, 0.45);
   --code-bg: rgba(216, 243, 220, 0.4);
-  --code-text: #2D6A4F;
+  --code-text: #2d6a4f;
   /* 器灵光晕 */
   --spirit-aura: rgba(64, 145, 108, 0.12);
   --spirit-border: rgba(64, 145, 108, 0.18);
@@ -40,43 +40,54 @@
 
 .dark {
   /* 黑夜模式 - 墨色冷调 */
-  --bg-primary: #0F0E0C;
+  --bg-primary: #0f0e0c;
   --bg-secondary: #151310;
   --bg-surface: rgba(18, 17, 15, 0.88);
   --bg-card: rgba(26, 24, 21, 0.94);
   --bg-card-hover: rgba(32, 30, 27, 0.97);
-  --text-primary: #E8E4DE;
-  --text-secondary: #A8A29E;
-  --text-muted: #6B6560;
-  --accent-color: #74C69D;
-  --accent-light: #95D5B2;
+  --text-primary: #e8e4de;
+  --text-secondary: #a8a29e;
+  --text-muted: #6b6560;
+  --accent-color: #74c69d;
+  --accent-light: #95d5b2;
   --accent-glow: rgba(116, 198, 157, 0.12);
-  --gold-color: #F59E0B;
+  --gold-color: #f59e0b;
   --gold-glow: rgba(245, 158, 11, 0.08);
-  --border-color: rgba(116, 198, 157, 0.10);
+  --border-color: rgba(116, 198, 157, 0.1);
   --border-hover: rgba(116, 198, 157, 0.22);
   --shadow-sm: 0 2px 12px rgba(0, 0, 0, 0.28);
   --shadow-md: 0 4px 20px rgba(0, 0, 0, 0.35);
   --shadow-lg: 0 8px 36px rgba(0, 0, 0, 0.42);
   --glass-bg: rgba(21, 19, 16, 0.75);
-  --scrollbar-track: #1C1917;
+  --scrollbar-track: #1c1917;
   --scrollbar-thumb: rgba(116, 198, 157, 0.3);
   --code-bg: rgba(45, 106, 79, 0.2);
-  --code-text: #95D5B2;
+  --code-text: #95d5b2;
   /* 器灵光晕 */
   --spirit-aura: rgba(116, 198, 157, 0.06);
   --spirit-border: rgba(116, 198, 157, 0.14);
 }
 
 /* ========== 全局基础 ============ */
-* { box-sizing: border-box; }
+* {
+  box-sizing: border-box;
+}
 
 body {
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+  font-family:
+    'Inter',
+    -apple-system,
+    BlinkMacSystemFont,
+    'PingFang SC',
+    'Hiragino Sans GB',
+    'Microsoft YaHei',
+    sans-serif;
   background: var(--bg-primary) !important;
   color: var(--text-primary);
   border: none !important;
-  transition: background-color 0.5s ease, color 0.5s ease;
+  transition:
+    background-color 0.5s ease,
+    color 0.5s ease;
   overflow: hidden;
 }
 
@@ -93,8 +104,13 @@ code {
 }
 
 /* ========== 滚动条 - 玉质简约 ========= */
-::-webkit-scrollbar { width: 5px; height: 5px; }
-::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
 ::-webkit-scrollbar-thumb {
   background: var(--scrollbar-thumb);
   border-radius: 10px;
@@ -103,7 +119,10 @@ code {
 ::-webkit-scrollbar-thumb:hover {
   background: var(--accent-color);
 }
-* { scrollbar-width: thin; scrollbar-color: var(--scrollbar-thumb) transparent; }
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) transparent;
+}
 
 /* ========== Header 头部 ============== */
 .header {
@@ -130,8 +149,16 @@ code {
   opacity: 0.3;
 }
 
-.header-logo { display: flex; align-items: center; gap: 0.4rem; }
-.header-icons { display: flex; gap: 0.65rem; align-items: center; }
+.header-logo {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.header-icons {
+  display: flex;
+  gap: 0.65rem;
+  align-items: center;
+}
 .header-icon {
   color: var(--accent-color);
   cursor: pointer;
@@ -176,7 +203,9 @@ code {
 }
 .paper-card:hover {
   border-color: var(--border-hover);
-  box-shadow: var(--shadow-md), 0 0 20px var(--spirit-aura);
+  box-shadow:
+    var(--shadow-md),
+    0 0 20px var(--spirit-aura);
   background: var(--bg-card-hover);
   transform: translateY(-1px);
 }
@@ -194,7 +223,9 @@ code {
   border-color: var(--accent-color);
   box-shadow: 0 0 0 3px var(--accent-glow);
 }
-.jade-input::placeholder { color: var(--text-muted); }
+.jade-input::placeholder {
+  color: var(--text-muted);
+}
 
 /* ========== 按钮 - 玉石/金色 ========== */
 .jade-btn {
@@ -207,30 +238,51 @@ code {
   transition: all 0.25s ease;
   position: relative;
   overflow: hidden;
-  background: linear-gradient(135deg, #2D6A4F, #40916C);
+  background: linear-gradient(135deg, #2d6a4f, #40916c);
 }
 .jade-btn::before {
   content: '';
   position: absolute;
   inset: 0;
-  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.12), transparent);
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.12), transparent);
   transform: translateX(-100%);
   transition: transform 0.5s ease;
 }
-.jade-btn:hover::before { transform: translateX(100%); }
+.jade-btn:hover::before {
+  transform: translateX(100%);
+}
 .jade-btn:hover {
   transform: translateY(-1px);
   box-shadow: 0 4px 16px rgba(64, 145, 108, 0.3);
 }
-.jade-btn:active { transform: translateY(0); }
-.jade-btn:disabled { opacity: 0.45; cursor: not-allowed; transform: none !important; box-shadow: none !important; }
+.jade-btn:active {
+  transform: translateY(0);
+}
+.jade-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  transform: none !important;
+  box-shadow: none !important;
+}
 
-.jade-btn-danger { background: linear-gradient(135deg, #991B1B, #DC2626); }
-.jade-btn-danger:hover { box-shadow: 0 4px 16px rgba(220, 38, 38, 0.3); }
-.jade-btn-success { background: linear-gradient(135deg, #166534, #22C55E); }
-.jade-btn-success:hover { box-shadow: 0 4px 16px rgba(34, 197, 94, 0.3); }
-.jade-btn-gold { background: linear-gradient(135deg, #B45309, #D97706); }
-.jade-btn-gold:hover { box-shadow: 0 4px 16px rgba(217, 119, 6, 0.3); }
+.jade-btn-danger {
+  background: linear-gradient(135deg, #991b1b, #dc2626);
+}
+.jade-btn-danger:hover {
+  box-shadow: 0 4px 16px rgba(220, 38, 38, 0.3);
+}
+.jade-btn-success {
+  background: linear-gradient(135deg, #166534, #22c55e);
+}
+.jade-btn-success:hover {
+  box-shadow: 0 4px 16px rgba(34, 197, 94, 0.3);
+}
+.jade-btn-gold {
+  background: linear-gradient(135deg, #b45309, #d97706);
+}
+.jade-btn-gold:hover {
+  box-shadow: 0 4px 16px rgba(217, 119, 6, 0.3);
+}
 
 /* ========== 消息气泡 - 书信卷轴感 ========= */
 .message-scroll {
@@ -244,7 +296,9 @@ code {
   transition: all 0.3s ease;
   line-height: 1.65;
 }
-.message-scroll:hover { border-color: var(--border-hover); }
+.message-scroll:hover {
+  border-color: var(--border-hover);
+}
 
 /* 用户消息 */
 .message-user {
@@ -255,7 +309,9 @@ code {
 .message-ai {
   border-left: 3px solid var(--gold-color);
 }
-.dark .message-ai { border-left-color: var(--gold-color); }
+.dark .message-ai {
+  border-left-color: var(--gold-color);
+}
 
 /* ========== 角色头像 - 灵珠光环 ========= */
 .spirit-ring {
@@ -268,10 +324,16 @@ code {
   transition: all 0.35s ease;
 }
 .spirit-ring:hover {
-  box-shadow: 0 0 20px var(--accent-glow), 0 0 40px var(--spirit-aura);
+  box-shadow:
+    0 0 20px var(--accent-glow),
+    0 0 40px var(--spirit-aura);
   transform: rotate(5deg);
 }
-.spirit-ring img { border-radius: 50%; width: 100%; height: 100%; }
+.spirit-ring img {
+  border-radius: 50%;
+  width: 100%;
+  height: 100%;
+}
 
 /* ========== 收藏卡片 - 笔墨笺纸 ========== */
 .bookmark-scroll {
@@ -296,12 +358,22 @@ code {
 }
 .bookmark-scroll:hover {
   border-color: var(--accent-color);
-  box-shadow: var(--shadow-md), 0 0 24px var(--spirit-aura);
+  box-shadow:
+    var(--shadow-md),
+    0 0 24px var(--spirit-aura);
   transform: translateY(-2px) scale(1.008);
 }
-.bookmark-scroll:hover::before { opacity: 1; }
-.bookmark-scroll:active { cursor: grabbing; transform: scale(0.98); }
-.bookmark-scroll.dragging { opacity: 0.4; transform: scale(0.95) rotate(1.5deg); }
+.bookmark-scroll:hover::before {
+  opacity: 1;
+}
+.bookmark-scroll:active {
+  cursor: grabbing;
+  transform: scale(0.98);
+}
+.bookmark-scroll.dragging {
+  opacity: 0.4;
+  transform: scale(0.95) rotate(1.5deg);
+}
 
 /* ========== 历史记录 - 古籍目录 ========== */
 .history-item {
@@ -328,11 +400,15 @@ code {
 }
 .history-item:hover {
   border-color: var(--border-hover);
-  box-shadow: var(--shadow-sm), 0 0 16px var(--spirit-aura);
+  box-shadow:
+    var(--shadow-sm),
+    0 0 16px var(--spirit-aura);
   transform: translateX(3px);
   background: var(--bg-surface);
 }
-.history-item:hover::after { transform: scaleX(1); }
+.history-item:hover::after {
+  transform: scaleX(1);
+}
 
 /* 球球发起的历史记录 - 暖色调左边框 */
 .history-item-ball {
@@ -342,7 +418,7 @@ code {
   border-left-color: rgba(245, 158, 11, 0.4);
 }
 .history-item-ball:hover {
-  border-left-color: #D97706;
+  border-left-color: #d97706;
 }
 
 /* ========== 进度条 - 墨迹流动 ========== */
@@ -382,14 +458,22 @@ code {
 }
 
 /* ========== Scrollbar Gutter ============ */
-.scrollbar-gutter-stable { scrollbar-gutter: stable; }
-.scrollbar-gutter-stable::-webkit-scrollbar { width: 5px; }
-.scrollbar-gutter-stable::-webkit-scrollbar-track { background: transparent; }
+.scrollbar-gutter-stable {
+  scrollbar-gutter: stable;
+}
+.scrollbar-gutter-stable::-webkit-scrollbar {
+  width: 5px;
+}
+.scrollbar-gutter-stable::-webkit-scrollbar-track {
+  background: transparent;
+}
 .scrollbar-gutter-stable::-webkit-scrollbar-thumb {
   background: var(--scrollbar-thumb);
   border-radius: 10px;
 }
-.scrollbar-gutter-stable::-webkit-scrollbar-thumb:hover { background: var(--accent-color); }
+.scrollbar-gutter-stable::-webkit-scrollbar-thumb:hover {
+  background: var(--accent-color);
+}
 
 /* ========== 空状态 - 清雅留白 ========= */
 .empty-state {
@@ -427,7 +511,10 @@ code {
   cursor: pointer;
   transition: background 0.2s ease;
 }
-.file-tag .remove-btn:hover { background: rgba(220, 38, 38, 0.12); color: #DC2626; }
+.file-tag .remove-btn:hover {
+  background: rgba(220, 38, 38, 0.12);
+  color: #dc2626;
+}
 
 /* ========== 录音指示 - 灵符闪烁 ========== */
 .recording-indicator {
@@ -438,15 +525,16 @@ code {
   border-radius: 20px;
   background: rgba(220, 38, 38, 0.08);
   border: 1px solid rgba(220, 38, 38, 0.2);
-  color: #DC2626;
+  color: #dc2626;
   font-size: 0.72rem;
   font-weight: 500;
   animation: spirit-breathe 1.5s ease-in-out infinite;
 }
 .recording-indicator .dot {
-  width: 5px; height: 5px;
+  width: 5px;
+  height: 5px;
   border-radius: 50%;
-  background: #DC2626;
+  background: #dc2626;
   animation: spirit-blink 1s ease-in-out infinite;
 }
 
@@ -472,7 +560,9 @@ code {
   text-align: left;
   background: var(--bg-card);
   border: 1px solid var(--spirit-border);
-  box-shadow: var(--shadow-sm), 0 0 16px var(--spirit-aura);
+  box-shadow:
+    var(--shadow-sm),
+    0 0 16px var(--spirit-aura);
   animation: fade-in-up 0.3s ease-out;
   word-break: break-word;
   color: var(--text-primary);
@@ -493,7 +583,9 @@ code {
 /* 吐槽/闲聊类气泡 - 金色点缀 */
 .spirit-bubble.chatting {
   border-color: var(--gold-glow);
-  box-shadow: var(--shadow-sm), 0 0 20px var(--gold-glow);
+  box-shadow:
+    var(--shadow-sm),
+    0 0 20px var(--gold-glow);
 }
 .spirit-bubble.chatting::after {
   border-color: var(--gold-glow) transparent transparent var(--gold-glow);
@@ -517,10 +609,11 @@ code {
 
 /* 过渡动画 */
 .transition-theme {
-  transition: background-color 0.5s ease,
-              border-color 0.5s ease,
-              color 0.5s ease,
-              box-shadow 0.5s ease;
+  transition:
+    background-color 0.5s ease,
+    border-color 0.5s ease,
+    color 0.5s ease,
+    box-shadow 0.5s ease;
 }
 
 /* 选择高亮 */

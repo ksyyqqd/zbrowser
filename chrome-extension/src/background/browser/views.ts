@@ -33,6 +33,26 @@ export interface BrowserContextConfig {
   waitBetweenActions: number;
 
   /**
+   * Enable smart waiting after actions (network + DOM stability check)
+   * When enabled, waits until page is stable instead of fixed delay
+   * @default true
+   */
+  smartWaitEnabled: boolean;
+
+  /**
+   * Maximum time to wait for page stability after action (seconds)
+   * Smart wait will return early when page is stable
+   * @default 2.0
+   */
+  smartWaitMaxTimeout: number;
+
+  /**
+   * Time to consider DOM stable (no mutations for this duration in seconds)
+   * @default 0.1 (100ms)
+   */
+  smartWaitDomStableTime: number;
+
+  /**
    * Default browser window size
    * @default { width: 1280, height: 1100 }
    */
@@ -83,6 +103,9 @@ export const DEFAULT_BROWSER_CONTEXT_CONFIG: BrowserContextConfig = {
   waitForNetworkIdlePageLoadTime: 0.5,
   maximumWaitPageLoadTime: 5.0,
   waitBetweenActions: 0.5,
+  smartWaitEnabled: true,
+  smartWaitMaxTimeout: 2.0,
+  smartWaitDomStableTime: 0.1,
   browserWindowSize: { width: 1280, height: 1100 },
   viewportExpansion: 0,
   allowedUrls: [],

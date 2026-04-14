@@ -427,8 +427,8 @@ export class NavigatorAgent extends BaseAgent<z.ZodType, NavigatorResult> {
         if (this.context.paused || this.context.stopped) {
           return results;
         }
-        // TODO: wait for 1 second for now, need to optimize this to avoid unnecessary waiting
-        await new Promise(resolve => setTimeout(resolve, 1000));
+        // Smart wait for page stability after action (replaces fixed 1s delay)
+        await browserContext.waitForPageStability();
       } catch (error) {
         if (error instanceof URLNotAllowedError) {
           throw error;

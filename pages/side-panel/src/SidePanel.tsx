@@ -132,6 +132,8 @@ const SidePanel = () => {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   // 设置输入文本的引用
   const setInputTextRef = useRef<((text: string) => void) | null>(null);
+  // 当前球球模式引用（用于在发送任务时包装内容）
+  const spiritModeRef = useRef<'auto' | 'mischief' | 'sleepy' | 'curious' | 'farmer'>('auto');
   // 媒体录制器引用
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   // 音频片段引用
@@ -939,6 +941,37 @@ const SidePanel = () => {
 
     if (!trimmedText) return;
 
+    // 农场主模式：包装用户任务为AI农场优先策略
+    let finalText = trimmedText;
+    let finalDisplayText = displayText || trimmedText;
+
+    if (spiritModeRef.current === 'farmer') {
+      const farmerWrapper = `[农场主模式] 请按以下策略处理用户的任务：
+
+## AI农场优先访问顺序
+1. **DeepSeek** (https://chat.deepseek.com) - 深度推理能力强，适合复杂分析
+2. **通义千问** (https://www.qianwen.com) - 阿里云AI，中文理解优秀
+
+## 执行策略
+- 首先打开第一个可访问的AI网站，在输入框中输入用户问题
+- **重要：必须对是输入框使用Enter键提交内容，而不是在全局页面发送Enter**，不要点击发送按钮
+- 发送完成后，检查是否发送成功（确认输入框已清空或有回复出现）
+- 如果Enter键提交失败，可尝试其他提交方式
+- 等待AI回复，记录关键信息
+- 继续访问下一个AI网站获取不同视角
+- 最后汇总各个AI的回答，形成综合对比报告
+- 如果某个网站需要登录，跳过继续下一个
+
+---
+
+## 用户任务
+${trimmedText}`;
+
+      finalText = farmerWrapper;
+      finalDisplayText = `🌾 [农场主模式] ${trimmedText}`;
+      console.log('[农场主模式] 包装任务完成');
+    }
+
     // 检查输入是否为命令（以/开头）
     if (trimmedText.startsWith('/')) {
       // 处理命令，如果已处理则返回
@@ -953,75 +986,78 @@ const SidePanel = () => {
     }
 
     try {
+      // 第一步：确保连接已建立
+      if (!portRef.current) {
+        setupConnection();
+        // 等待连接建立（给一点时间让连接初始化）
+        await new Promise(resolve => setTimeout(resolve, 100));
+        if (!portRef.current) {
+          throw new Error('连接建立失败，请重试');
+        }
+      }
+
+      // 第二步：获取活动标签页
       const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
       const tabId = tabs[0]?.id;
       if (!tabId) {
         throw new Error('未找到活动标签页');
       }
 
-      // 记住目标标签ID，供遮罩/重播等功能使用（切换标签后仍能操作）
+      // 记住目标标签ID
       targetTabIdRef.current = tabId;
 
-      setInputEnabled(false);
-      setShowStopButton(true);
-
-      // 如果不在跟进模式下，则为该任务创建新的聊天会话
+      // 第三步：如果不在跟进模式下，创建新的聊天会话
       if (!isFollowUpMode) {
-        // 如有显示文本则使用它作为会话标题，否则使用完整文本
-        const titleText = displayText || text;
+        const titleText = finalDisplayText;
         const newSession = await chatHistoryStore.createSession(
           titleText.substring(0, 50) + (titleText.length > 50 ? '...' : ''),
         );
         console.log('新会话', newSession);
 
-        // 在状态和引用中存储会话ID
         const sessionId = newSession.id;
         setCurrentSessionId(sessionId);
         sessionIdRef.current = sessionId;
       }
 
+      // 第四步：添加用户消息到UI（此时连接已准备好）
       const userMessage = {
         actor: Actors.USER,
-        content: displayText || text, // 在聊天UI中使用显示文本，后台服务使用完整文本
+        content: finalDisplayText,
         timestamp: Date.now(),
       };
-
-      // 将sessionId直接传递给appendMessage
       appendMessage(userMessage, sessionIdRef.current);
 
-      // 如果不存在则设置连接
-      if (!portRef.current) {
-        setupConnection();
-      }
-
-      // 使用实用函数发送消息
+      // 第五步：发送消息到后台（发送成功后才更新状态）
       if (isFollowUpMode) {
-        // 作为跟进任务发送
         await sendMessage({
           type: 'follow_up_task',
-          task: text,
+          task: finalText,
           taskId: sessionIdRef.current,
           tabId,
         });
-        console.log('跟进任务已发送', text, tabId, sessionIdRef.current);
+        console.log('跟进任务已发送', finalText, tabId, sessionIdRef.current);
       } else {
-        // 作为新任务发送
         await sendMessage({
           type: 'new_task',
-          task: text,
+          task: finalText,
           taskId: sessionIdRef.current,
           tabId,
         });
-        console.log('新任务已发送', text, tabId, sessionIdRef.current);
+        console.log('新任务已发送', finalText, tabId, sessionIdRef.current);
       }
+
+      // 第六步：发送成功后，更新UI状态为"执行中"
+      setInputEnabled(false);
+      setShowStopButton(true);
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : String(err);
       console.error('任务错误', errorMessage);
       appendMessage({
         actor: Actors.SYSTEM,
-        content: errorMessage,
+        content: `⚠️ 发送失败: ${errorMessage}`,
         timestamp: Date.now(),
       });
+      // 发送失败，恢复状态
       setInputEnabled(true);
       setShowStopButton(false);
       stopConnection();
@@ -1855,6 +1891,10 @@ const SidePanel = () => {
                           console.error('遮罩效果失败:', err);
                         }
                       }
+                    }}
+                    onModeChange={mode => {
+                      console.log('[球球模式变化]', mode);
+                      spiritModeRef.current = mode;
                     }}
                   />
                 </div>

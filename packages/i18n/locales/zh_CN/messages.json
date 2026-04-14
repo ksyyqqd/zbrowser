@@ -286,6 +286,21 @@
   "options_general_showSpotlight_desc": {
     "message": "AI执行任务时在页面显示半透明遮罩提示（关闭后不影响功能）"
   },
+  "options_general_viewportExpansion": {
+    "message": "视口扩展范围"
+  },
+  "options_general_viewportExpansion_desc": {
+    "message": "控制哪些可交互元素显示给AI。0=仅显示可视元素，-1=显示整页所有元素，>0=扩展视口边界N像素"
+  },
+  "options_general_viewportExpansion_option_visible": {
+    "message": "仅显示可视元素"
+  },
+  "options_general_viewportExpansion_option_all": {
+    "message": "显示整页所有元素"
+  },
+  "options_general_viewportExpansion_option_expanded": {
+    "message": "扩展 {0} 像素"
+  },
   "options_models_providers_header": {
     "message": "LLM 提供者"
   },

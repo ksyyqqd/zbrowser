@@ -36,6 +36,10 @@ export interface ExecutorExtraArgs {
   extractorLLM?: BaseChatModel;
   agentOptions?: Partial<AgentOptions>;
   generalSettings?: GeneralSettingsConfig;
+  navigatorProvider?: string;
+  navigatorModelName?: string;
+  plannerProvider?: string;
+  plannerModelName?: string;
   mcpService?: {
     executeTool: (serverId: string, toolName: string, args: Record<string, unknown>) => Promise<ToolExecutionResult>;
     listTools: (serverId?: string) => Promise<MCPTool[]>;
@@ -76,6 +80,10 @@ export class Executor {
       messageManager,
       eventManager,
       extraArgs?.agentOptions ?? {},
+      extraArgs?.navigatorProvider ?? '',
+      extraArgs?.navigatorModelName ?? '',
+      extraArgs?.plannerProvider ?? '',
+      extraArgs?.plannerModelName ?? '',
     );
 
     this.generalSettings = extraArgs?.generalSettings;

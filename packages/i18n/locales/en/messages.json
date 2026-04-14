@@ -286,6 +286,21 @@
   "options_general_showSpotlight_desc": {
     "message": "Display a semi-transparent overlay on the page while AI is executing tasks (disabling won't affect functionality)"
   },
+  "options_general_viewportExpansion": {
+    "message": "Viewport Expansion Range"
+  },
+  "options_general_viewportExpansion_desc": {
+    "message": "Controls which interactive elements are shown to AI. 0 = only visible elements, -1 = all page elements, >0 = expand viewport boundary by N pixels"
+  },
+  "options_general_viewportExpansion_option_visible": {
+    "message": "Only visible elements"
+  },
+  "options_general_viewportExpansion_option_all": {
+    "message": "All page elements"
+  },
+  "options_general_viewportExpansion_option_expanded": {
+    "message": "Expand by {0} pixels"
+  },
 
   "options_models_providers_header": {
     "message": "LLM Providers"

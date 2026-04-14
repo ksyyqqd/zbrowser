@@ -286,6 +286,21 @@
   "options_general_showSpotlight_desc": {
     "message": "Exibir uma sobreposição semi-transparente na página enquanto a IA está executando tarefas (desativar não afeta a funcionalidade)"
   },
+  "options_general_viewportExpansion": {
+    "message": "Expansão daViewport"
+  },
+  "options_general_viewportExpansion_desc": {
+    "message": "Controla quais elementos interativos são mostrados à IA. 0 = apenas elementos visíveis, -1 = todos os elementos da página, >0 = expandir borda da viewport por N pixels"
+  },
+  "options_general_viewportExpansion_option_visible": {
+    "message": "Apenas elementos visíveis"
+  },
+  "options_general_viewportExpansion_option_all": {
+    "message": "Todos os elementos da página"
+  },
+  "options_general_viewportExpansion_option_expanded": {
+    "message": "Expandir por {0} pixels"
+  },
   "options_models_providers_header": {
     "message": "Provedores de LLM"
   },
