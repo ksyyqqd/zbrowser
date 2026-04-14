@@ -16,7 +16,6 @@ import {
   RequestCancelledError,
 } from './errors';
 import { filterExternalContent } from '../messages/utils';
-import { supportsVision } from '../helper';
 const logger = createLogger('PlannerAgent');
 
 // Define Zod schema for planner output
@@ -60,18 +59,7 @@ export class PlannerAgent extends BaseAgent<typeof plannerOutputSchema, PlannerO
       const plannerMessages = [this.prompt.getSystemMessage(), ...messages.slice(1)];
 
       // Remove images from last message if vision is not enabled for planner but vision is enabled
-      // Check if planner model supports vision
-      const plannerModelSupportsVision = supportsVision(this.context.plannerProvider, this.context.plannerModelName);
-      const shouldRemoveImages = !this.context.options.useVisionForPlanner || !plannerModelSupportsVision;
-
-      if (shouldRemoveImages && this.context.options.useVision) {
-        // Log why images are being removed
-        if (!plannerModelSupportsVision) {
-          logger.warning(
-            `Planner model ${this.context.plannerProvider}/${this.context.plannerModelName} does not support image input. Images are automatically removed.`,
-          );
-        }
-
+      if (!this.context.options.useVisionForPlanner && this.context.options.useVision) {
         const lastStateMessage = plannerMessages[plannerMessages.length - 1];
         let newMsg = '';
 

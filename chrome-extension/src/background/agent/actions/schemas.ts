@@ -213,3 +213,20 @@ export const waitActionSchema: ActionSchema = {
     seconds: z.number().int().default(3).describe('amount of seconds'),
   }),
 };
+
+// Get full HTML content action
+export const getFullHtmlActionSchema: ActionSchema = {
+  name: 'get_full_html',
+  description:
+    'Get the complete HTML content of the current page or a specific element by index. Use this when the simplified element tags are not sufficient to understand the page structure or content. WARNING: This may return large content, use sparingly.',
+  schema: z.object({
+    intent: z.string().default('').describe('purpose of this action'),
+    index: z
+      .number()
+      .int()
+      .nullable()
+      .optional()
+      .describe('index of the element to get HTML for (optional, if not provided returns full page HTML)'),
+    max_length: z.number().int().default(5000).describe('maximum length of HTML to return (default 5000 chars)'),
+  }),
+};

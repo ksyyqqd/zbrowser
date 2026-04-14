@@ -2,7 +2,6 @@ import { HumanMessage, type SystemMessage } from '@langchain/core/messages';
 import type { AgentContext } from '@src/background/agent/types';
 import { wrapUntrustedContent } from '../messages/utils';
 import { createLogger } from '@src/background/log';
-import { supportsVision } from '../helper';
 
 const logger = createLogger('BasePrompt');
 /**
@@ -28,18 +27,26 @@ abstract class BasePrompt {
    * @returns HumanMessage from LangChain
    */
   async buildBrowserStateUserMessage(context: AgentContext): Promise<HumanMessage> {
-    // Check if the model supports vision before using it
-    const modelSupportsVision = supportsVision(context.navigatorProvider, context.navigatorModelName);
-    const effectiveUseVision = context.options.useVision && modelSupportsVision;
+    // 视觉模式状态
+    const visionEnabled = context.options.useVision;
+    logger.info('========== Vision Mode Status ==========');
+    logger.info(`Vision mode setting: ${visionEnabled ? 'ENABLED' : 'DISABLED'}`);
 
-    // Log vision capability check
-    if (context.options.useVision && !modelSupportsVision) {
-      logger.warning(
-        `Vision mode is enabled but model ${context.navigatorProvider}/${context.navigatorModelName} does not support image input. Vision is automatically disabled.`,
-      );
+    const browserState = await context.browserContext.getState(context.options.useVision);
+
+    // 截图状态
+    if (visionEnabled) {
+      if (browserState.screenshot) {
+        logger.info(`Screenshot captured: YES (${browserState.screenshot.length} chars base64)`);
+        logger.info(`Screenshot will be sent to AI: YES`);
+      } else {
+        logger.warning('Screenshot captured: NO - Vision enabled but screenshot is empty');
+      }
+    } else {
+      logger.info('Screenshot: Not captured (vision mode disabled)');
     }
+    logger.info('========================================');
 
-    const browserState = await context.browserContext.getState(effectiveUseVision);
     const rawElementsText = browserState.elementTree.clickableElementsToString(context.options.includeAttributes);
 
     // Debug: 输出页面内容解析结果
@@ -109,13 +116,22 @@ ${actionResultsDescription}
 
     // Debug: 输出最终传递给 AI 的完整用户消息
     logger.info('--- Final User Message to AI ---');
-    logger.info(`Total message length: ${stateDescription.length} chars`);
-    logger.info(`Has screenshot: ${!!browserState.screenshot && effectiveUseVision}`);
+    logger.info(`Total text message length: ${stateDescription.length} chars`);
+
+    // 视觉消息状态
+    const hasScreenshot = !!browserState.screenshot && context.options.useVision;
+    if (hasScreenshot) {
+      logger.info(`*** VISION ACTIVE *** Screenshot included in message`);
+      logger.info(`Screenshot size: ~${Math.round((browserState.screenshot?.length || 0) / 1024)} KB (base64)`);
+    } else {
+      logger.info(`*** VISION INACTIVE *** No screenshot in message`);
+    }
+
     logger.info('--- Complete State Description ---');
     logger.info(stateDescription);
 
-    // Only add screenshot if model supports vision
-    if (browserState.screenshot && effectiveUseVision) {
+    if (browserState.screenshot && context.options.useVision) {
+      logger.info('>>> Sending multimodal message (text + image) to AI');
       return new HumanMessage({
         content: [
           { type: 'text', text: stateDescription },
@@ -127,6 +143,7 @@ ${actionResultsDescription}
       });
     }
 
+    logger.info('>>> Sending text-only message to AI');
     return new HumanMessage(stateDescription);
   }
 }

@@ -52,7 +52,12 @@ export default class MessageManager {
     this.toolId = 1;
   }
 
-  public initTaskMessages(systemMessage: SystemMessage, task: string, messageContext?: string): void {
+  public initTaskMessages(
+    systemMessage: SystemMessage,
+    task: string,
+    messageContext?: string,
+    images?: { name: string; base64: string }[],
+  ): void {
     // Add system message
     this.addMessageWithTokens(systemMessage, 'init');
 
@@ -64,8 +69,8 @@ export default class MessageManager {
       this.addMessageWithTokens(contextMessage, 'init');
     }
 
-    // Add task instructions
-    const taskMessage = MessageManager.taskInstructions(task);
+    // Add task instructions (支持图片)
+    const taskMessage = MessageManager.taskInstructions(task, images);
     this.addMessageWithTokens(taskMessage, 'init');
 
     // Add sensitive data info if sensitive data is provided
@@ -139,11 +144,12 @@ export default class MessageManager {
   }
 
   /**
-   * Createthe task instructions
+   * Create the task instructions
    * @param task - The raw description of the task
+   * @param images - Optional user-uploaded images
    * @returns A HumanMessage object containing the task instructions
    */
-  private static taskInstructions(task: string): HumanMessage {
+  private static taskInstructions(task: string, images?: { name: string; base64: string }[]): HumanMessage {
     const { userText, attachmentsInner } = splitUserTextAndAttachments(task);
 
     // Filter and wrap user text
@@ -151,13 +157,38 @@ export default class MessageManager {
     const content = `Your ultimate task is: """${cleanedTask}""". If you achieved your ultimate task, stop everything and use the done action in the next step to complete the task. If not, continue as usual.`;
     const wrappedUser = wrapUserRequest(content, false);
 
-    // Filter and wrap attachments as untrusted content
+    // Build text content with attachments
+    let textContent = wrappedUser;
     if (attachmentsInner && attachmentsInner.length > 0) {
       const wrappedFiles = wrapAttachments(attachmentsInner);
-      return new HumanMessage({ content: `${wrappedUser}\n\n${wrappedFiles}` });
+      textContent = `${wrappedUser}\n\n${wrappedFiles}`;
     }
 
-    return new HumanMessage({ content: wrappedUser });
+    // Add image info if images provided
+    if (images && images.length > 0) {
+      const imageInfo = images.map(img => `用户提供的图片: ${img.name}`).join('\n');
+      textContent = `${textContent}\n\n${imageInfo}`;
+    }
+
+    // 如果有图片，创建多模态消息
+    if (images && images.length > 0) {
+      const messageContent: Array<{ type: string; text?: string; image_url?: { url: string } }> = [
+        { type: 'text', text: textContent },
+      ];
+
+      // 添加每张图片
+      for (const img of images) {
+        messageContent.push({
+          type: 'image_url',
+          image_url: { url: `data:image/jpeg;base64,${img.base64}` },
+        });
+      }
+
+      logger.info(`Task message with ${images.length} user-provided images`);
+      return new HumanMessage({ content: messageContent });
+    }
+
+    return new HumanMessage({ content: textContent });
   }
 
   /**

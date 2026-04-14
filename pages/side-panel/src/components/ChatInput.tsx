@@ -1,10 +1,10 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
-import { FaMicrophone } from 'react-icons/fa';
+import { FaMicrophone, FaImage } from 'react-icons/fa';
 import { AiOutlineLoading3Quarters } from 'react-icons/ai';
 import { t } from '@extension/i18n';
 
 interface ChatInputProps {
-  onSendMessage: (text: string, displayText?: string) => void;
+  onSendMessage: (text: string, displayText?: string, images?: { name: string; base64: string }[]) => void;
   onStopTask: () => void;
   onMicClick?: () => void;
   isRecording?: boolean;
@@ -23,6 +23,17 @@ interface AttachedFile {
   type: string;
 }
 
+interface AttachedImage {
+  id: string;
+  base64: string;
+  previewUrl: string;
+  name: string;
+  size: number; // in KB
+}
+
+// Generate unique ID
+const generateId = () => Math.random().toString(36).substring(2, 9);
+
 export default function ChatInput({
   onSendMessage,
   onStopTask,
@@ -38,12 +49,17 @@ export default function ChatInput({
 }: ChatInputProps) {
   const [text, setText] = useState('');
   const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([]);
+  const [attachedImages, setAttachedImages] = useState<AttachedImage[]>([]);
+  const [isPasteHintVisible, setIsPasteHintVisible] = useState(false);
+
   const isSendButtonDisabled = useMemo(
-    () => disabled || (text.trim() === '' && attachedFiles.length === 0),
-    [disabled, text, attachedFiles],
+    () => disabled || (text.trim() === '' && attachedFiles.length === 0 && attachedImages.length === 0),
+    [disabled, text, attachedFiles, attachedImages],
   );
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const imageInputRef = useRef<HTMLInputElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
 
   const handleTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setText(e.target.value);
@@ -70,10 +86,12 @@ export default function ChatInput({
     (e: React.FormEvent) => {
       e.preventDefault();
       const trimmedText = text.trim();
-      if (!trimmedText && attachedFiles.length === 0) return;
+      if (!trimmedText && attachedFiles.length === 0 && attachedImages.length === 0) return;
 
       let messageContent = trimmedText;
       let displayContent = trimmedText;
+
+      // 处理文件附件
       if (attachedFiles.length > 0) {
         const fileContents = attachedFiles
           .map(f => `\n\n<nano_file_content type="file" name="${f.name}">\n${f.content}\n</nano_file_content>`)
@@ -84,11 +102,41 @@ export default function ChatInput({
         const fileList = attachedFiles.map(f => `📎 ${f.name}`).join('\n');
         displayContent = trimmedText ? `${trimmedText}\n\n${fileList}` : fileList;
       }
-      onSendMessage(messageContent, displayContent);
+
+      // 处理图片附件 - 将图片 base64 信息包含在消息中
+      if (attachedImages.length > 0) {
+        const imageInfo = attachedImages
+          .map(
+            img =>
+              `<nano_attached_image name="${img.name}" size="${img.size}KB" base64_length="${img.base64.length}" />`,
+          )
+          .join('\n');
+
+        if (messageContent) {
+          messageContent = `${messageContent}\n\n<nano_attached_images>\n${imageInfo}\n</nano_attached_images>`;
+        } else {
+          messageContent = `<nano_attached_images>\n${imageInfo}\n</nano_attached_images>`;
+        }
+
+        // 注意：图片 base64 数据通过 sendMessage 的额外参数传递
+        const imageList = attachedImages.map(img => `🖼️ ${img.name} (${img.size}KB)`).join('\n');
+        displayContent = displayContent ? `${displayContent}\n\n${imageList}` : imageList;
+      }
+
+      // 将图片数据作为额外参数传递
+      const imageData =
+        attachedImages.length > 0 ? attachedImages.map(img => ({ name: img.name, base64: img.base64 })) : undefined;
+
+      // 调用扩展的 onSendMessage（支持图片参数）
+      onSendMessage(messageContent, displayContent, imageData);
+
+      // 清理状态
       setText('');
       setAttachedFiles([]);
+      attachedImages.forEach(img => URL.revokeObjectURL(img.previewUrl));
+      setAttachedImages([]);
     },
-    [text, attachedFiles, onSendMessage],
+    [text, attachedFiles, attachedImages, onSendMessage],
   );
 
   const handleKeyDown = useCallback(
@@ -131,8 +179,120 @@ export default function ChatInput({
     [],
   );
 
+  // ===== 图片处理 =====
+
+  // 处理图片文件
+  const processImageFile = useCallback(async (file: File): Promise<AttachedImage | null> => {
+    // 检查文件类型
+    if (!file.type.startsWith('image/')) {
+      console.warn('非图片文件:', file.name);
+      return null;
+    }
+
+    // 检查文件大小 (最大 5MB)
+    const maxSize = 5 * 1024 * 1024;
+    if (file.size > maxSize) {
+      console.warn('图片过大:', file.name, `${Math.round(file.size / 1024)}KB`);
+      return null;
+    }
+
+    try {
+      // 读取为 base64
+      const base64 = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => {
+          const result = reader.result as string;
+          // 提取纯 base64 数据（去掉 data:image/xxx;base64, 前缀）
+          const base64Data = result.split(',')[1];
+          resolve(base64Data);
+        };
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+
+      // 创建预览 URL
+      const previewUrl = URL.createObjectURL(file);
+
+      return {
+        id: generateId(),
+        base64,
+        previewUrl,
+        name: file.name,
+        size: Math.round(file.size / 1024),
+      };
+    } catch (err) {
+      console.error('图片读取失败:', file.name, err);
+      return null;
+    }
+  }, []);
+
+  // 图片选择按钮点击
+  const handleImageSelect = useCallback(() => imageInputRef.current?.click(), []);
+
+  // 图片文件选择
+  const handleImageChange = useCallback(
+    async (e: React.ChangeEvent<HTMLInputElement>) => {
+      const files = e.target.files;
+      if (!files || files.length === 0) return;
+
+      const newImages: AttachedImage[] = [];
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        const image = await processImageFile(file);
+        if (image) newImages.push(image);
+      }
+
+      if (newImages.length > 0) {
+        setAttachedImages(prev => [...prev, ...newImages]);
+      }
+
+      if (imageInputRef.current) imageInputRef.current.value = '';
+    },
+    [processImageFile],
+  );
+
+  // 移除图片
+  const handleRemoveImage = useCallback((id: string) => {
+    setAttachedImages(prev => {
+      const image = prev.find(img => img.id === id);
+      if (image) {
+        URL.revokeObjectURL(image.previewUrl); // 清理预览 URL
+      }
+      return prev.filter(img => img.id !== id);
+    });
+  }, []);
+
+  // 粘贴处理
+  const handlePaste = useCallback(
+    async (e: React.ClipboardEvent) => {
+      const items = e.clipboardData.items;
+
+      for (let i = 0; i < items.length; i++) {
+        const item = items[i];
+
+        // 检查是否是图片
+        if (item.type.startsWith('image/')) {
+          e.preventDefault(); // 阻止默认粘贴行为
+
+          const file = item.getAsFile();
+          if (file) {
+            const image = await processImageFile(file);
+            if (image) {
+              setAttachedImages(prev => [...prev, image]);
+              setIsPasteHintVisible(true);
+              setTimeout(() => setIsPasteHintVisible(false), 2000);
+            }
+          }
+          return;
+        }
+      }
+    },
+    [processImageFile],
+  );
+
   return (
     <form
+      ref={containerRef}
       onSubmit={handleSubmit}
       className={`relative overflow-hidden rounded-lg border transition-colors duration-300 ${
         disabled ? 'opacity-55' : ''
@@ -141,6 +301,48 @@ export default function ChatInput({
       }`}
       aria-label={t('chat_input_form')}>
       <div className="flex flex-col">
+        {/* 粘贴提示 */}
+        {isPasteHintVisible && (
+          <div
+            className={`absolute top-2 left-1/2 -translate-x-1/2 px-3 py-1 rounded-md text-xs z-10 ${
+              isDarkMode ? 'bg-green-900/80 text-green-300' : 'bg-green-100 text-green-700'
+            }`}>
+            📋 图片已粘贴！按 Ctrl+V 可继续添加图片
+          </div>
+        )}
+
+        {/* 图片预览 */}
+        {attachedImages.length > 0 && (
+          <div
+            className={`flex flex-wrap gap-2 border-b p-2 ${
+              isDarkMode ? 'border-jade-border/20' : 'border-[var(--border-color)]'
+            }`}>
+            {attachedImages.map(img => (
+              <div
+                key={img.id}
+                className={`relative group flex items-center gap-2 px-2 py-1 rounded-md ${
+                  isDarkMode ? 'bg-slate-700/50' : 'bg-gray-100'
+                }`}>
+                <img src={img.previewUrl} alt={img.name} className="w-12 h-12 object-cover rounded border" />
+                <div className="flex flex-col text-xs">
+                  <span className={`truncate max-w-[80px] ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
+                    {img.name}
+                  </span>
+                  <span className={`${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>{img.size}KB</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => handleRemoveImage(img.id)}
+                  className={`absolute -top-1 -right-1 w-5 h-5 rounded-full flex items-center justify-center text-xs opacity-0 group-hover:opacity-100 transition-opacity ${
+                    isDarkMode ? 'bg-red-500/80 text-white' : 'bg-red-500 text-white'
+                  }`}>
+                  ✕
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
         {/* 文件附件 */}
         {attachedFiles.length > 0 && (
           <div
@@ -165,6 +367,7 @@ export default function ChatInput({
           value={text}
           onChange={handleTextChange}
           onKeyDown={handleKeyDown}
+          onPaste={handlePaste}
           disabled={disabled}
           aria-disabled={disabled}
           rows={5}
@@ -177,7 +380,11 @@ export default function ChatInput({
                 ? 'bg-transparent text-gray-200'
                 : 'bg-transparent text-gray-700'
           }`}
-          placeholder={attachedFiles.length > 0 ? 'Add a message (optional)...' : t('chat_input_placeholder')}
+          placeholder={
+            attachedFiles.length > 0 || attachedImages.length > 0
+              ? 'Add a message (optional)...'
+              : t('chat_input_placeholder') + ' (支持 Ctrl+V 粘贴图片)'
+          }
           aria-label={t('chat_input_editor')}
         />
 
@@ -187,6 +394,26 @@ export default function ChatInput({
             isDarkMode ? 'border-jade-border/15' : 'border-[var(--border-color)]'
           }`}>
           <div className="flex gap-0.5" style={{ color: `var(--text-muted)` }}>
+            {/* 图片上传按钮 */}
+            <button
+              type="button"
+              onClick={handleImageSelect}
+              disabled={disabled}
+              aria-label="Attach images"
+              title="上传图片 (或 Ctrl+V 粘贴)"
+              className={`icon-btn rounded-md ${disabled ? '!opacity-35 cursor-not-allowed' : ''}`}>
+              <FaImage className="size-4" />
+            </button>
+            <input
+              ref={imageInputRef}
+              type="file"
+              multiple
+              accept="image/*"
+              onChange={handleImageChange}
+              className="hidden"
+              aria-hidden="true"
+            />
+            {/* 文件上传按钮 */}
             <button
               type="button"
               onClick={handleFileSelect}
@@ -205,6 +432,7 @@ export default function ChatInput({
               className="hidden"
               aria-hidden="true"
             />
+            {/* 语音按钮 */}
             {onMicClick && (
               <button
                 type="button"

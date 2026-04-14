@@ -50,6 +50,8 @@ export interface ExecutorExtraArgs {
     listSkills: (category?: string) => Skill[];
     getSkillInfo: (skillId: string) => Skill | undefined;
   };
+  // 用户上传的图片
+  images?: { name: string; base64: string }[];
 }
 
 export class Executor {
@@ -61,6 +63,7 @@ export class Executor {
   private readonly generalSettings: GeneralSettingsConfig | undefined;
   private readonly mcpService?: ExecutorExtraArgs['mcpService'];
   private readonly skillsService?: ExecutorExtraArgs['skillsService'];
+  private readonly userImages?: { name: string; base64: string }[]; // 用户上传的图片
   private tasks: string[] = [];
   constructor(
     task: string,
@@ -89,6 +92,7 @@ export class Executor {
     this.generalSettings = extraArgs?.generalSettings;
     this.mcpService = extraArgs?.mcpService;
     this.skillsService = extraArgs?.skillsService;
+    this.userImages = extraArgs?.images; // 存储用户上传的图片
     this.tasks.push(task);
     this.navigatorPrompt = new NavigatorPrompt(context.options.maxActionsPerStep);
     this.plannerPrompt = new PlannerPrompt();
@@ -143,8 +147,13 @@ export class Executor {
     });
 
     this.context = context;
-    // Initialize message history
-    this.context.messageManager.initTaskMessages(this.navigatorPrompt.getSystemMessage(), task);
+    // Initialize message history (传递用户上传的图片)
+    this.context.messageManager.initTaskMessages(
+      this.navigatorPrompt.getSystemMessage(),
+      task,
+      undefined,
+      this.userImages,
+    );
     // Note: MCP/Skills info will be injected at the start of execute() method
   }
 

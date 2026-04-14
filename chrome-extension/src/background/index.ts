@@ -165,8 +165,13 @@ chrome.runtime.onConnect.addListener(port => {
             if (!message.task) return port.postMessage({ type: 'error', error: t('bg_cmd_newTask_noTask') });
             if (!message.tabId) return port.postMessage({ type: 'error', error: t('bg_errors_noTabId') });
 
-            logger.info('new_task', message.tabId, message.task);
-            currentExecutor = await setupExecutor(message.taskId, message.task, browserContext);
+            logger.info(
+              'new_task',
+              message.tabId,
+              message.task,
+              message.images?.length ? `with ${message.images.length} images` : '',
+            );
+            currentExecutor = await setupExecutor(message.taskId, message.task, browserContext, message.images);
             subscribeToExecutorEvents(currentExecutor);
 
             const result = await currentExecutor.execute();
@@ -331,7 +336,12 @@ chrome.runtime.onConnect.addListener(port => {
   }
 });
 
-async function setupExecutor(taskId: string, task: string, browserContext: BrowserContext) {
+async function setupExecutor(
+  taskId: string,
+  task: string,
+  browserContext: BrowserContext,
+  images?: { name: string; base64: string }[],
+) {
   const providers = await llmProviderStore.getAllProviders();
   // if no providers, need to display the options page
   if (Object.keys(providers).length === 0) {
@@ -403,6 +413,7 @@ async function setupExecutor(taskId: string, task: string, browserContext: Brows
     plannerModelName: plannerModel?.modelName ?? navigatorModel.modelName,
     mcpService: mcpService,
     skillsService: skillsService,
+    images, // 用户上传的图片
   });
 
   return executor;

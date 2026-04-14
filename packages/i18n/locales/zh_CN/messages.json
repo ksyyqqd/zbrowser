@@ -298,9 +298,6 @@
   "options_general_viewportExpansion_option_all": {
     "message": "显示整页所有元素"
   },
-  "options_general_viewportExpansion_option_expanded": {
-    "message": "扩展 {0} 像素"
-  },
   "options_models_providers_header": {
     "message": "LLM 提供者"
   },
@@ -811,6 +808,40 @@
       "seconds": {
         "content": "$1",
         "example": "3"
+      }
+    }
+  },
+  "act_getFullHtml_start": {
+    "message": "正在获取完整HTML内容"
+  },
+  "act_getFullHtml_page_ok": {
+    "message": "已获取页面完整HTML（$LENGTH$ 字符）",
+    "placeholders": {
+      "length": {
+        "content": "$1",
+        "example": "5000"
+      }
+    }
+  },
+  "act_getFullHtml_element_ok": {
+    "message": "已获取元素 $INDEX$ 的HTML（$LENGTH$ 字符）",
+    "placeholders": {
+      "index": {
+        "content": "$1",
+        "example": "5"
+      },
+      "length": {
+        "content": "$2",
+        "example": "500"
+      }
+    }
+  },
+  "act_getFullHtml_failed": {
+    "message": "获取HTML失败：$ERROR$",
+    "placeholders": {
+      "error": {
+        "content": "$1",
+        "example": "元素未找到"
       }
     }
   },

@@ -334,6 +334,44 @@ export default class Page {
     return await this._puppeteerPage.content();
   }
 
+  /**
+   * Get the full HTML content of the page or a specific element
+   * @param elementNode - Optional element node to get HTML for. If not provided, returns full page HTML.
+   * @param maxLength - Maximum length of HTML to return (to avoid token limits)
+   * @returns The HTML content string
+   */
+  async getFullHtml(elementNode?: DOMElementNode, maxLength: number = 5000): Promise<string> {
+    if (!this._puppeteerPage) {
+      throw new Error('Puppeteer page is not connected');
+    }
+
+    let html: string;
+
+    if (elementNode) {
+      // Get HTML for specific element
+      const element = await this.locateElement(elementNode);
+      if (!element) {
+        throw new Error(`Element not found: ${elementNode.xpath}`);
+      }
+
+      html = await element.evaluate((el: Element) => {
+        return el.outerHTML;
+      });
+    } else {
+      // Get full page HTML
+      html = await this._puppeteerPage.evaluate(() => {
+        return document.documentElement.outerHTML;
+      });
+    }
+
+    // Truncate if too long
+    if (html.length > maxLength) {
+      html = html.substring(0, maxLength) + '\n... [HTML truncated due to length limit]';
+    }
+
+    return html;
+  }
+
   getCachedState(): PageState | null {
     return this._cachedState;
   }

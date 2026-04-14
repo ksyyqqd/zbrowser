@@ -298,10 +298,6 @@
   "options_general_viewportExpansion_option_all": {
     "message": "All page elements"
   },
-  "options_general_viewportExpansion_option_expanded": {
-    "message": "Expand by {0} pixels"
-  },
-
   "options_models_providers_header": {
     "message": "LLM Providers"
   },
@@ -818,6 +814,40 @@
       "seconds": {
         "content": "$1",
         "example": "3"
+      }
+    }
+  },
+  "act_getFullHtml_start": {
+    "message": "Getting full HTML content"
+  },
+  "act_getFullHtml_page_ok": {
+    "message": "Full page HTML retrieved ($LENGTH$ chars)",
+    "placeholders": {
+      "length": {
+        "content": "$1",
+        "example": "5000"
+      }
+    }
+  },
+  "act_getFullHtml_element_ok": {
+    "message": "Element $INDEX$ HTML retrieved ($LENGTH$ chars)",
+    "placeholders": {
+      "index": {
+        "content": "$1",
+        "example": "5"
+      },
+      "length": {
+        "content": "$2",
+        "example": "500"
+      }
+    }
+  },
+  "act_getFullHtml_failed": {
+    "message": "Failed to get HTML: $ERROR$",
+    "placeholders": {
+      "error": {
+        "content": "$1",
+        "example": "Element not found"
       }
     }
   },

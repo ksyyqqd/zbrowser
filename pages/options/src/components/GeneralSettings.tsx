@@ -276,9 +276,6 @@ export const GeneralSettings = ({ isDarkMode = false }: GeneralSettingsProps) =>
               className={`w-36 rounded-md border ${isDarkMode ? 'border-slate-600 bg-slate-700 text-gray-200' : 'border-gray-300 bg-white text-gray-700'} px-3 py-2`}>
               <option value={0}>{t('options_general_viewportExpansion_option_visible')}</option>
               <option value={-1}>{t('options_general_viewportExpansion_option_all')}</option>
-              <option value={100}>{t('options_general_viewportExpansion_option_expanded', ['100'])}</option>
-              <option value={200}>{t('options_general_viewportExpansion_option_expanded', ['200'])}</option>
-              <option value={500}>{t('options_general_viewportExpansion_option_expanded', ['500'])}</option>
             </select>
           </div>
         </div>

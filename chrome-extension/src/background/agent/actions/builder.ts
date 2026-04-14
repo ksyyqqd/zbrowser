@@ -22,6 +22,7 @@ import {
   nextPageActionSchema,
   scrollToTopActionSchema,
   scrollToBottomActionSchema,
+  getFullHtmlActionSchema,
 } from './schemas';
 import { mcpToolActionSchema, mcpListToolsActionSchema, mcpGetStatusActionSchema } from './mcpSchemas';
 import { skillInvokeActionSchema, skillListActionSchema, skillGetInfoActionSchema } from './skillSchemas';
@@ -703,6 +704,61 @@ export class ActionBuilder {
       true,
     );
     actions.push(selectDropdownOption);
+
+    // Get full HTML content action
+    const getFullHtml = new Action(
+      async (input: z.infer<typeof getFullHtmlActionSchema.schema>) => {
+        const intent = input.intent || t('act_getFullHtml_start');
+        this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_START, intent);
+
+        const page = await this.context.browserContext.getCurrentPage();
+        const maxLength = input.max_length || 5000;
+
+        try {
+          let html: string;
+
+          if (input.index) {
+            // Get HTML for specific element
+            const state = await page.getState();
+            const elementNode = state?.selectorMap.get(input.index);
+            if (!elementNode) {
+              const errorMsg = t('act_errors_elementNotExist', [input.index.toString()]);
+              this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_FAIL, errorMsg);
+              return new ActionResult({
+                error: errorMsg,
+                includeInMemory: true,
+              });
+            }
+
+            html = await page.getFullHtml(elementNode, maxLength);
+            const msg = t('act_getFullHtml_element_ok', [input.index.toString(), html.length.toString()]);
+            this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_OK, msg);
+          } else {
+            // Get full page HTML
+            html = await page.getFullHtml(undefined, maxLength);
+            const msg = t('act_getFullHtml_page_ok', [html.length.toString()]);
+            this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_OK, msg);
+          }
+
+          // Wrap the HTML content as untrusted content to prevent prompt injection
+          const wrappedHtml = wrapUntrustedContent(html);
+          return new ActionResult({
+            extractedContent: wrappedHtml,
+            includeInMemory: true,
+          });
+        } catch (error) {
+          const errorMsg = t('act_getFullHtml_failed', [error instanceof Error ? error.message : String(error)]);
+          this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_FAIL, errorMsg);
+          return new ActionResult({
+            error: errorMsg,
+            includeInMemory: true,
+          });
+        }
+      },
+      getFullHtmlActionSchema,
+      true, // hasIndex (optional)
+    );
+    actions.push(getFullHtml);
 
     return actions;
   }

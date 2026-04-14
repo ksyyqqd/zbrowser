@@ -933,13 +933,13 @@ const SidePanel = () => {
   };
 
   // 处理发送消息
-  const handleSendMessage = async (text: string, displayText?: string) => {
-    console.log('handleSendMessage', text);
+  const handleSendMessage = async (text: string, displayText?: string, images?: { name: string; base64: string }[]) => {
+    console.log('handleSendMessage', text, images?.length ? `with ${images.length} images` : '');
 
     // 首先修剪输入文本
     const trimmedText = text.trim();
 
-    if (!trimmedText) return;
+    if (!trimmedText && !images?.length) return;
 
     // 农场主模式：包装用户任务为AI农场优先策略
     let finalText = trimmedText;
@@ -1034,6 +1034,7 @@ ${trimmedText}`;
           task: finalText,
           taskId: sessionIdRef.current,
           tabId,
+          images, // 传递用户上传的图片
         });
         console.log('跟进任务已发送', finalText, tabId, sessionIdRef.current);
       } else {
@@ -1042,6 +1043,7 @@ ${trimmedText}`;
           task: finalText,
           taskId: sessionIdRef.current,
           tabId,
+          images, // 传递用户上传的图片
         });
         console.log('新任务已发送', finalText, tabId, sessionIdRef.current);
       }
