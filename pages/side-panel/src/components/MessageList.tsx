@@ -3,6 +3,7 @@ import { ACTOR_PROFILES } from '../types/message';
 import { memo, useState } from 'react';
 import { FiCopy, FiCheck, FiChevronDown, FiChevronRight } from 'react-icons/fi';
 import { t } from '@extension/i18n';
+import { MarkdownRenderer, MessageExportButton, MessageContentExportButton } from '@extension/ui';
 
 interface MessageListProps {
   messages: Message[];
@@ -122,24 +123,22 @@ function LatestStepPreview({ message, isDarkMode = false }: { message: Message; 
           <span className="font-medium shrink-0" style={{ color: 'var(--text-muted)' }}>
             {actor.name}
           </span>
-          <button
-            onClick={handleCopy}
-            className={`rounded-md p-1 transition-all duration-200 opacity-0 group-hover:opacity-100 ${
-              copied ? '!text-green-500' : ''
-            }`}
-            style={copied ? undefined : { color: isDarkMode ? '#95D5B2' : '#78716C' }}
-            title={copied ? t('chat_copied') : t('chat_copy')}
-            type="button"
-            aria-label={t('chat_copy')}>
-            {copied ? <FiCheck size={11} /> : <FiCopy size={11} />}
-          </button>
+          <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+            <MessageContentExportButton content={message.content} isDarkMode={isDarkMode} />
+            <MessageExportButton content={message.content} isDarkMode={isDarkMode} />
+            <button
+              onClick={handleCopy}
+              className={`rounded-md p-1 transition-all duration-200 ${copied ? '!text-green-500' : ''}`}
+              style={copied ? undefined : { color: isDarkMode ? '#95D5B2' : '#78716C' }}
+              title={copied ? t('chat_copied') : t('chat_copy')}
+              type="button"
+              aria-label={t('chat_copy')}>
+              {copied ? <FiCheck size={11} /> : <FiCopy size={11} />}
+            </button>
+          </div>
         </div>
         {/* 完整显示消息内容，自动换行，不截断 */}
-        <div
-          className="whitespace-pre-wrap break-words leading-relaxed pr-4"
-          style={{ color: 'var(--text-secondary)', opacity: isDarkMode ? 0.95 : 0.85 }}>
-          {message.content}
-        </div>
+        <MarkdownRenderer content={message.content} isDarkMode={isDarkMode} className="leading-relaxed" />
       </div>
     </div>
   );
@@ -211,28 +210,30 @@ function MessageBlock({ message, isSameActor, isDarkMode = false, isStep = false
 
         <div className="space-y-1">
           <div className="relative">
-            <div
-              className="message-scroll whitespace-pre-wrap break-words text-sm pr-12"
-              style={{ color: `var(--text-secondary)` }}>
-              {isProgress ? (
+            {isProgress ? (
+              <div className="message-scroll text-sm">
                 <div className="progress-bar-jade my-2 overflow-hidden">
                   <div className="progress-fill" style={{ width: '60%' }} />
                 </div>
-              ) : (
-                message.content
-              )}
-            </div>
-            {/* 复制按钮 */}
+              </div>
+            ) : (
+              <div className="message-scroll text-sm" style={{ color: `var(--text-secondary)` }}>
+                <MarkdownRenderer content={message.content} isDarkMode={isDarkMode} />
+              </div>
+            )}
+            {/* 右侧操作按钮组 */}
             {!isProgress && (
-              <button
-                onClick={copyToClipboard}
-                className={`icon-btn absolute right-1 top-2 rounded-md p-1.5 transition-all duration-200 ${
-                  copied ? '!text-green-500' : ''
-                }`}
-                style={copied ? undefined : { color: isDarkMode ? '#95D5B2' : '#78716C' }}
-                title={copied ? t('chat_copied') : t('chat_copy')}>
-                {copied ? <FiCheck size={13} /> : <FiCopy size={13} />}
-              </button>
+              <div className="absolute right-1 top-2 flex items-center gap-1">
+                <MessageContentExportButton content={message.content} isDarkMode={isDarkMode} />
+                <MessageExportButton content={message.content} isDarkMode={isDarkMode} />
+                <button
+                  onClick={copyToClipboard}
+                  className={`icon-btn rounded-md p-1.5 transition-all duration-200 ${copied ? '!text-green-500' : ''}`}
+                  style={copied ? undefined : { color: isDarkMode ? '#95D5B2' : '#78716C' }}
+                  title={copied ? t('chat_copied') : t('chat_copy')}>
+                  {copied ? <FiCheck size={13} /> : <FiCopy size={13} />}
+                </button>
+              </div>
             )}
           </div>
           {/* 时间戳 */}

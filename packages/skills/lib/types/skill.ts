@@ -90,6 +90,10 @@ export interface SkillMetadata {
   examples?: SkillExample[];
   documentation?: string;
   requirements?: string[];
+  tags?: string[];
+  hasScripts?: boolean;
+  hasReferences?: boolean;
+  hasAssets?: boolean;
 }
 
 /**
@@ -159,6 +163,10 @@ export const SkillSchema = z.object({
         .optional(),
       documentation: z.string().optional(),
       requirements: z.array(z.string()).optional(),
+      tags: z.array(z.string()).optional(),
+      hasScripts: z.boolean().optional(),
+      hasReferences: z.boolean().optional(),
+      hasAssets: z.boolean().optional(),
     })
     .optional(),
   createdAt: z.number().optional(),

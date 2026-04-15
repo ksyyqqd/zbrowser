@@ -651,6 +651,60 @@
   "options_skills_categoryCustom": {
     "message": "自訂"
   },
+  "options_skills_importZip": {
+    "message": "導入 ZIP 包"
+  },
+  "options_skills_exportZip": {
+    "message": "導出為 ZIP"
+  },
+  "options_skills_scriptsSection": {
+    "message": "腳本參考"
+  },
+  "options_skills_referencesSection": {
+    "message": "參考文檔"
+  },
+  "options_skills_assetsSection": {
+    "message": "資源文件"
+  },
+  "options_skills_noScripts": {
+    "message": "無腳本"
+  },
+  "options_skills_noReferences": {
+    "message": "無參考文檔"
+  },
+  "options_skills_noAssets": {
+    "message": "無資源文件"
+  },
+  "options_skills_viewFile": {
+    "message": "查看文件"
+  },
+  "options_skills_fileContent": {
+    "message": "文件內容"
+  },
+  "options_skills_importZipDescription": {
+    "message": "導入包含 SKILL.md 和可選 scripts/references/assets 目錄的 ZIP 文件"
+  },
+  "options_skills_importZipNote": {
+    "message": "ZIP 包中的腳本僅供參考，不會實際執行"
+  },
+  "options_skills_importSuccess": {
+    "message": "成功導入 $COUNT$ 個技能包",
+    "placeholders": {
+      "count": {
+        "content": "$1",
+        "example": "2"
+      }
+    }
+  },
+  "options_skills_importError": {
+    "message": "導入失敗：$ERROR$",
+    "placeholders": {
+      "error": {
+        "content": "$1",
+        "example": "SKILL.md 文件缺失"
+      }
+    }
+  },
 
   "bg_errors_noTabId": {
     "message": "未提供分頁 ID"
@@ -1209,5 +1263,59 @@
   },
   "chat_copied": {
     "message": "已复制"
+  },
+  "table_export_title": {
+    "message": "導出表格"
+  },
+  "table_export_excel": {
+    "message": "Excel 文件 (.xlsx)"
+  },
+  "table_export_csv": {
+    "message": "CSV 文件 (.csv)"
+  },
+  "table_export_html": {
+    "message": "HTML 表格 (.html)"
+  },
+  "table_exporting": {
+    "message": "正在導出..."
+  },
+  "message_export_title": {
+    "message": "導出 $COUNT$ 個表格",
+    "placeholders": {
+      "count": {
+        "content": "$1",
+        "example": "3"
+      }
+    }
+  },
+  "message_export_header": {
+    "message": "導出 $COUNT$ 個表格",
+    "placeholders": {
+      "count": {
+        "content": "$1",
+        "example": "3"
+      }
+    }
+  },
+  "message_export_excel_multi": {
+    "message": "Excel 多工作表 (.xlsx)"
+  },
+  "message_export_csv_separate": {
+    "message": "CSV 分離文件 (.csv)"
+  },
+  "message_export_html_separate": {
+    "message": "HTML 分離文件 (.html)"
+  },
+  "content_export_title": {
+    "message": "導出回覆內容"
+  },
+  "content_export_md": {
+    "message": "Markdown 文檔 (.md)"
+  },
+  "content_export_pdf": {
+    "message": "PDF 文檔 (.pdf)"
+  },
+  "content_export_print_blocked": {
+    "message": "無法打開打印窗口，請檢查瀏覽器彈窗設置"
   }
 }

@@ -1,7 +1,7 @@
 import { StorageEnum } from '../base/enums';
 import { createStorage } from '../base/base';
 import type { BaseStorage } from '../base/types';
-import type { Skill, SkillCategory, ExecutionMode } from '@extension/skills';
+import type { Skill, SkillCategory, ExecutionMode, SkillPackage, SkillResource, SkillAsset } from '@extension/skills';
 
 /**
  * User-defined Skill Configuration (stored in extension storage)
@@ -44,6 +44,22 @@ export interface UserSkillConfig {
 }
 
 /**
+ * Stored Skill Package (extends UserSkillConfig with package resources)
+ */
+export interface StoredSkillPackage extends UserSkillConfig {
+  scripts?: SkillResource[];
+  references?: SkillResource[];
+  assets?: SkillAsset[];
+  packageInfo?: {
+    hasScripts: boolean;
+    hasReferences: boolean;
+    hasAssets: boolean;
+    createdAt?: number;
+    source?: 'zip' | 'markdown' | 'json';
+  };
+}
+
+/**
  * User Skills storage record
  */
 export interface UserSkillsRecord {
@@ -60,6 +76,13 @@ export interface ImportResult {
 }
 
 /**
+ * Import result for skill packages
+ */
+export interface PackageImportResult extends ImportResult {
+  packages: StoredSkillPackage[];
+}
+
+/**
  * User Skills Storage type with extended methods
  */
 export type UserSkillsStorage = BaseStorage<UserSkillsRecord> & {
@@ -70,6 +93,12 @@ export type UserSkillsStorage = BaseStorage<UserSkillsRecord> & {
   getAllSkills: () => Promise<UserSkillConfig[]>;
   importSkills: (skills: UserSkillConfig[]) => Promise<ImportResult>;
   exportSkills: (ids?: string[]) => Promise<UserSkillConfig[]>;
+  // SkillPackage methods
+  addSkillPackage: (package_: SkillPackage) => Promise<void>;
+  getSkillPackage: (id: string) => Promise<StoredSkillPackage | undefined>;
+  getSkillAssets: (id: string) => Promise<SkillAsset[]>;
+  importSkillPackages: (packages: SkillPackage[]) => Promise<PackageImportResult>;
+  exportSkillPackages: (ids?: string[]) => Promise<StoredSkillPackage[]>;
 };
 
 // Storage key
@@ -205,4 +234,137 @@ export const userSkillsStore: UserSkillsStorage = {
 
     return ids.map(id => current.skills[id]).filter((s): s is UserSkillConfig => s !== undefined);
   },
+
+  // SkillPackage methods
+
+  /**
+   * Add a skill package with resources
+   */
+  async addSkillPackage(package_: SkillPackage) {
+    const storedPackage = convertPackageToStored(package_);
+    const error = validateSkillConfig(storedPackage);
+    if (error) {
+      throw new Error(error);
+    }
+
+    const current = await storage.get();
+    await storage.set({
+      skills: {
+        ...current.skills,
+        [storedPackage.id]: storedPackage,
+      },
+    });
+  },
+
+  /**
+   * Get a skill package with all resources
+   */
+  async getSkillPackage(id: string) {
+    const current = await storage.get();
+    const skill = current.skills[id];
+    if (!skill) return undefined;
+    // Return as StoredSkillPackage (may or may not have resources)
+    return skill as StoredSkillPackage;
+  },
+
+  /**
+   * Get assets for a specific skill
+   */
+  async getSkillAssets(id: string) {
+    const pkg = await this.getSkillPackage(id);
+    return pkg?.assets ?? [];
+  },
+
+  /**
+   * Import multiple skill packages
+   */
+  async importSkillPackages(packages: SkillPackage[]) {
+    const result: PackageImportResult = {
+      imported: 0,
+      errors: [],
+      importedIds: [],
+      packages: [],
+    };
+
+    const current = await storage.get();
+    const newSkills = { ...current.skills };
+
+    for (const package_ of packages) {
+      const storedPackage = convertPackageToStored(package_);
+      const error = validateSkillConfig(storedPackage);
+      if (error) {
+        result.errors.push(`Skill ${storedPackage.id ?? 'unknown'}: ${error}`);
+        continue;
+      }
+
+      newSkills[storedPackage.id] = storedPackage;
+      result.imported++;
+      result.importedIds.push(storedPackage.id);
+      result.packages.push(storedPackage);
+    }
+
+    await storage.set({ skills: newSkills });
+    return result;
+  },
+
+  /**
+   * Export skill packages with resources
+   */
+  async exportSkillPackages(ids?: string[]) {
+    const current = await storage.get();
+    const allSkills = Object.values(current.skills) as StoredSkillPackage[];
+
+    if (!ids) {
+      return allSkills;
+    }
+
+    return ids.map(id => current.skills[id]).filter((s): s is StoredSkillPackage => s !== undefined);
+  },
 };
+
+/**
+ * Convert SkillPackage to StoredSkillPackage for storage
+ */
+function convertPackageToStored(package_: SkillPackage): StoredSkillPackage {
+  const { skill, scripts, references, assets, packageInfo } = package_;
+
+  return {
+    id: skill.id,
+    name: skill.name,
+    description: skill.description,
+    version: skill.version,
+    category: skill.category,
+    author: skill.author ?? 'Unknown',
+    tags: skill.metadata?.tags ?? [],
+    parameters: skill.parameters.map(p => ({
+      name: p.name,
+      type: p.type,
+      description: p.description,
+      required: p.required,
+      default: p.default,
+      enum: p.enum,
+    })),
+    steps: skill.steps.map(s => ({
+      id: s.id,
+      action: s.action,
+      description: s.description,
+      parameters: s.parameters,
+      condition: s.condition,
+      onError: s.onError ?? 'continue',
+      retryCount: s.retryCount,
+      delay: s.delay,
+    })),
+    executionMode: skill.executionMode ?? 'sequential',
+    timeout: skill.timeout,
+    createdAt: packageInfo?.createdAt ?? Date.now(),
+    scripts,
+    references,
+    assets,
+    packageInfo: packageInfo ?? {
+      hasScripts: (scripts?.length ?? 0) > 0,
+      hasReferences: (references?.length ?? 0) > 0,
+      hasAssets: (assets?.length ?? 0) > 0,
+      source: 'zip',
+    },
+  };
+}

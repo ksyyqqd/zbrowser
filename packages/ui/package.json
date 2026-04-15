@@ -11,6 +11,10 @@
   ],
   "types": "index.ts",
   "main": "./dist/index.js",
+  "exports": {
+    ".": "./dist/index.js",
+    "./global.css": "./dist/global.css"
+  },
   "scripts": {
     "clean:bundle": "rimraf dist",
     "clean:node_modules": "pnpx rimraf node_modules",
@@ -28,7 +32,13 @@
     "tsc-alias": "^1.8.10"
   },
   "dependencies": {
+    "@extension/i18n": "workspace:*",
+    "@extension/shared": "workspace:*",
     "clsx": "^2.1.1",
+    "highlight.js": "^11.11.1",
+    "react-markdown": "^10.1.0",
+    "rehype-highlight": "^7.0.2",
+    "remark-gfm": "^4.0.1",
     "tailwind-merge": "^2.4.0"
   }
 }

@@ -656,6 +656,60 @@
   "options_skills_categoryCustom": {
     "message": "Custom"
   },
+  "options_skills_importZip": {
+    "message": "Import ZIP Package"
+  },
+  "options_skills_exportZip": {
+    "message": "Export as ZIP"
+  },
+  "options_skills_scriptsSection": {
+    "message": "Scripts"
+  },
+  "options_skills_referencesSection": {
+    "message": "References"
+  },
+  "options_skills_assetsSection": {
+    "message": "Assets"
+  },
+  "options_skills_noScripts": {
+    "message": "No scripts"
+  },
+  "options_skills_noReferences": {
+    "message": "No references"
+  },
+  "options_skills_noAssets": {
+    "message": "No assets"
+  },
+  "options_skills_viewFile": {
+    "message": "View file"
+  },
+  "options_skills_fileContent": {
+    "message": "File Content"
+  },
+  "options_skills_importZipDescription": {
+    "message": "Import a ZIP file containing SKILL.md with optional scripts/references/assets directories"
+  },
+  "options_skills_importZipNote": {
+    "message": "Scripts in ZIP packages are for reference only and will not be executed"
+  },
+  "options_skills_importSuccess": {
+    "message": "Successfully imported $COUNT$ skill packages",
+    "placeholders": {
+      "count": {
+        "content": "$1",
+        "example": "2"
+      }
+    }
+  },
+  "options_skills_importError": {
+    "message": "Import failed: $ERROR$",
+    "placeholders": {
+      "error": {
+        "content": "$1",
+        "example": "SKILL.md file is missing"
+      }
+    }
+  },
 
   "bg_errors_noTabId": {
     "message": "No tab ID provided"
@@ -1215,5 +1269,59 @@
   },
   "chat_copied": {
     "message": "Copied"
+  },
+  "table_export_title": {
+    "message": "Export table"
+  },
+  "table_export_excel": {
+    "message": "Excel file (.xlsx)"
+  },
+  "table_export_csv": {
+    "message": "CSV file (.csv)"
+  },
+  "table_export_html": {
+    "message": "HTML table (.html)"
+  },
+  "table_exporting": {
+    "message": "Exporting..."
+  },
+  "message_export_title": {
+    "message": "Export $COUNT$ tables",
+    "placeholders": {
+      "count": {
+        "content": "$1",
+        "example": "3"
+      }
+    }
+  },
+  "message_export_header": {
+    "message": "Export $COUNT$ tables",
+    "placeholders": {
+      "count": {
+        "content": "$1",
+        "example": "3"
+      }
+    }
+  },
+  "message_export_excel_multi": {
+    "message": "Excel multi-sheet (.xlsx)"
+  },
+  "message_export_csv_separate": {
+    "message": "CSV separate files (.csv)"
+  },
+  "message_export_html_separate": {
+    "message": "HTML separate files (.html)"
+  },
+  "content_export_title": {
+    "message": "Export message content"
+  },
+  "content_export_md": {
+    "message": "Markdown document (.md)"
+  },
+  "content_export_pdf": {
+    "message": "PDF document (.pdf)"
+  },
+  "content_export_print_blocked": {
+    "message": "Cannot open print window, please check browser popup settings"
   }
 }

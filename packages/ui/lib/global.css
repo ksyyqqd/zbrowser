@@ -1,3 +1,719 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* ========== Markdown Renderer Styles ========== */
+/* Container */
+.markdown-container {
+  line-height: 1.6;
+  color: inherit;
+  overflow-wrap: break-word;
+}
+
+/* Theme variants */
+.markdown-dark {
+  --md-text-color: #e6e6e6;
+  --md-link-color: #58a6ff;
+  --md-code-bg: rgba(255, 255, 255, 0.1);
+  --md-blockquote-bg: rgba(88, 166, 255, 0.1);
+  --md-blockquote-border: #58a6ff;
+  --md-table-border: rgba(255, 255, 255, 0.1);
+  --md-table-header-bg: rgba(255, 255, 255, 0.05);
+  --md-table-row-even-bg: rgba(255, 255, 255, 0.02);
+  --md-pre-bg: #1e1e1e;
+}
+
+.markdown-light {
+  --md-text-color: #24292f;
+  --md-link-color: #0969da;
+  --md-code-bg: rgba(0, 0, 0, 0.05);
+  --md-blockquote-bg: rgba(9, 105, 218, 0.1);
+  --md-blockquote-border: #0969da;
+  --md-table-border: rgba(0, 0, 0, 0.1);
+  --md-table-header-bg: rgba(0, 0, 0, 0.05);
+  --md-table-row-even-bg: rgba(0, 0, 0, 0.02);
+  --md-pre-bg: #f6f8fa;
+}
+
+/* Paragraph */
+.markdown-paragraph {
+  margin: 0.5rem 0;
+  color: var(--md-text-color);
+}
+
+/* Headers */
+.markdown-h1 {
+  font-size: 1.5rem;
+  font-weight: 700;
+  margin: 1.5rem 0 1rem;
+  padding-bottom: 0.3rem;
+  border-bottom: 1px solid var(--md-table-border);
+  color: var(--md-text-color);
+}
+
+.markdown-h2 {
+  font-size: 1.25rem;
+  font-weight: 600;
+  margin: 1.25rem 0 0.75rem;
+  color: var(--md-text-color);
+}
+
+.markdown-h3 {
+  font-size: 1.1rem;
+  font-weight: 600;
+  margin: 1rem 0 0.5rem;
+  color: var(--md-text-color);
+}
+
+.markdown-h4,
+.markdown-h5,
+.markdown-h6 {
+  font-size: 1rem;
+  font-weight: 600;
+  margin: 0.75rem 0 0.5rem;
+  color: var(--md-text-color);
+}
+
+/* Links */
+.markdown-link {
+  color: var(--md-link-color);
+  text-decoration: none;
+}
+
+.markdown-link:hover {
+  text-decoration: underline;
+}
+
+/* Lists */
+.markdown-list,
+.markdown-list-ordered {
+  padding-left: 1.5rem;
+  margin: 0.5rem 0;
+  color: var(--md-text-color);
+}
+
+.markdown-list-item {
+  margin: 0.25rem 0;
+}
+
+/* Blockquotes */
+.markdown-blockquote {
+  border-left: 4px solid var(--md-blockquote-border);
+  margin: 0.5rem 0;
+  padding: 0.5rem 1rem;
+  background: var(--md-blockquote-bg);
+  border-radius: 0 4px 4px 0;
+  color: var(--md-text-color);
+}
+
+/* Tables */
+.markdown-table-wrapper {
+  overflow-x: auto;
+  margin: 1rem 0;
+  position: relative;
+  border-radius: 8px;
+}
+
+.markdown-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+}
+
+.markdown-table th,
+.markdown-table td {
+  border: 1px solid var(--md-table-border);
+  padding: 0.5rem 0.75rem;
+  text-align: left;
+}
+
+.markdown-table th {
+  background: var(--md-table-header-bg);
+  font-weight: 600;
+  color: var(--md-text-color);
+}
+
+.markdown-table tr:nth-child(even) {
+  background: var(--md-table-row-even-bg);
+}
+
+/* Code - Inline */
+.markdown-code-inline {
+  font-family: 'JetBrains Mono', 'Cascadia Code', 'Fira Code', monospace;
+  font-size: 0.875em;
+  background: var(--md-code-bg);
+  padding: 0.125rem 0.375rem;
+  border-radius: 4px;
+}
+
+/* Code - Block */
+.markdown-pre {
+  background: var(--md-pre-bg);
+  border-radius: 8px;
+  padding: 1rem;
+  overflow-x: auto;
+  margin: 0.75rem 0;
+  position: relative;
+}
+
+.markdown-code-block {
+  position: relative;
+}
+
+.markdown-code-language {
+  position: absolute;
+  top: 0;
+  right: 0;
+  font-size: 0.7rem;
+  color: #888;
+  background: rgba(255, 255, 255, 0.05);
+  padding: 0.25rem 0.5rem;
+  border-radius: 0 8px 0 4px;
+  font-family: 'JetBrains Mono', monospace;
+}
+
+/* Syntax Highlighting Override */
+.hljs {
+  background: transparent !important;
+  padding: 0 !important;
+}
+
+/* Strong and Emphasis */
+.markdown-strong {
+  font-weight: 700;
+  color: var(--md-text-color);
+}
+
+.markdown-emphasis {
+  font-style: italic;
+}
+
+/* Horizontal Rule */
+.markdown-hr {
+  border: none;
+  border-top: 1px solid var(--md-table-border);
+  margin: 1rem 0;
+}
+
+/* ========== Table Export Button Styles ========== */
+/* Export container */
+.table-export-container {
+  position: absolute;
+  top: 0.5rem;
+  right: 0.5rem;
+  z-index: 10;
+}
+
+/* Export button base */
+.table-export-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  font-size: 0.75rem;
+  border-radius: 4px;
+  cursor: pointer;
+  opacity: 1;
+  transition: all 0.2s ease;
+}
+
+/* Dark mode button */
+.table-export-button--dark {
+  background: rgba(116, 198, 157, 0.1);
+  border: 1px solid rgba(116, 198, 157, 0.25);
+  color: #95d5b2;
+}
+
+.table-export-button--dark:hover {
+  background: rgba(116, 198, 157, 0.2);
+  border-color: rgba(116, 198, 157, 0.4);
+}
+
+/* Light mode button */
+.table-export-button--light {
+  background: rgba(64, 145, 108, 0.08);
+  border: 1px solid rgba(64, 145, 108, 0.2);
+  color: #40916c;
+}
+
+.table-export-button--light:hover {
+  background: rgba(64, 145, 108, 0.15);
+  border-color: rgba(64, 145, 108, 0.35);
+}
+
+.table-export-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.export-icon {
+  width: 14px;
+  height: 14px;
+}
+
+/* Dropdown menu base */
+.table-export-dropdown {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 0.25rem;
+  border-radius: 6px;
+  z-index: 100;
+  overflow: hidden;
+  min-width: 150px;
+}
+
+/* Dark mode dropdown */
+.table-export-dropdown--dark {
+  background: rgba(26, 24, 21, 0.95);
+  border: 1px solid rgba(116, 198, 157, 0.15);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+}
+
+/* Light mode dropdown */
+.table-export-dropdown--light {
+  background: rgba(255, 252, 247, 0.98);
+  border: 1px solid rgba(64, 145, 108, 0.15);
+  box-shadow: 0 4px 16px rgba(139, 115, 85, 0.12);
+}
+
+.table-export-dropdown button {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.6rem 0.75rem;
+  background: none;
+  border: none;
+  font-size: 0.8rem;
+  cursor: pointer;
+  text-align: left;
+  white-space: nowrap;
+  transition: background 0.15s ease;
+}
+
+/* Dark mode dropdown button */
+.table-export-dropdown--dark button {
+  color: #a8a29e;
+}
+
+.table-export-dropdown--dark button:hover {
+  background: rgba(116, 198, 157, 0.1);
+  color: #95d5b2;
+}
+
+/* Light mode dropdown button */
+.table-export-dropdown--light button {
+  color: #57534e;
+}
+
+.table-export-dropdown--light button:hover {
+  background: rgba(64, 145, 108, 0.08);
+  color: #40916c;
+}
+
+.table-export-dropdown button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.format-icon {
+  width: 16px;
+  text-align: center;
+  font-size: 0.85rem;
+}
+
+/* ========== Message Export Button Styles ========== */
+/* Message export container */
+.message-export-container {
+  position: relative;
+  display: inline-flex;
+}
+
+/* Message export button base */
+.message-export-button {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.25rem 0.5rem;
+  font-size: 0.75rem;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+/* Dark mode */
+.message-export-button--dark {
+  background: rgba(116, 198, 157, 0.08);
+  border: 1px solid rgba(116, 198, 157, 0.18);
+  color: #78716c;
+}
+
+.message-export-button--dark:hover {
+  background: rgba(116, 198, 157, 0.15);
+  border-color: rgba(116, 198, 157, 0.3);
+  color: #95d5b2;
+}
+
+/* Light mode */
+.message-export-button--light {
+  background: rgba(64, 145, 108, 0.06);
+  border: 1px solid rgba(64, 145, 108, 0.15);
+  color: #a8a29e;
+}
+
+.message-export-button--light:hover {
+  background: rgba(64, 145, 108, 0.12);
+  border-color: rgba(64, 145, 108, 0.25);
+  color: #40916c;
+}
+
+.message-export-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.message-export-button .export-icon {
+  width: 14px;
+  height: 14px;
+}
+
+.message-export-button .export-count {
+  font-size: 0.7rem;
+  font-weight: 600;
+}
+
+.message-export-button--dark .export-count {
+  color: #74c69d;
+}
+
+.message-export-button--light .export-count {
+  color: #40916c;
+}
+
+/* Message export dropdown base */
+.message-export-dropdown {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 0.25rem;
+  border-radius: 6px;
+  z-index: 100;
+  overflow: hidden;
+  min-width: 180px;
+}
+
+/* Dark mode dropdown */
+.message-export-dropdown--dark {
+  background: rgba(26, 24, 21, 0.95);
+  border: 1px solid rgba(116, 198, 157, 0.15);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+}
+
+/* Light mode dropdown */
+.message-export-dropdown--light {
+  background: rgba(255, 252, 247, 0.98);
+  border: 1px solid rgba(64, 145, 108, 0.15);
+  box-shadow: 0 4px 16px rgba(139, 115, 85, 0.12);
+}
+
+.message-export-dropdown .dropdown-header {
+  padding: 0.5rem 0.75rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+  border-bottom: 1px solid;
+}
+
+.message-export-dropdown--dark .dropdown-header {
+  color: #6b6560;
+  border-color: rgba(116, 198, 157, 0.1);
+}
+
+.message-export-dropdown--light .dropdown-header {
+  color: #a8a29e;
+  border-color: rgba(64, 145, 108, 0.1);
+}
+
+.message-export-dropdown button {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.6rem 0.75rem;
+  background: none;
+  border: none;
+  font-size: 0.8rem;
+  cursor: pointer;
+  text-align: left;
+  white-space: nowrap;
+  transition: background 0.15s ease;
+}
+
+/* Dark mode dropdown buttons */
+.message-export-dropdown--dark button {
+  color: #a8a29e;
+}
+
+.message-export-dropdown--dark button:hover {
+  background: rgba(116, 198, 157, 0.1);
+  color: #95d5b2;
+}
+
+/* Light mode dropdown buttons */
+.message-export-dropdown--light button {
+  color: #57534e;
+}
+
+.message-export-dropdown--light button:hover {
+  background: rgba(64, 145, 108, 0.08);
+  color: #40916c;
+}
+
+.message-export-dropdown button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ========== Message Content Export Button Styles ========== */
+/* Container */
+.message-content-export-container {
+  position: relative;
+  display: inline-flex;
+}
+
+/* Button base */
+.message-content-export-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  font-size: 0.75rem;
+  border-radius: 4px;
+  cursor: pointer;
+  opacity: 1;
+  transition: all 0.2s ease;
+}
+
+/* Dark mode */
+.message-content-export-button--dark {
+  background: rgba(217, 119, 6, 0.08);
+  border: 1px solid rgba(217, 119, 6, 0.18);
+  color: #f59e0b;
+}
+
+.message-content-export-button--dark:hover {
+  background: rgba(217, 119, 6, 0.15);
+  border-color: rgba(217, 119, 6, 0.3);
+}
+
+/* Light mode */
+.message-content-export-button--light {
+  background: rgba(217, 119, 6, 0.06);
+  border: 1px solid rgba(217, 119, 6, 0.15);
+  color: #d97706;
+}
+
+.message-content-export-button--light:hover {
+  background: rgba(217, 119, 6, 0.12);
+  border-color: rgba(217, 119, 6, 0.25);
+}
+
+.message-content-export-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.message-content-export-button .export-icon {
+  width: 14px;
+  height: 14px;
+}
+
+/* Dropdown base */
+.message-content-export-dropdown {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 0.25rem;
+  border-radius: 6px;
+  z-index: 100;
+  overflow: hidden;
+  min-width: 150px;
+}
+
+/* Dark mode dropdown */
+.message-content-export-dropdown--dark {
+  background: rgba(26, 24, 21, 0.95);
+  border: 1px solid rgba(217, 119, 6, 0.15);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+}
+
+/* Light mode dropdown */
+.message-content-export-dropdown--light {
+  background: rgba(255, 252, 247, 0.98);
+  border: 1px solid rgba(217, 119, 6, 0.15);
+  box-shadow: 0 4px 16px rgba(139, 115, 85, 0.12);
+}
+
+.message-content-export-dropdown button {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.6rem 0.75rem;
+  background: none;
+  border: none;
+  font-size: 0.8rem;
+  cursor: pointer;
+  text-align: left;
+  white-space: nowrap;
+  transition: background 0.15s ease;
+}
+
+/* Dark mode dropdown buttons */
+.message-content-export-dropdown--dark button {
+  color: #a8a29e;
+}
+
+.message-content-export-dropdown--dark button:hover {
+  background: rgba(217, 119, 6, 0.1);
+  color: #f59e0b;
+}
+
+/* Light mode dropdown buttons */
+.message-content-export-dropdown--light button {
+  color: #57534e;
+}
+
+.message-content-export-dropdown--light button:hover {
+  background: rgba(217, 119, 6, 0.08);
+  color: #d97706;
+}
+
+.message-content-export-dropdown button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ========== Highlight.js GitHub Dark Theme ========== */
+pre code.hljs {
+  display: block;
+  overflow-x: auto;
+  padding: 1em;
+}
+
+code.hljs {
+  padding: 3px 5px;
+}
+
+/*
+  Theme: GitHub Dark
+  Description: Dark theme as seen on github.com
+  Author: github.com
+  Maintainer: @Hirse
+  Updated: 2021-05-15
+*/
+
+.hljs {
+  color: #c9d1d9;
+  background: #0d1117;
+}
+
+.hljs-doctag,
+.hljs-keyword,
+.hljs-meta .hljs-keyword,
+.hljs-template-tag,
+.hljs-template-variable,
+.hljs-type,
+.hljs-variable.language_ {
+  color: #ff7b72;
+}
+
+.hljs-title,
+.hljs-title.class_,
+.hljs-title.class_.inherited__,
+.hljs-title.function_ {
+  color: #d2a8ff;
+}
+
+.hljs-attr,
+.hljs-attribute,
+.hljs-literal,
+.hljs-meta,
+.hljs-number,
+.hljs-operator,
+.hljs-variable,
+.hljs-selector-attr,
+.hljs-selector-class,
+.hljs-selector-id {
+  color: #79c0ff;
+}
+
+.hljs-regexp,
+.hljs-string,
+.hljs-meta .hljs-string {
+  color: #a5d6ff;
+}
+
+.hljs-built_in,
+.hljs-symbol {
+  color: #ffa657;
+}
+
+.hljs-comment,
+.hljs-code,
+.hljs-formula {
+  color: #8b949e;
+}
+
+.hljs-name,
+.hljs-quote,
+.hljs-selector-tag,
+.hljs-selector-pseudo {
+  color: #7ee787;
+}
+
+.hljs-subst {
+  color: #c9d1d9;
+}
+
+.hljs-section {
+  color: #1f6feb;
+  font-weight: bold;
+}
+
+.hljs-bullet {
+  color: #f2cc60;
+}
+
+.hljs-emphasis {
+  color: #c9d1d9;
+  font-style: italic;
+}
+
+.hljs-strong {
+  color: #c9d1d9;
+  font-weight: bold;
+}
+
+.hljs-addition {
+  color: #aff5b4;
+  background-color: #033a16;
+}
+
+.hljs-deletion {
+  color: #ffdcd7;
+  background-color: #67060c;
+}
+
+.hljs-char.escape_,
+.hljs-link,
+.hljs-params,
+.hljs-property,
+.hljs-punctuation,
+.hljs-tag {
+  color: inherit;
+}

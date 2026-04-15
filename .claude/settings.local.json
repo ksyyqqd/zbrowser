@@ -8,7 +8,8 @@
       "Bash(pnpm -F chrome-extension build)",
       "Bash(pnpm -F pages/side-panel build)",
       "Bash(pnpm -F pages/side-panel type-check)",
-      "Bash(pnpm -F side-panel type-check)"
+      "Bash(pnpm -F side-panel type-check)",
+      "Bash(pnpm add:*)"
     ]
   }
 }

@@ -656,6 +656,60 @@
   "options_skills_categoryCustom": {
     "message": "Customizado"
   },
+  "options_skills_importZip": {
+    "message": "Importar pacote ZIP"
+  },
+  "options_skills_exportZip": {
+    "message": "Exportar como ZIP"
+  },
+  "options_skills_scriptsSection": {
+    "message": "Scripts"
+  },
+  "options_skills_referencesSection": {
+    "message": "Referências"
+  },
+  "options_skills_assetsSection": {
+    "message": "Assets"
+  },
+  "options_skills_noScripts": {
+    "message": "Nenhum script"
+  },
+  "options_skills_noReferences": {
+    "message": "Nenhuma referência"
+  },
+  "options_skills_noAssets": {
+    "message": "Nenhum asset"
+  },
+  "options_skills_viewFile": {
+    "message": "Ver arquivo"
+  },
+  "options_skills_fileContent": {
+    "message": "Conteúdo do arquivo"
+  },
+  "options_skills_importZipDescription": {
+    "message": "Importar um arquivo ZIP contendo SKILL.md com diretórios opcionais scripts/references/assets"
+  },
+  "options_skills_importZipNote": {
+    "message": "Scripts em pacotes ZIP são apenas para referência e não serão executados"
+  },
+  "options_skills_importSuccess": {
+    "message": "Importados com sucesso $COUNT$ pacotes de skills",
+    "placeholders": {
+      "count": {
+        "content": "$1",
+        "example": "2"
+      }
+    }
+  },
+  "options_skills_importError": {
+    "message": "Falha na importação: $ERROR$",
+    "placeholders": {
+      "error": {
+        "content": "$1",
+        "example": "Arquivo SKILL.md ausente"
+      }
+    }
+  },
 
   "bg_errors_noTabId": {
     "message": "Nenhum ID de aba fornecido"
@@ -1215,5 +1269,59 @@
   },
   "chat_copied": {
     "message": "Copiado"
+  },
+  "table_export_title": {
+    "message": "Exportar tabela"
+  },
+  "table_export_excel": {
+    "message": "Arquivo Excel (.xlsx)"
+  },
+  "table_export_csv": {
+    "message": "Arquivo CSV (.csv)"
+  },
+  "table_export_html": {
+    "message": "Tabela HTML (.html)"
+  },
+  "table_exporting": {
+    "message": "Exportando..."
+  },
+  "message_export_title": {
+    "message": "Exportar $COUNT$ tabelas",
+    "placeholders": {
+      "count": {
+        "content": "$1",
+        "example": "3"
+      }
+    }
+  },
+  "message_export_header": {
+    "message": "Exportar $COUNT$ tabelas",
+    "placeholders": {
+      "count": {
+        "content": "$1",
+        "example": "3"
+      }
+    }
+  },
+  "message_export_excel_multi": {
+    "message": "Excel multi-plans (.xlsx)"
+  },
+  "message_export_csv_separate": {
+    "message": "Arquivos CSV separados (.csv)"
+  },
+  "message_export_html_separate": {
+    "message": "Arquivos HTML separados (.html)"
+  },
+  "content_export_title": {
+    "message": "Exportar conteúdo da resposta"
+  },
+  "content_export_md": {
+    "message": "Documento Markdown (.md)"
+  },
+  "content_export_pdf": {
+    "message": "Documento PDF (.pdf)"
+  },
+  "content_export_print_blocked": {
+    "message": "Não foi possível abrir a janela de impressão, verifique as configurações de pop-up do navegador"
   }
 }

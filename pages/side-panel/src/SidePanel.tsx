@@ -24,6 +24,7 @@ import SpiritDoll from './components/SpiritDoll';
 import { EventType, type AgentEvent, ExecutionState } from './types/event';
 // 导入样式表
 import './SidePanel.css';
+import '@extension/ui/global.css';
 
 // 声明Chrome API类型
 /** 球球遮罩层 API（烟花/写字/庆祝） */
@@ -954,9 +955,8 @@ const SidePanel = () => {
 
 ## 执行策略
 - 首先打开第一个可访问的AI网站，在输入框中输入用户问题
-- **重要：必须对是输入框使用Enter键提交内容，而不是在全局页面发送Enter**，不要点击发送按钮
 - 发送完成后，检查是否发送成功（确认输入框已清空或有回复出现）
-- 如果Enter键提交失败，可尝试其他提交方式
+- 如果提交失败，可尝试其他提交方式
 - 等待AI回复，记录关键信息
 - 继续访问下一个AI网站获取不同视角
 - 最后汇总各个AI的回答，形成综合对比报告

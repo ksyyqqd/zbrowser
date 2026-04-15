@@ -21,6 +21,15 @@ import { useState, useEffect, useCallback, useRef } from 'react';
    curious   → 好奇模式（四处探索）
 ================================================ */
 
+// 截断文本，最多显示 MAX_LENGTH 个字符
+const MAX_BUBBLE_LENGTH = 300;
+const truncateText = (text: string, maxLength: number = MAX_BUBBLE_LENGTH): string => {
+  if (!text || text.length <= maxLength) {
+    return text;
+  }
+  return text.slice(0, maxLength) + '...';
+};
+
 export type SpiritMood = 'idle' | 'thinking' | 'working' | 'happy' | 'mischief' | 'sleepy' | 'curious' | 'farmer';
 export type ManualMode = 'auto' | 'mischief' | 'sleepy' | 'curious' | 'farmer';
 
@@ -553,7 +562,7 @@ const SpiritDoll: React.FC<SpiritDollProps> = ({
         <div className="flex flex-col items-start">
           {showBubble && bubbleText && (
             <div className={`spirit-bubble ${mood === 'mischief' || mood === 'idle' ? 'chatting' : ''}`}>
-              {bubbleText}
+              {truncateText(bubbleText)}
             </div>
           )}
           {/* 心情状态文字 / 模式标签 */}

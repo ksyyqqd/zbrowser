@@ -29,4 +29,5 @@ await replaceTscAliasPaths({
   declarationDir: 'dist',
 });
 
+// Copy global.css (includes all markdown and export button styles)
 fs.copyFileSync(resolve('lib', 'global.css'), resolve('dist', 'global.css'));

@@ -1168,13 +1168,6 @@ export default class Page {
       }
 
       // Get element properties to determine input method
-      const tagName = await element.evaluate(el => el.tagName.toLowerCase());
-      const isContentEditable = await element.evaluate(el => {
-        if (el instanceof HTMLElement) {
-          return el.isContentEditable;
-        }
-        return false;
-      });
       const isReadOnly = await element.evaluate(el => {
         if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) {
           return el.readOnly;
@@ -1189,8 +1182,13 @@ export default class Page {
       });
 
       // Choose appropriate input method based on element properties
-      if ((isContentEditable || tagName === 'input') && !isReadOnly && !isDisabled) {
-        // Clear content and set value directly
+      // Prefer keyboard simulation for more realistic input behavior
+      if (!isReadOnly && !isDisabled) {
+        // Use keyboard simulation for all editable elements (input, textarea, contenteditable)
+        // This provides better compatibility with modern web frameworks that listen for keyboard events
+
+        // Clear content first using keyboard shortcut (more realistic)
+        await element.click({ clickCount: 3 }); // Triple click to select all
         await element.evaluate(el => {
           if (el instanceof HTMLElement) {
             el.textContent = '';
@@ -1206,7 +1204,7 @@ export default class Page {
         // Type the text with a small delay between keypresses
         await element.type(text, { delay: 50 });
       } else {
-        // Use direct value setting for other types of elements
+        // Fallback to direct value setting for readonly or disabled elements
         await element.evaluate((el, value) => {
           if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) {
             el.value = value;
