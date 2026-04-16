@@ -1317,5 +1317,59 @@
   },
   "content_export_print_blocked": {
     "message": "無法打開打印窗口，請檢查瀏覽器彈窗設置"
+  },
+  "recording_start": {
+    "message": "開始錄製"
+  },
+  "recording_stop": {
+    "message": "停止錄製"
+  },
+  "recording_status": {
+    "message": "正在錄製..."
+  },
+  "recording_steps_count": {
+    "message": "已錄製 $COUNT$ 步",
+    "placeholders": {
+      "count": {
+        "content": "$1",
+        "example": "5"
+      }
+    }
+  },
+  "recording_save_skill": {
+    "message": "保存為 Skill"
+  },
+  "recording_clear": {
+    "message": "清除錄製"
+  },
+  "recording_skill_name": {
+    "message": "Skill 名稱"
+  },
+  "recording_skill_description": {
+    "message": "Skill 描述"
+  },
+  "recording_saving": {
+    "message": "保存中..."
+  },
+  "recording_saved": {
+    "message": "Skill 已保存成功"
+  },
+  "recording_action_navigate": {
+    "message": "導航"
+  },
+  "recording_action_click": {
+    "message": "點擊"
+  },
+  "recording_action_input": {
+    "message": "輸入"
+  },
+  "recording_action_keydown": {
+    "message": "按鍵"
+  },
+  "recording_action_scroll": {
+    "message": "滾動"
+  },
+  "recording_action_select": {
+    "message": "選擇"
   }
 }

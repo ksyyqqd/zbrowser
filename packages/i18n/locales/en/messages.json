@@ -1323,5 +1323,59 @@
   },
   "content_export_print_blocked": {
     "message": "Cannot open print window, please check browser popup settings"
+  },
+  "recording_start": {
+    "message": "Start Recording"
+  },
+  "recording_stop": {
+    "message": "Stop Recording"
+  },
+  "recording_status": {
+    "message": "Recording..."
+  },
+  "recording_steps_count": {
+    "message": "Recorded $COUNT$ steps",
+    "placeholders": {
+      "count": {
+        "content": "$1",
+        "example": "5"
+      }
+    }
+  },
+  "recording_save_skill": {
+    "message": "Save as Skill"
+  },
+  "recording_clear": {
+    "message": "Clear Recording"
+  },
+  "recording_skill_name": {
+    "message": "Skill Name"
+  },
+  "recording_skill_description": {
+    "message": "Skill Description"
+  },
+  "recording_saving": {
+    "message": "Saving..."
+  },
+  "recording_saved": {
+    "message": "Skill saved successfully"
+  },
+  "recording_action_navigate": {
+    "message": "Navigate"
+  },
+  "recording_action_click": {
+    "message": "Click"
+  },
+  "recording_action_input": {
+    "message": "Input"
+  },
+  "recording_action_keydown": {
+    "message": "Press Key"
+  },
+  "recording_action_scroll": {
+    "message": "Scroll"
+  },
+  "recording_action_select": {
+    "message": "Select"
   }
 }

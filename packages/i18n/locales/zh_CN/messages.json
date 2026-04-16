@@ -1319,5 +1319,59 @@
   },
   "content_export_print_blocked": {
     "message": "无法打开打印窗口，请检查浏览器弹窗设置"
+  },
+  "recording_start": {
+    "message": "开始录制"
+  },
+  "recording_stop": {
+    "message": "停止录制"
+  },
+  "recording_status": {
+    "message": "正在录制..."
+  },
+  "recording_steps_count": {
+    "message": "已录制 $COUNT$ 步",
+    "placeholders": {
+      "count": {
+        "content": "$1",
+        "example": "5"
+      }
+    }
+  },
+  "recording_save_skill": {
+    "message": "保存为 Skill"
+  },
+  "recording_clear": {
+    "message": "清除录制"
+  },
+  "recording_skill_name": {
+    "message": "Skill 名称"
+  },
+  "recording_skill_description": {
+    "message": "Skill 描述"
+  },
+  "recording_saving": {
+    "message": "保存中..."
+  },
+  "recording_saved": {
+    "message": "Skill 已保存成功"
+  },
+  "recording_action_navigate": {
+    "message": "导航"
+  },
+  "recording_action_click": {
+    "message": "点击"
+  },
+  "recording_action_input": {
+    "message": "输入"
+  },
+  "recording_action_keydown": {
+    "message": "按键"
+  },
+  "recording_action_scroll": {
+    "message": "滚动"
+  },
+  "recording_action_select": {
+    "message": "选择"
   }
 }

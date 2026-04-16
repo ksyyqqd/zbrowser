@@ -1,7 +1,10 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { FaMicrophone, FaImage } from 'react-icons/fa';
 import { AiOutlineLoading3Quarters } from 'react-icons/ai';
+import { FiPlay } from 'react-icons/fi';
 import { t } from '@extension/i18n';
+import SkillQuickSelect, { SkillTag } from './SkillQuickSelect';
+import type { Skill } from '@extension/skills';
 
 interface ChatInputProps {
   onSendMessage: (text: string, displayText?: string, images?: { name: string; base64: string }[]) => void;
@@ -15,6 +18,7 @@ interface ChatInputProps {
   isDarkMode?: boolean;
   historicalSessionId?: string | null;
   onReplay?: (sessionId: string) => void;
+  onExecuteSkill?: (skillId: string, params: Record<string, unknown>) => void;
 }
 
 interface AttachedFile {
@@ -46,10 +50,12 @@ export default function ChatInput({
   isDarkMode = false,
   historicalSessionId,
   onReplay,
+  onExecuteSkill,
 }: ChatInputProps) {
   const [text, setText] = useState('');
   const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([]);
   const [attachedImages, setAttachedImages] = useState<AttachedImage[]>([]);
+  const [selectedSkill, setSelectedSkill] = useState<Skill | null>(null);
   const [isPasteHintVisible, setIsPasteHintVisible] = useState(false);
 
   const isSendButtonDisabled = useMemo(
@@ -290,6 +296,31 @@ export default function ChatInput({
     [processImageFile],
   );
 
+  // Handle skill selection
+  const handleSkillSelected = useCallback((skill: Skill | null) => {
+    setSelectedSkill(skill);
+  }, []);
+
+  // Handle remove selected skill
+  const handleRemoveSkill = useCallback(() => {
+    setSelectedSkill(null);
+  }, []);
+
+  // Handle execute selected skill directly
+  const handleExecuteSelectedSkill = useCallback(() => {
+    if (selectedSkill && onExecuteSkill) {
+      // Execute with empty params if no required params
+      const params: Record<string, unknown> = {};
+      selectedSkill.parameters.forEach(p => {
+        if (p.default !== undefined) {
+          params[p.name] = p.default;
+        }
+      });
+      onExecuteSkill(selectedSkill.id, params);
+      setSelectedSkill(null);
+    }
+  }, [selectedSkill, onExecuteSkill]);
+
   return (
     <form
       ref={containerRef}
@@ -340,6 +371,21 @@ export default function ChatInput({
                 </button>
               </div>
             ))}
+          </div>
+        )}
+
+        {/* Skill 标签显示 */}
+        {selectedSkill && (
+          <div
+            className={`flex flex-wrap gap-2 border-b p-2 ${
+              isDarkMode ? 'border-jade-border/20' : 'border-[var(--border-color)]'
+            }`}>
+            <SkillTag
+              skill={selectedSkill}
+              onRemove={handleRemoveSkill}
+              onExecute={selectedSkill.parameters.length === 0 ? handleExecuteSelectedSkill : undefined}
+              isDarkMode={isDarkMode}
+            />
           </div>
         )}
 
@@ -432,6 +478,15 @@ export default function ChatInput({
               className="hidden"
               aria-hidden="true"
             />
+            {/* Skill 快速执行 */}
+            {onExecuteSkill && (
+              <SkillQuickSelect
+                isDarkMode={isDarkMode}
+                onExecuteSkill={onExecuteSkill}
+                onSkillSelected={handleSkillSelected}
+                disabled={disabled}
+              />
+            )}
             {/* 语音按钮 */}
             {onMicClick && (
               <button

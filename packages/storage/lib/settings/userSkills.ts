@@ -55,7 +55,7 @@ export interface StoredSkillPackage extends UserSkillConfig {
     hasReferences: boolean;
     hasAssets: boolean;
     createdAt?: number;
-    source?: 'zip' | 'markdown' | 'json';
+    source?: 'zip' | 'markdown' | 'json' | 'recording';
   };
 }
 

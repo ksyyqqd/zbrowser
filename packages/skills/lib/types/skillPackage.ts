@@ -35,7 +35,7 @@ export interface SkillPackage {
     hasReferences: boolean;
     hasAssets: boolean;
     createdAt?: number;
-    source?: 'zip' | 'markdown' | 'json';
+    source?: 'zip' | 'markdown' | 'json' | 'recording';
   };
 }
 
@@ -73,7 +73,7 @@ export const SkillPackageSchema = z.object({
       hasReferences: z.boolean().default(false),
       hasAssets: z.boolean().default(false),
       createdAt: z.number().optional(),
-      source: z.enum(['zip', 'markdown', 'json']).optional(),
+      source: z.enum(['zip', 'markdown', 'json', 'recording']).optional(),
     })
     .optional(),
 });

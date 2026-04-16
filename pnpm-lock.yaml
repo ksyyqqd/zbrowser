@@ -425,6 +425,9 @@ importers:
       '@extension/ui':
         specifier: workspace:*
         version: link:../../packages/ui
+      jszip:
+        specifier: ^3.10.1
+        version: 3.10.1
       react-icons:
         specifier: ^5.0.0
         version: 5.5.0(react@18.3.1)

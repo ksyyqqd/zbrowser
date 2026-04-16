@@ -1323,5 +1323,59 @@
   },
   "content_export_print_blocked": {
     "message": "Não foi possível abrir a janela de impressão, verifique as configurações de pop-up do navegador"
+  },
+  "recording_start": {
+    "message": "Iniciar Gravação"
+  },
+  "recording_stop": {
+    "message": "Parar Gravação"
+  },
+  "recording_status": {
+    "message": "Gravando..."
+  },
+  "recording_steps_count": {
+    "message": "Gravados $COUNT$ passos",
+    "placeholders": {
+      "count": {
+        "content": "$1",
+        "example": "5"
+      }
+    }
+  },
+  "recording_save_skill": {
+    "message": "Salvar como Skill"
+  },
+  "recording_clear": {
+    "message": "Limpar Gravação"
+  },
+  "recording_skill_name": {
+    "message": "Nome da Skill"
+  },
+  "recording_skill_description": {
+    "message": "Descrição da Skill"
+  },
+  "recording_saving": {
+    "message": "Salvando..."
+  },
+  "recording_saved": {
+    "message": "Skill salva com sucesso"
+  },
+  "recording_action_navigate": {
+    "message": "Navegar"
+  },
+  "recording_action_click": {
+    "message": "Clicar"
+  },
+  "recording_action_input": {
+    "message": "Inserir"
+  },
+  "recording_action_keydown": {
+    "message": "Pressionar Tecla"
+  },
+  "recording_action_scroll": {
+    "message": "Rolar"
+  },
+  "recording_action_select": {
+    "message": "Selecionar"
   }
 }

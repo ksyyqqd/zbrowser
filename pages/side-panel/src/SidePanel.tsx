@@ -3,6 +3,8 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 // 导入UI图标组件
 import { FiSettings, FiBookmark, FiSun, FiMoon } from 'react-icons/fi';
+// 导入录制控制组件
+import RecordingControl from './components/RecordingControl';
 // 导入器灵遮罩注入脚本 URL（用于 files 注入）
 /* 注入脚本通过 chrome.scripting.executeScript({ files: ['spiritOverlayInject.js'] }) 加载，
  * 不使用 ?raw import 或 eval，以兼容目标页面的 CSP 策略 */
@@ -933,6 +935,108 @@ const SidePanel = () => {
     }
   };
 
+  // 处理执行 Skill
+  const handleExecuteSkill = async (skillId: string, params: Record<string, unknown>) => {
+    console.log('handleExecuteSkill', skillId, params);
+
+    // 阻止在历史会话中执行
+    if (isHistoricalSession) {
+      console.log('无法在历史会话中执行 Skill');
+      return;
+    }
+
+    try {
+      // 获取 Skill 信息
+      const { userSkillsStore } = await import('@extension/storage');
+      const skillConfig = await userSkillsStore.getSkill(skillId);
+      if (!skillConfig) {
+        appendMessage({
+          actor: Actors.SYSTEM,
+          content: `Skill "${skillId}" 未找到`,
+          timestamp: Date.now(),
+        });
+        return;
+      }
+
+      // 确保 port 连接
+      if (!portRef.current) {
+        setupConnection();
+        await new Promise(resolve => setTimeout(resolve, 100));
+        if (!portRef.current) {
+          throw new Error('连接建立失败');
+        }
+      }
+
+      // 获取活动标签页
+      const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+      const tabId = tabs[0]?.id;
+      if (!tabId) {
+        throw new Error('未找到活动标签页');
+      }
+
+      targetTabIdRef.current = tabId;
+
+      // 创建新会话
+      const taskId = `skill-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      sessionIdRef.current = taskId;
+
+      const paramDisplay = Object.entries(params)
+        .map(([k, v]) => `${k}=${JSON.stringify(v)}`)
+        .join(', ');
+
+      const displayText = `⚡ 执行 Skill: ${skillConfig.name}${paramDisplay ? `\n参数: ${paramDisplay}` : ''}`;
+
+      // 创建会话
+      await chatHistoryStore.createSession(displayText);
+      setCurrentSessionId(taskId);
+      setCurrentStep(null);
+
+      // 添加用户消息（显示 Skill 执行）
+      appendMessage(
+        {
+          actor: Actors.USER,
+          content: displayText,
+          timestamp: Date.now(),
+        },
+        taskId,
+      );
+
+      // 添加系统消息
+      appendMessage(
+        {
+          actor: Actors.SYSTEM,
+          content: `正在执行 Skill "${skillConfig.name}"...`,
+          timestamp: Date.now(),
+        },
+        taskId,
+      );
+
+      setIsFollowUpMode(false);
+      setInputEnabled(false);
+      setShowStopButton(true);
+
+      // 发送执行 Skill 消息到 background
+      portRef.current.postMessage({
+        type: 'execute_skill',
+        taskId,
+        tabId,
+        skillId,
+        params,
+      });
+
+      console.log('[Skill] 执行请求已发送:', skillId);
+    } catch (error) {
+      console.error('[Skill] 执行失败:', error);
+      appendMessage({
+        actor: Actors.SYSTEM,
+        content: `Skill 执行失败: ${error instanceof Error ? error.message : '未知错误'}`,
+        timestamp: Date.now(),
+      });
+      setInputEnabled(true);
+      setShowStopButton(false);
+    }
+  };
+
   // 处理发送消息
   const handleSendMessage = async (text: string, displayText?: string, images?: { name: string; base64: string }[]) => {
     console.log('handleSendMessage', text, images?.length ? `with ${images.length} images` : '');
@@ -1576,33 +1680,9 @@ ${trimmedText}`;
                   tabIndex={0}>
                   <GrHistory size={17} />
                 </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowBookmarks(!showBookmarks);
-                    setShowHistory(false);
-                  }}
-                  onKeyDown={e => e.key === 'Enter' && setShowBookmarks(!showBookmarks)}
-                  className="header-icon relative"
-                  style={{
-                    color: showBookmarks ? 'var(--gold-color)' : 'var(--accent-color)',
-                  }}
-                  aria-label="书签收藏"
-                  tabIndex={0}>
-                  <FiBookmark size={16} />
-                  {/* 书签数量角标 */}
-                  {favoritePrompts.length > 0 && (
-                    <span
-                      className="absolute -right-1.5 -top-1 flex size-3.5 items-center justify-center rounded-full text-[8px] font-bold leading-none"
-                      style={{
-                        background: 'var(--gold-color)',
-                        color: '#fff',
-                        transform: favoritePrompts.length > 9 ? '' : 'scale(0.9)',
-                      }}>
-                      {favoritePrompts.length > 9 ? '9+' : String(favoritePrompts.length)}
-                    </span>
-                  )}
-                </button>
+
+                {/* Recording Control */}
+                <RecordingControl isDarkMode={isDarkMode} port={portRef.current} />
               </>
             )}
             <button
@@ -1920,6 +2000,7 @@ ${trimmedText}`;
                           isDarkMode={isDarkMode}
                           historicalSessionId={isHistoricalSession && replayEnabled ? currentSessionId : null}
                           onReplay={handleReplay}
+                          onExecuteSkill={handleExecuteSkill}
                         />
                       </div>
                       <div className="flex-1 overflow-y-auto px-2 pb-2">
@@ -1955,6 +2036,7 @@ ${trimmedText}`;
                           isDarkMode={isDarkMode}
                           historicalSessionId={isHistoricalSession && replayEnabled ? currentSessionId : null}
                           onReplay={handleReplay}
+                          onExecuteSkill={handleExecuteSkill}
                         />
                       </div>
                     </>
