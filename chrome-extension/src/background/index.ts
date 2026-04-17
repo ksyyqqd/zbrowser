@@ -881,6 +881,19 @@ async function setupExecutor(
     plannerLLM = createChatModel(plannerProviderConfig, plannerModel);
   }
 
+  // Create vision LLM if configured, otherwise use navigator LLM as fallback
+  let visionLLM: BaseChatModel | null = null;
+  const visionModel = agentModels[AgentNameEnum.Vision];
+  if (visionModel) {
+    const visionProviderConfig = providers[visionModel.provider];
+    visionLLM = createChatModel(visionProviderConfig, visionModel);
+    logger.info('Vision model configured:', visionModel.provider, visionModel.modelName);
+  } else {
+    // Use navigator LLM as fallback for vision
+    visionLLM = navigatorLLM;
+    logger.info('No vision model configured, using navigator model as fallback');
+  }
+
   // Apply firewall settings to browser context
   const firewall = await firewallStore.getFirewall();
   if (firewall.enabled) {
@@ -904,6 +917,7 @@ async function setupExecutor(
 
   const executor = new Executor(task, taskId, browserContext, navigatorLLM, {
     plannerLLM: plannerLLM ?? navigatorLLM,
+    visionLLM: visionLLM,
     agentOptions: {
       maxSteps: generalSettings.maxSteps,
       maxFailures: generalSettings.maxFailures,
@@ -917,6 +931,8 @@ async function setupExecutor(
     navigatorModelName: navigatorModel.modelName,
     plannerProvider: plannerModel?.provider ?? navigatorModel.provider,
     plannerModelName: plannerModel?.modelName ?? navigatorModel.modelName,
+    visionProvider: visionModel?.provider ?? navigatorModel.provider,
+    visionModelName: visionModel?.modelName ?? navigatorModel.modelName,
     mcpService: mcpService,
     skillsService: skillsService,
     images, // 用户上传的图片

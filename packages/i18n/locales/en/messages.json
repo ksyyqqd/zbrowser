@@ -358,6 +358,9 @@
   "options_models_agents_planner": {
     "message": "Develops and refines strategies to complete tasks"
   },
+  "options_models_agents_vision": {
+    "message": "Analyzes screenshots and visual content (optional)"
+  },
 
   "options_models_labels_model": {
     "message": "Model"
@@ -1377,5 +1380,68 @@
   },
   "recording_action_select": {
     "message": "Select"
+  },
+  "skill_quickselect_title": {
+    "message": "⚡ Quick execute Skill"
+  },
+  "skill_quickselect_searchPlaceholder": {
+    "message": "Search Skill..."
+  },
+  "skill_quickselect_notFound": {
+    "message": "No matching Skill found"
+  },
+  "skill_quickselect_empty": {
+    "message": "No available Skill"
+  },
+  "skill_quickselect_importHint": {
+    "message": "You can import or record in Options page"
+  },
+  "skill_quickselect_manage": {
+    "message": "Manage"
+  },
+  "skill_quickselect_close": {
+    "message": "Close"
+  },
+  "skill_quickselect_selectPlaceholder": {
+    "message": "Please select..."
+  },
+  "skill_quickselect_yes": {
+    "message": "Yes"
+  },
+  "skill_quickselect_no": {
+    "message": "No"
+  },
+  "skill_quickselect_defaultPlaceholder": {
+    "message": "Default: $VALUE$",
+    "placeholders": {
+      "value": {
+        "content": "$1",
+        "example": "100"
+      }
+    }
+  },
+  "skill_quickselect_cancel": {
+    "message": "Cancel"
+  },
+  "skill_quickselect_execute": {
+    "message": "Execute"
+  },
+  "skill_quickselect_params": {
+    "message": "$COUNT$ parameters",
+    "placeholders": {
+      "count": {
+        "content": "$1",
+        "example": "3"
+      }
+    }
+  },
+  "skill_quickselect_readyExecute": {
+    "message": "Ready to execute"
+  },
+  "skill_quickselect_executeNow": {
+    "message": "Execute now"
+  },
+  "skill_quickselect_remove": {
+    "message": "Remove"
   }
 }

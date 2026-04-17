@@ -4,6 +4,44 @@ import { wrapUntrustedContent } from '../messages/utils';
 import { createLogger } from '@src/background/log';
 
 const logger = createLogger('BasePrompt');
+
+/**
+ * Analyze screenshot using vision model and generate description
+ */
+async function analyzeScreenshotWithVisionModel(
+  screenshot: string,
+  visionLLM: NonNullable<AgentContext['visionLLM']>,
+): Promise<string> {
+  try {
+    const visionPrompt = `Analyze this screenshot of a webpage and provide a concise description focused on:
+1. What type of page/content is visible
+2. Key interactive elements (buttons, links, forms, inputs) and their positions
+3. Any important visual elements like text, images, or notifications
+4. Current state of the page (loading, error, success, etc.)
+
+Keep the description brief and actionable for an automation agent. Focus on elements that can be interacted with.`;
+
+    const response = await visionLLM.invoke([
+      new HumanMessage({
+        content: [
+          { type: 'text', text: visionPrompt },
+          {
+            type: 'image_url',
+            image_url: { url: `data:image/jpeg;base64,${screenshot}` },
+          },
+        ],
+      }),
+    ]);
+
+    const analysisText = typeof response.content === 'string' ? response.content : '';
+    logger.info('Vision model analysis completed:', analysisText.slice(0, 200));
+    return analysisText;
+  } catch (error) {
+    logger.error('Vision model analysis failed:', error);
+    return `[Vision analysis failed: ${error instanceof Error ? error.message : 'Unknown error'}]`;
+  }
+}
+
 /**
  * Abstract base class for all prompt types
  */
@@ -29,8 +67,10 @@ abstract class BasePrompt {
   async buildBrowserStateUserMessage(context: AgentContext): Promise<HumanMessage> {
     // 视觉模式状态
     const visionEnabled = context.options.useVision;
+    const hasVisionModel = !!context.visionLLM;
     logger.info('========== Vision Mode Status ==========');
     logger.info(`Vision mode setting: ${visionEnabled ? 'ENABLED' : 'DISABLED'}`);
+    logger.info(`Separate vision model: ${hasVisionModel ? 'YES' : 'NO (using Navigator model)'}`);
 
     const browserState = await context.browserContext.getState(context.options.useVision);
 
@@ -38,7 +78,11 @@ abstract class BasePrompt {
     if (visionEnabled) {
       if (browserState.screenshot) {
         logger.info(`Screenshot captured: YES (${browserState.screenshot.length} chars base64)`);
-        logger.info(`Screenshot will be sent to AI: YES`);
+        if (hasVisionModel) {
+          logger.info(`Screenshot will be analyzed by Vision model, not sent to Navigator`);
+        } else {
+          logger.info(`Screenshot will be sent directly to Navigator model`);
+        }
       } else {
         logger.warning('Screenshot captured: NO - Vision enabled but screenshot is empty');
       }
@@ -101,6 +145,15 @@ abstract class BasePrompt {
     const otherTabs = browserState.tabs
       .filter(tab => tab.id !== browserState.tabId)
       .map(tab => `- {id: ${tab.id}, url: ${tab.url}, title: ${tab.title}}`);
+
+    // Use vision model for screenshot analysis if configured
+    let visionAnalysisText = '';
+    const hasScreenshot = !!browserState.screenshot && context.options.useVision;
+    if (hasScreenshot && context.visionLLM) {
+      logger.info('>>> Using separate Vision model for screenshot analysis');
+      visionAnalysisText = `\n[Visual Analysis from Vision Model]\n${await analyzeScreenshotWithVisionModel(browserState.screenshot!, context.visionLLM)}\n`;
+    }
+
     const stateDescription = `
 [Task history memory ends]
 [Current state starts here]
@@ -110,6 +163,7 @@ Other available tabs:
   ${otherTabs.join('\n')}
 Interactive elements from top layer of the current page inside the viewport:
 ${formattedElementsText}
+${visionAnalysisText}
 ${stepInfoDescription}
 ${actionResultsDescription}
 `;
@@ -118,11 +172,14 @@ ${actionResultsDescription}
     logger.info('--- Final User Message to AI ---');
     logger.info(`Total text message length: ${stateDescription.length} chars`);
 
-    // 视觉消息状态
-    const hasScreenshot = !!browserState.screenshot && context.options.useVision;
+    // 视觉消息状态 - only include screenshot if no separate vision model
     if (hasScreenshot) {
-      logger.info(`*** VISION ACTIVE *** Screenshot included in message`);
-      logger.info(`Screenshot size: ~${Math.round((browserState.screenshot?.length || 0) / 1024)} KB (base64)`);
+      if (context.visionLLM) {
+        logger.info(`*** VISION MODEL USED *** Screenshot analyzed by vision model, text-only sent to Navigator`);
+      } else {
+        logger.info(`*** VISION ACTIVE *** Screenshot included in message to Navigator`);
+        logger.info(`Screenshot size: ~${Math.round((browserState.screenshot?.length || 0) / 1024)} KB (base64)`);
+      }
     } else {
       logger.info(`*** VISION INACTIVE *** No screenshot in message`);
     }
@@ -130,8 +187,10 @@ ${actionResultsDescription}
     logger.info('--- Complete State Description ---');
     logger.info(stateDescription);
 
-    if (browserState.screenshot && context.options.useVision) {
-      logger.info('>>> Sending multimodal message (text + image) to AI');
+    // If vision model is configured and screenshot exists, send text-only to Navigator
+    // Otherwise, include screenshot directly for Navigator
+    if (browserState.screenshot && context.options.useVision && !context.visionLLM) {
+      logger.info('>>> Sending multimodal message (text + image) to Navigator');
       return new HumanMessage({
         content: [
           { type: 'text', text: stateDescription },
@@ -143,7 +202,7 @@ ${actionResultsDescription}
       });
     }
 
-    logger.info('>>> Sending text-only message to AI');
+    logger.info('>>> Sending text-only message to Navigator');
     return new HumanMessage(stateDescription);
   }
 }

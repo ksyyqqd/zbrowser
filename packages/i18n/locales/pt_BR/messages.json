@@ -358,6 +358,9 @@
   "options_models_agents_planner": {
     "message": "Desenvolve e refina estratégias para completar tarefas"
   },
+  "options_models_agents_vision": {
+    "message": "Analisa screenshots e conteúdo visual (opcional)"
+  },
 
   "options_models_labels_model": {
     "message": "Modelo"
@@ -1377,5 +1380,68 @@
   },
   "recording_action_select": {
     "message": "Selecionar"
+  },
+  "skill_quickselect_title": {
+    "message": "⚡ Executar Skill rapidamente"
+  },
+  "skill_quickselect_searchPlaceholder": {
+    "message": "Pesquisar Skill..."
+  },
+  "skill_quickselect_notFound": {
+    "message": "Nenhuma Skill correspondente encontrada"
+  },
+  "skill_quickselect_empty": {
+    "message": "Nenhuma Skill disponível"
+  },
+  "skill_quickselect_importHint": {
+    "message": "Você pode importar ou gravar na página Options"
+  },
+  "skill_quickselect_manage": {
+    "message": "Gerenciar"
+  },
+  "skill_quickselect_close": {
+    "message": "Fechar"
+  },
+  "skill_quickselect_selectPlaceholder": {
+    "message": "Por favor selecione..."
+  },
+  "skill_quickselect_yes": {
+    "message": "Sim"
+  },
+  "skill_quickselect_no": {
+    "message": "Não"
+  },
+  "skill_quickselect_defaultPlaceholder": {
+    "message": "Padrão: $VALUE$",
+    "placeholders": {
+      "value": {
+        "content": "$1",
+        "example": "100"
+      }
+    }
+  },
+  "skill_quickselect_cancel": {
+    "message": "Cancelar"
+  },
+  "skill_quickselect_execute": {
+    "message": "Executar"
+  },
+  "skill_quickselect_params": {
+    "message": "$COUNT$ parâmetros",
+    "placeholders": {
+      "count": {
+        "content": "$1",
+        "example": "3"
+      }
+    }
+  },
+  "skill_quickselect_readyExecute": {
+    "message": "Pronto para executar"
+  },
+  "skill_quickselect_executeNow": {
+    "message": "Executar agora"
+  },
+  "skill_quickselect_remove": {
+    "message": "Remover"
   }
 }

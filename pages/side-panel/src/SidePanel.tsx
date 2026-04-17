@@ -16,6 +16,8 @@ import { type Message, Actors, chatHistoryStore, agentModelStore, generalSetting
 import favoritesStorage, { type FavoritePrompt } from '@extension/storage/lib/prompt/favorites';
 // 导入国际化函数
 import { t } from '@extension/i18n';
+// 导入 Skill 类型
+import type { Skill } from '@extension/skills';
 // 导入子组件
 import MessageList from './components/MessageList';
 import ChatInput from './components/ChatInput';
@@ -976,18 +978,16 @@ const SidePanel = () => {
 
       targetTabIdRef.current = tabId;
 
-      // 创建新会话
-      const taskId = `skill-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-      sessionIdRef.current = taskId;
-
       const paramDisplay = Object.entries(params)
         .map(([k, v]) => `${k}=${JSON.stringify(v)}`)
         .join(', ');
 
       const displayText = `⚡ 执行 Skill: ${skillConfig.name}${paramDisplay ? `\n参数: ${paramDisplay}` : ''}`;
 
-      // 创建会话
-      await chatHistoryStore.createSession(displayText);
+      // 创建会话（先创建，使用返回的 session.id）
+      const newSession = await chatHistoryStore.createSession(displayText);
+      const taskId = newSession.id;
+      sessionIdRef.current = taskId;
       setCurrentSessionId(taskId);
       setCurrentStep(null);
 
@@ -1038,17 +1038,42 @@ const SidePanel = () => {
   };
 
   // 处理发送消息
-  const handleSendMessage = async (text: string, displayText?: string, images?: { name: string; base64: string }[]) => {
-    console.log('handleSendMessage', text, images?.length ? `with ${images.length} images` : '');
+  const handleSendMessage = async (
+    text: string,
+    displayText?: string,
+    images?: { name: string; base64: string }[],
+    skill?: Skill | null,
+  ) => {
+    console.log(
+      'handleSendMessage',
+      text,
+      images?.length ? `with ${images.length} images` : '',
+      skill ? `with skill: ${skill.name}` : '',
+    );
 
     // 首先修剪输入文本
     const trimmedText = text.trim();
 
-    if (!trimmedText && !images?.length) return;
+    if (!trimmedText && !images?.length && !skill) return;
+
+    // 处理 skill 信息：如果有选中的 skill，将其信息包含在任务中
+    let skillEnhancedText = trimmedText;
+    let skillEnhancedDisplayText = displayText || trimmedText;
+
+    if (skill) {
+      // 构建 skill 信息
+      const skillInfo = `\n\n<nano_selected_skill id="${skill.id}" name="${skill.name}" description="${skill.description || ''}">
+  ${skill.steps.map((s, i) => `步骤 ${i + 1}: ${s.description || s.action}`).join('\n  ')}
+</nano_selected_skill>`;
+      skillEnhancedText = trimmedText ? `${trimmedText}${skillInfo}` : `执行 Skill: ${skill.name}${skillInfo}`;
+      skillEnhancedDisplayText = trimmedText
+        ? `${trimmedText}\n⚡ 使用 Skill: ${skill.name}`
+        : `⚡ 执行 Skill: ${skill.name}`;
+    }
 
     // 农场主模式：包装用户任务为AI农场优先策略
-    let finalText = trimmedText;
-    let finalDisplayText = displayText || trimmedText;
+    let finalText = skillEnhancedText;
+    let finalDisplayText = skillEnhancedDisplayText;
 
     if (spiritModeRef.current === 'farmer') {
       const farmerWrapper = `[农场主模式] 请按以下策略处理用户的任务：

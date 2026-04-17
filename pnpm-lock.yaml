@@ -456,6 +456,9 @@ importers:
       '@extension/shared':
         specifier: workspace:*
         version: link:../../packages/shared
+      '@extension/skills':
+        specifier: workspace:*
+        version: link:../../packages/skills
       '@extension/storage':
         specifier: workspace:*
         version: link:../../packages/storage

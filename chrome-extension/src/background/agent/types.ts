@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import type { BaseChatModel } from '@langchain/core/language_models/chat_models';
 import type BrowserContext from '../browser/context';
 import { DEFAULT_INCLUDE_ATTRIBUTES } from '../browser/dom/views';
 import type { DOMHistoryElement } from '../browser/dom/history/view';
@@ -56,6 +57,10 @@ export class AgentContext {
   navigatorModelName: string;
   plannerProvider: string;
   plannerModelName: string;
+  // Vision model info (optional - separate model for visual analysis)
+  visionProvider: string;
+  visionModelName: string;
+  visionLLM?: BaseChatModel;
 
   // MCP and Skills service methods (optional - set by services)
   executeMCPTool?: (serverId: string, toolName: string, args: Record<string, unknown>) => Promise<ToolExecutionResult>;
@@ -75,6 +80,8 @@ export class AgentContext {
     navigatorModelName: string = '',
     plannerProvider: string = '',
     plannerModelName: string = '',
+    visionProvider: string = '',
+    visionModelName: string = '',
   ) {
     this.controller = new AbortController();
     this.taskId = taskId;
@@ -86,6 +93,8 @@ export class AgentContext {
     this.navigatorModelName = navigatorModelName;
     this.plannerProvider = plannerProvider;
     this.plannerModelName = plannerModelName;
+    this.visionProvider = visionProvider;
+    this.visionModelName = visionModelName;
 
     this.paused = false;
     this.stopped = false;

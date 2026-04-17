@@ -355,6 +355,9 @@
   "options_models_agents_planner": {
     "message": "制定并调整策略以完成任务"
   },
+  "options_models_agents_vision": {
+    "message": "分析截图和视觉内容（可选配置）"
+  },
   "options_models_labels_model": {
     "message": "模型"
   },
@@ -1373,5 +1376,68 @@
   },
   "recording_action_select": {
     "message": "选择"
+  },
+  "skill_quickselect_title": {
+    "message": "⚡ 快速执行 Skill"
+  },
+  "skill_quickselect_searchPlaceholder": {
+    "message": "搜索 Skill..."
+  },
+  "skill_quickselect_notFound": {
+    "message": "未找到匹配的 Skill"
+  },
+  "skill_quickselect_empty": {
+    "message": "暂无可用 Skill"
+  },
+  "skill_quickselect_importHint": {
+    "message": "可在 Options 页面导入或录制"
+  },
+  "skill_quickselect_manage": {
+    "message": "管理"
+  },
+  "skill_quickselect_close": {
+    "message": "关闭"
+  },
+  "skill_quickselect_selectPlaceholder": {
+    "message": "请选择..."
+  },
+  "skill_quickselect_yes": {
+    "message": "是"
+  },
+  "skill_quickselect_no": {
+    "message": "否"
+  },
+  "skill_quickselect_defaultPlaceholder": {
+    "message": "默认: $VALUE$",
+    "placeholders": {
+      "value": {
+        "content": "$1",
+        "example": "100"
+      }
+    }
+  },
+  "skill_quickselect_cancel": {
+    "message": "取消"
+  },
+  "skill_quickselect_execute": {
+    "message": "执行"
+  },
+  "skill_quickselect_params": {
+    "message": "$COUNT$ 个参数",
+    "placeholders": {
+      "count": {
+        "content": "$1",
+        "example": "3"
+      }
+    }
+  },
+  "skill_quickselect_readyExecute": {
+    "message": "可直接执行"
+  },
+  "skill_quickselect_executeNow": {
+    "message": "立即执行"
+  },
+  "skill_quickselect_remove": {
+    "message": "移除"
   }
 }

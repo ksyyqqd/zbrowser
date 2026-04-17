@@ -17,12 +17,7 @@ interface SkillQuickSelectProps {
   onSkillSelected?: (skill: Skill | null) => void;
 }
 
-export default function SkillQuickSelect({
-  isDarkMode = false,
-  onExecuteSkill,
-  disabled = false,
-  onSkillSelected,
-}: SkillQuickSelectProps) {
+export default function SkillQuickSelect({ onExecuteSkill, disabled = false, onSkillSelected }: SkillQuickSelectProps) {
   const [showDropdown, setShowDropdown] = useState(false);
   const [skills, setSkills] = useState<Skill[]>([]);
   const [selectedSkill, setSelectedSkill] = useState<Skill | null>(null);
@@ -44,18 +39,7 @@ export default function SkillQuickSelect({
         const storedSkills = await userSkillsStore.getAllSkills();
         console.log('[SkillQuickSelect] Loaded skills:', storedSkills?.length || 0);
 
-        const skillList: Skill[] = (storedSkills || []).map((s: UserSkillConfig) => ({
-          id: s.id,
-          name: s.name,
-          description: s.description,
-          version: s.version,
-          category: s.category,
-          author: s.author,
-          tags: s.tags || [],
-          parameters: s.parameters || [],
-          steps: s.steps || [],
-          executionMode: s.executionMode || 'expanded',
-        }));
+        const skillList: Skill[] = (storedSkills || []).map((s: UserSkillConfig) => s as unknown as Skill);
         setSkills(skillList);
       } catch (e) {
         console.error('[SkillQuickSelect] Failed to load skills:', e);
@@ -214,19 +198,16 @@ export default function SkillQuickSelect({
   const skillsToShow = filteredSkills();
 
   return (
-    <div className="skill-quick-select" style={{ position: 'relative' }}>
+    <>
       {/* Skill button */}
       <button
         ref={buttonRef}
         type="button"
         onClick={handleToggleDropdown}
         disabled={disabled || loading}
-        className={`icon-btn rounded-md flex items-center gap-1 ${
-          disabled || loading ? '!opacity-35 cursor-not-allowed' : ''
-        }`}
-        style={{ color: 'var(--text-muted)' }}
-        aria-label="Select skill"
-        title="⚡ 快速执行 Skill">
+        className={`icon-btn rounded-md ${disabled || loading ? 'cursor-not-allowed !opacity-35' : ''}`}
+        aria-label={t('skill_quickselect_title')}
+        title={t('skill_quickselect_title')}>
         {loading ? <span className="animate-spin">⏳</span> : <FiZap className="size-4" />}
       </button>
 
@@ -241,7 +222,7 @@ export default function SkillQuickSelect({
             right: 16,
             transform: 'translateY(-100%)',
             width: 280,
-            maxHeight: 350,
+            maxHeight: 228,
             borderRadius: 12,
             border: '1px solid var(--border-color)',
             background: 'var(--bg-card)',
@@ -259,7 +240,7 @@ export default function SkillQuickSelect({
               type="text"
               value={searchQuery}
               onChange={e => setSearchQuery(e.target.value)}
-              placeholder="搜索 Skill..."
+              placeholder={t('skill_quickselect_searchPlaceholder')}
               className="flex-1 bg-transparent text-sm outline-none"
               style={{ color: 'var(--text-primary)' }}
             />
@@ -272,11 +253,11 @@ export default function SkillQuickSelect({
           <div className="overflow-y-auto px-1 py-1 flex-1" style={{ maxHeight: 280, minHeight: 100 }}>
             {skillsToShow.length === 0 ? (
               <div className="py-4 text-center text-xs" style={{ color: 'var(--text-muted)' }}>
-                {searchQuery ? '未找到匹配的 Skill' : '暂无可用 Skill'}
+                {searchQuery ? t('skill_quickselect_notFound') : t('skill_quickselect_empty')}
                 {!searchQuery && (
                   <>
                     <br />
-                    <span className="opacity-70">可在 Options 页面导入或录制</span>
+                    <span className="opacity-70">{t('skill_quickselect_importHint')}</span>
                   </>
                 )}
               </div>
@@ -312,10 +293,10 @@ export default function SkillQuickSelect({
               onClick={() => chrome.runtime.openOptionsPage()}
               className="hover:underline flex items-center gap-1">
               <FiSettings size={12} />
-              管理
+              {t('skill_quickselect_manage')}
             </button>
             <button type="button" onClick={() => setShowDropdown(false)} className="hover:underline">
-              关闭
+              {t('skill_quickselect_close')}
             </button>
           </div>
         </div>
@@ -387,7 +368,7 @@ export default function SkillQuickSelect({
                         border: '1px solid var(--border-color)',
                         color: 'var(--text-primary)',
                       }}>
-                      <option value="">请选择...</option>
+                      <option value="">{t('skill_quickselect_selectPlaceholder')}</option>
                       {param.enum.map(opt => (
                         <option key={opt} value={opt}>
                           {opt}
@@ -403,7 +384,7 @@ export default function SkillQuickSelect({
                           paramValues[param.name] === 'true' ? 'ring-2 ring-green-500' : ''
                         }`}
                         style={{ background: 'var(--bg-secondary)', color: 'var(--text-secondary)' }}>
-                        是
+                        {t('skill_quickselect_yes')}
                       </button>
                       <button
                         type="button"
@@ -412,7 +393,7 @@ export default function SkillQuickSelect({
                           paramValues[param.name] === 'false' ? 'ring-2 ring-green-500' : ''
                         }`}
                         style={{ background: 'var(--bg-secondary)', color: 'var(--text-secondary)' }}>
-                        否
+                        {t('skill_quickselect_no')}
                       </button>
                     </div>
                   ) : (
@@ -420,7 +401,9 @@ export default function SkillQuickSelect({
                       type={param.type === 'number' ? 'number' : 'text'}
                       value={paramValues[param.name] || ''}
                       onChange={e => handleParamChange(param.name, e.target.value)}
-                      placeholder={param.default ? `默认: ${param.default}` : ''}
+                      placeholder={
+                        param.default ? t('skill_quickselect_defaultPlaceholder', [String(param.default)]) : ''
+                      }
                       className="w-full px-3 py-2 rounded-lg text-sm"
                       style={{
                         background: 'var(--bg-input)',
@@ -440,7 +423,7 @@ export default function SkillQuickSelect({
                 onClick={handleCancelParamConfig}
                 className="px-3 py-1.5 rounded-lg text-xs"
                 style={{ background: 'var(--bg-secondary)', color: 'var(--text-secondary)' }}>
-                取消
+                {t('skill_quickselect_cancel')}
               </button>
               <button
                 type="button"
@@ -448,13 +431,13 @@ export default function SkillQuickSelect({
                 className="flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-xs font-medium"
                 style={{ background: 'var(--accent-color)', color: '#fff' }}>
                 <FiPlay size={12} />
-                执行
+                {t('skill_quickselect_execute')}
               </button>
             </div>
           </div>
         </div>
       )}
-    </div>
+    </>
   );
 }
 
@@ -482,7 +465,9 @@ export function SkillTag({
       <div className="flex flex-col text-xs flex-1 min-w-0">
         <span className={`truncate font-medium ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>{skill.name}</span>
         <span className={`${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>
-          {skill.parameters.length > 0 ? `${skill.parameters.length} 参数` : '可直接执行'}
+          {skill.parameters.length > 0
+            ? t('skill_quickselect_params', [String(skill.parameters.length)])
+            : t('skill_quickselect_readyExecute')}
         </span>
       </div>
       {onExecute && skill.parameters.length === 0 && (
@@ -491,17 +476,17 @@ export function SkillTag({
           onClick={onExecute}
           className="p-1 rounded hover:bg-white/20 transition-opacity"
           style={{ color: 'var(--accent-color)' }}
-          title="立即执行">
+          title={t('skill_quickselect_executeNow')}>
           <FiPlay size={12} />
         </button>
       )}
       <button
         type="button"
         onClick={onRemove}
-        className={`absolute -top-1 -right-1 w-5 h-5 rounded-full flex items-center justify-center text-xs opacity-0 group-hover:opacity-100 transition-opacity ${
+        className={`absolute -top-1 -right-1 size-5 rounded-full flex items-center justify-center text-xs opacity-0 group-hover:opacity-100 transition-opacity ${
           isDarkMode ? 'bg-red-500/80 text-white' : 'bg-red-500 text-white'
         }`}
-        title="移除">
+        title={t('skill_quickselect_remove')}>
         ✕
       </button>
     </div>

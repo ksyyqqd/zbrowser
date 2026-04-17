@@ -7,7 +7,12 @@ import SkillQuickSelect, { SkillTag } from './SkillQuickSelect';
 import type { Skill } from '@extension/skills';
 
 interface ChatInputProps {
-  onSendMessage: (text: string, displayText?: string, images?: { name: string; base64: string }[]) => void;
+  onSendMessage: (
+    text: string,
+    displayText?: string,
+    images?: { name: string; base64: string }[],
+    skill?: Skill | null,
+  ) => void;
   onStopTask: () => void;
   onMicClick?: () => void;
   isRecording?: boolean;
@@ -92,7 +97,7 @@ export default function ChatInput({
     (e: React.FormEvent) => {
       e.preventDefault();
       const trimmedText = text.trim();
-      if (!trimmedText && attachedFiles.length === 0 && attachedImages.length === 0) return;
+      if (!trimmedText && attachedFiles.length === 0 && attachedImages.length === 0 && !selectedSkill) return;
 
       let messageContent = trimmedText;
       let displayContent = trimmedText;
@@ -133,16 +138,17 @@ export default function ChatInput({
       const imageData =
         attachedImages.length > 0 ? attachedImages.map(img => ({ name: img.name, base64: img.base64 })) : undefined;
 
-      // 调用扩展的 onSendMessage（支持图片参数）
-      onSendMessage(messageContent, displayContent, imageData);
+      // 调用扩展的 onSendMessage（支持图片参数和 skill 参数）
+      onSendMessage(messageContent, displayContent, imageData, selectedSkill);
 
       // 清理状态
       setText('');
       setAttachedFiles([]);
       attachedImages.forEach(img => URL.revokeObjectURL(img.previewUrl));
       setAttachedImages([]);
+      setSelectedSkill(null);
     },
-    [text, attachedFiles, attachedImages, onSendMessage],
+    [text, attachedFiles, attachedImages, selectedSkill, onSendMessage],
   );
 
   const handleKeyDown = useCallback(

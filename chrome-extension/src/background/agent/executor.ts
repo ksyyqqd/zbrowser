@@ -33,6 +33,7 @@ const logger = createLogger('Executor');
 
 export interface ExecutorExtraArgs {
   plannerLLM?: BaseChatModel;
+  visionLLM?: BaseChatModel;
   extractorLLM?: BaseChatModel;
   agentOptions?: Partial<AgentOptions>;
   generalSettings?: GeneralSettingsConfig;
@@ -40,6 +41,8 @@ export interface ExecutorExtraArgs {
   navigatorModelName?: string;
   plannerProvider?: string;
   plannerModelName?: string;
+  visionProvider?: string;
+  visionModelName?: string;
   mcpService?: {
     executeTool: (serverId: string, toolName: string, args: Record<string, unknown>) => Promise<ToolExecutionResult>;
     listTools: (serverId?: string) => Promise<MCPTool[]>;
@@ -76,6 +79,7 @@ export class Executor {
 
     const plannerLLM = extraArgs?.plannerLLM ?? navigatorLLM;
     const extractorLLM = extraArgs?.extractorLLM ?? navigatorLLM;
+    const visionLLM = extraArgs?.visionLLM ?? navigatorLLM;
     const eventManager = new EventManager();
     const context = new AgentContext(
       taskId,
@@ -87,7 +91,14 @@ export class Executor {
       extraArgs?.navigatorModelName ?? '',
       extraArgs?.plannerProvider ?? '',
       extraArgs?.plannerModelName ?? '',
+      extraArgs?.visionProvider ?? '',
+      extraArgs?.visionModelName ?? '',
     );
+
+    // Set vision LLM on context for use in prompts
+    if (visionLLM) {
+      context.visionLLM = visionLLM;
+    }
 
     this.generalSettings = extraArgs?.generalSettings;
     this.mcpService = extraArgs?.mcpService;
@@ -401,10 +412,11 @@ ${skillList}
   private async runPlanner(): Promise<AgentOutput<PlannerOutput> | null> {
     const context = this.context;
     try {
-      // Add current browser state to memory
+      // Add current browser state to memory (including Vision analysis)
+      // Always add state message so Planner can see current page state and Vision analysis
       let positionForPlan = 0;
+      await this.navigator.addStateMessageToMemory();
       if (this.tasks.length > 1 || this.context.nSteps > 0) {
-        await this.navigator.addStateMessageToMemory();
         positionForPlan = this.context.messageManager.length() - 1;
       } else {
         positionForPlan = this.context.messageManager.length();
