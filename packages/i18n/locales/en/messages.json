@@ -1443,5 +1443,263 @@
   },
   "skill_quickselect_remove": {
     "message": "Remove"
+  },
+  "options_tabs_workflows": {
+    "message": "Workflows"
+  },
+  "options_workflow_header": {
+    "message": "Workflows"
+  },
+  "options_workflow_description": {
+    "message": "Workflows are visual automation flows with AI, Automation, and Condition modules. Create, edit, import, export, and execute workflows for browser automation tasks."
+  },
+  "workflow_create": {
+    "message": "Create Workflow"
+  },
+  "workflow_import": {
+    "message": "Import"
+  },
+  "workflow_export": {
+    "message": "Export"
+  },
+  "workflow_edit": {
+    "message": "Edit"
+  },
+  "workflow_delete": {
+    "message": "Delete"
+  },
+  "workflow_execute": {
+    "message": "Execute"
+  },
+  "workflow_convert": {
+    "message": "Convert"
+  },
+  "workflow_convertFromSkill": {
+    "message": "Convert from Skill"
+  },
+  "workflow_convertToSkill": {
+    "message": "Convert to Skill"
+  },
+  "workflow_convertModalTitle": {
+    "message": "Convert Skill to Workflow"
+  },
+  "workflow_convertModalDescription": {
+    "message": "Select a Skill to convert it into a Workflow. Each SkillStep will become a node in the workflow."
+  },
+  "workflow_noSkillsToConvert": {
+    "message": "No skills available to convert"
+  },
+  "workflow_convertSuccess": {
+    "message": "Successfully converted"
+  },
+  "workflow_convertError": {
+    "message": "Conversion failed"
+  },
+  "workflow_importModalTitle": {
+    "message": "Import Workflows"
+  },
+  "workflow_importDescription": {
+    "message": "Paste a JSON array or single workflow definition to import:"
+  },
+  "workflow_importPlaceholder": {
+    "message": "Paste workflow JSON here..."
+  },
+  "workflow_importError": {
+    "message": "Failed to import workflows. Please check the JSON format."
+  },
+  "workflow_saveError": {
+    "message": "Failed to save workflow"
+  },
+  "workflow_deleteConfirm": {
+    "message": "Are you sure you want to delete workflow \"$1\"?"
+  },
+  "workflow_executePlaceholder": {
+    "message": "Workflow \"$1\" execution will be triggered. This feature requires browser automation integration."
+  },
+  "workflow_searchPlaceholder": {
+    "message": "Search workflows..."
+  },
+  "workflow_allCategories": {
+    "message": "All Categories"
+  },
+  "workflow_notFound": {
+    "message": "No workflows found matching your search"
+  },
+  "workflow_empty": {
+    "message": "No workflows yet. Create or import a workflow to start."
+  },
+  "workflow_name_placeholder": {
+    "message": "Workflow name"
+  },
+  "workflow_cancel": {
+    "message": "Cancel"
+  },
+  "workflow_save": {
+    "message": "Save"
+  },
+  "workflow_close": {
+    "message": "Close"
+  },
+  "workflow_nodePalette": {
+    "message": "Add Node"
+  },
+  "workflow_editNode": {
+    "message": "Edit Node"
+  },
+  "workflow_nodeName": {
+    "message": "Node Name"
+  },
+  "workflow_aiPrompt": {
+    "message": "AI Prompt"
+  },
+  "workflow_outputVariable": {
+    "message": "Output Variable"
+  },
+  "workflow_action": {
+    "message": "Action"
+  },
+  "workflow_conditionExpression": {
+    "message": "Condition Expression"
+  },
+  "workflow_evaluateWithAI": {
+    "message": "Evaluate with AI"
+  },
+  "workflow_category_automation": {
+    "message": "Automation"
+  },
+  "workflow_category_navigation": {
+    "message": "Navigation"
+  },
+  "workflow_category_dataExtraction": {
+    "message": "Data Extraction"
+  },
+  "workflow_category_formInteraction": {
+    "message": "Form Interaction"
+  },
+  "workflow_category_analysis": {
+    "message": "Analysis"
+  },
+  "workflow_category_custom": {
+    "message": "Custom"
+  },
+  "workflow_action_clickElement": {
+    "message": "Click Element"
+  },
+  "workflow_action_inputText": {
+    "message": "Input Text"
+  },
+  "workflow_action_goToUrl": {
+    "message": "Navigate to URL"
+  },
+  "workflow_action_scroll": {
+    "message": "Scroll"
+  },
+  "workflow_action_wait": {
+    "message": "Wait"
+  },
+  "workflow_action_openTab": {
+    "message": "Open Tab"
+  },
+  "workflow_action_closeTab": {
+    "message": "Close Tab"
+  },
+  "workflow_action_switchTab": {
+    "message": "Switch Tab"
+  },
+  "workflow_action_sendKeys": {
+    "message": "Send Keys"
+  },
+  "workflow_action_selectDropdown": {
+    "message": "Select Dropdown Option"
+  },
+  "workflow_action_goBack": {
+    "message": "Go Back"
+  },
+  "workflow_action_goForward": {
+    "message": "Go Forward"
+  },
+  "workflow_action_scrollTop": {
+    "message": "Scroll to Top"
+  },
+  "workflow_action_scrollBottom": {
+    "message": "Scroll to Bottom"
+  },
+  "workflow_action_scrollText": {
+    "message": "Scroll to Text"
+  },
+  "workflow_action_getDropdownOptions": {
+    "message": "Get Dropdown Options"
+  },
+  "workflow_action_cacheContent": {
+    "message": "Cache Content"
+  },
+  "workflow_intent": {
+    "message": "Intent"
+  },
+  "workflow_intent_placeholder": {
+    "message": "Describe the action purpose"
+  },
+  "workflow_parameters": {
+    "message": "Parameters"
+  },
+  "workflow_param_url": {
+    "message": "URL"
+  },
+  "workflow_param_selector": {
+    "message": "Selector"
+  },
+  "workflow_param_xpath": {
+    "message": "XPath"
+  },
+  "workflow_param_text": {
+    "message": "Text"
+  },
+  "workflow_param_keys": {
+    "message": "Keys"
+  },
+  "workflow_param_yPercent": {
+    "message": "Y Percent"
+  },
+  "workflow_param_scrollText": {
+    "message": "Scroll to Text"
+  },
+  "workflow_param_optionText": {
+    "message": "Option Text"
+  },
+  "workflow_param_duration": {
+    "message": "Duration (ms)"
+  },
+  "workflow_param_tabIndex": {
+    "message": "Tab Index"
+  },
+  "workflow_editEdge": {
+    "message": "Edit Edge"
+  },
+  "workflow_edgeInfo": {
+    "message": "Connection"
+  },
+  "workflow_edgeDeleteHint": {
+    "message": "Click the delete button above to remove this connection."
+  },
+  "workflow_conditionPortsHint": {
+    "message": "Green port (top-right) = true branch, Red port (bottom-right) = false branch"
+  },
+  "workflow_executeSuccess": {
+    "message": "Workflow \"$1\" executed successfully!"
+  },
+  "workflow_executeError": {
+    "message": "Failed to execute workflow: $1"
+  },
+  "workflow_executeError_noTab": {
+    "message": "No active tab found. Please open a browser tab first."
+  },
+  "workflow_description_placeholder": {
+    "message": "Enter workflow description"
+  },
+  "workflow_enterFullscreen": {
+    "message": "Enter fullscreen mode"
+  },
+  "workflow_exitFullscreen": {
+    "message": "Exit fullscreen mode"
   }
 }

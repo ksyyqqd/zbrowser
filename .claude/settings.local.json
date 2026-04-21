@@ -10,7 +10,8 @@
       "Bash(pnpm -F pages/side-panel type-check)",
       "Bash(pnpm -F side-panel type-check)",
       "Bash(pnpm add:*)",
-      "Bash(pnpm prettier *)"
+      "Bash(pnpm prettier *)",
+      "WebSearch"
     ]
   }
 }

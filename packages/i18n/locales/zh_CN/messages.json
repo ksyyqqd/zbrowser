@@ -1439,5 +1439,263 @@
   },
   "skill_quickselect_remove": {
     "message": "移除"
+  },
+  "options_tabs_workflows": {
+    "message": "工作流"
+  },
+  "options_workflow_header": {
+    "message": "工作流"
+  },
+  "options_workflow_description": {
+    "message": "工作流是可视化自动化流程，包含 AI、自动化和条件模块。创建、编辑、导入、导出和执行工作流来完成浏览器自动化任务。"
+  },
+  "workflow_create": {
+    "message": "创建工作流"
+  },
+  "workflow_import": {
+    "message": "导入"
+  },
+  "workflow_export": {
+    "message": "导出"
+  },
+  "workflow_edit": {
+    "message": "编辑"
+  },
+  "workflow_delete": {
+    "message": "删除"
+  },
+  "workflow_execute": {
+    "message": "执行"
+  },
+  "workflow_convert": {
+    "message": "转换"
+  },
+  "workflow_convertFromSkill": {
+    "message": "从 Skill 转换"
+  },
+  "workflow_convertToSkill": {
+    "message": "转换为 Skill"
+  },
+  "workflow_convertModalTitle": {
+    "message": "将 Skill 转换为工作流"
+  },
+  "workflow_convertModalDescription": {
+    "message": "选择一个 Skill 转换为工作流。每个 SkillStep 将成为工作流中的一个节点。"
+  },
+  "workflow_noSkillsToConvert": {
+    "message": "没有可转换的 Skill"
+  },
+  "workflow_convertSuccess": {
+    "message": "转换成功"
+  },
+  "workflow_convertError": {
+    "message": "转换失败"
+  },
+  "workflow_importModalTitle": {
+    "message": "导入工作流"
+  },
+  "workflow_importDescription": {
+    "message": "粘贴 JSON 数组或单个工作流定义来导入："
+  },
+  "workflow_importPlaceholder": {
+    "message": "在此粘贴工作流 JSON..."
+  },
+  "workflow_importError": {
+    "message": "导入工作流失败。请检查 JSON 格式。"
+  },
+  "workflow_saveError": {
+    "message": "保存工作流失败"
+  },
+  "workflow_deleteConfirm": {
+    "message": "确定要删除工作流 \"$1\" 吗？"
+  },
+  "workflow_executePlaceholder": {
+    "message": "工作流 \"$1\" 将开始执行。此功能需要浏览器自动化集成。"
+  },
+  "workflow_searchPlaceholder": {
+    "message": "搜索工作流..."
+  },
+  "workflow_allCategories": {
+    "message": "所有分类"
+  },
+  "workflow_notFound": {
+    "message": "未找到匹配的工作流"
+  },
+  "workflow_empty": {
+    "message": "暂无工作流。创建或导入工作流以开始使用。"
+  },
+  "workflow_name_placeholder": {
+    "message": "工作流名称"
+  },
+  "workflow_cancel": {
+    "message": "取消"
+  },
+  "workflow_save": {
+    "message": "保存"
+  },
+  "workflow_close": {
+    "message": "关闭"
+  },
+  "workflow_nodePalette": {
+    "message": "添加节点"
+  },
+  "workflow_editNode": {
+    "message": "编辑节点"
+  },
+  "workflow_nodeName": {
+    "message": "节点名称"
+  },
+  "workflow_aiPrompt": {
+    "message": "AI 提示词"
+  },
+  "workflow_outputVariable": {
+    "message": "输出变量"
+  },
+  "workflow_action": {
+    "message": "动作"
+  },
+  "workflow_conditionExpression": {
+    "message": "条件表达式"
+  },
+  "workflow_evaluateWithAI": {
+    "message": "使用 AI 评估"
+  },
+  "workflow_category_automation": {
+    "message": "自动化"
+  },
+  "workflow_category_navigation": {
+    "message": "导航"
+  },
+  "workflow_category_dataExtraction": {
+    "message": "数据提取"
+  },
+  "workflow_category_formInteraction": {
+    "message": "表单交互"
+  },
+  "workflow_category_analysis": {
+    "message": "分析"
+  },
+  "workflow_category_custom": {
+    "message": "自定义"
+  },
+  "workflow_action_clickElement": {
+    "message": "点击元素"
+  },
+  "workflow_action_inputText": {
+    "message": "输入文本"
+  },
+  "workflow_action_goToUrl": {
+    "message": "跳转到 URL"
+  },
+  "workflow_action_scroll": {
+    "message": "滚动"
+  },
+  "workflow_action_wait": {
+    "message": "等待"
+  },
+  "workflow_action_openTab": {
+    "message": "打开标签页"
+  },
+  "workflow_action_closeTab": {
+    "message": "关闭标签页"
+  },
+  "workflow_action_switchTab": {
+    "message": "切换标签页"
+  },
+  "workflow_action_sendKeys": {
+    "message": "发送按键"
+  },
+  "workflow_action_selectDropdown": {
+    "message": "选择下拉选项"
+  },
+  "workflow_action_goBack": {
+    "message": "后退"
+  },
+  "workflow_action_goForward": {
+    "message": "前进"
+  },
+  "workflow_action_scrollTop": {
+    "message": "滚动到顶部"
+  },
+  "workflow_action_scrollBottom": {
+    "message": "滚动到底部"
+  },
+  "workflow_action_scrollText": {
+    "message": "滚动到文本"
+  },
+  "workflow_action_getDropdownOptions": {
+    "message": "获取下拉选项"
+  },
+  "workflow_action_cacheContent": {
+    "message": "缓存内容"
+  },
+  "workflow_intent": {
+    "message": "意图"
+  },
+  "workflow_intent_placeholder": {
+    "message": "描述动作目的"
+  },
+  "workflow_parameters": {
+    "message": "参数"
+  },
+  "workflow_param_url": {
+    "message": "URL"
+  },
+  "workflow_param_selector": {
+    "message": "选择器"
+  },
+  "workflow_param_xpath": {
+    "message": "XPath"
+  },
+  "workflow_param_text": {
+    "message": "文本"
+  },
+  "workflow_param_keys": {
+    "message": "按键"
+  },
+  "workflow_param_yPercent": {
+    "message": "Y百分比"
+  },
+  "workflow_param_scrollText": {
+    "message": "滚动到文本"
+  },
+  "workflow_param_optionText": {
+    "message": "选项文本"
+  },
+  "workflow_param_duration": {
+    "message": "持续时间(毫秒)"
+  },
+  "workflow_param_tabIndex": {
+    "message": "标签页索引"
+  },
+  "workflow_editEdge": {
+    "message": "编辑连线"
+  },
+  "workflow_edgeInfo": {
+    "message": "连线"
+  },
+  "workflow_edgeDeleteHint": {
+    "message": "点击上方删除按钮删除此连线"
+  },
+  "workflow_conditionPortsHint": {
+    "message": "绿色端口(右上)=真分支，红色端口(右下)=假分支"
+  },
+  "workflow_executeSuccess": {
+    "message": "工作流 \"$1\" 执行成功！"
+  },
+  "workflow_executeError": {
+    "message": "执行工作流失败: $1"
+  },
+  "workflow_executeError_noTab": {
+    "message": "未找到活动标签页，请先打开一个浏览器标签页"
+  },
+  "workflow_description_placeholder": {
+    "message": "输入工作流描述"
+  },
+  "workflow_enterFullscreen": {
+    "message": "进入全屏模式"
+  },
+  "workflow_exitFullscreen": {
+    "message": "退出全屏模式"
   }
 }

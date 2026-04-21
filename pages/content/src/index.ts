@@ -13,6 +13,19 @@ let sessionId: string | null = null;
 const THROTTLE_MS = 100;
 let lastScrollTime = 0;
 
+// Workflow execution overlay state
+let workflowOverlay: HTMLElement | null = null;
+let workflowProgress: {
+  workflowName: string;
+  currentNodeId: string;
+  currentNodeName: string;
+  currentNodeType: string;
+  totalNodes: number;
+  executedNodes: number;
+  status: 'running' | 'success' | 'error';
+  error?: string;
+} | null = null;
+
 // Check recording status on load (for page navigation recovery)
 (function checkRecordingStatus() {
   try {
@@ -410,11 +423,276 @@ function stopRecording() {
   console.log('Recording stopped');
 }
 
+// ============ Workflow Execution Overlay ============
+
+/**
+ * Create workflow execution overlay
+ */
+function createWorkflowOverlay() {
+  if (workflowOverlay) return;
+
+  // Create overlay container
+  workflowOverlay = document.createElement('div');
+  workflowOverlay.id = 'nanobrowser-workflow-overlay';
+  workflowOverlay.style.cssText = `
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.3);
+    z-index: 2147483647;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    pointer-events: none;
+  `;
+
+  // Create progress card
+  const card = document.createElement('div');
+  card.style.cssText = `
+    background: white;
+    border-radius: 12px;
+    padding: 24px 32px;
+    min-width: 320px;
+    max-width: 480px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+    pointer-events: auto;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  `;
+
+  // Header
+  const header = document.createElement('div');
+  header.style.cssText = `
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 16px;
+  `;
+
+  // Spinner
+  const spinner = document.createElement('div');
+  spinner.id = 'workflow-spinner';
+  spinner.style.cssText = `
+    width: 24px;
+    height: 24px;
+    border: 3px solid #e5e7eb;
+    border-top-color: #3b82f6;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+  `;
+  header.appendChild(spinner);
+
+  // Title
+  const title = document.createElement('div');
+  title.id = 'workflow-title';
+  title.style.cssText = `
+    font-size: 16px;
+    font-weight: 600;
+    color: #1f2937;
+  `;
+  title.textContent = '执行工作流';
+  header.appendChild(title);
+
+  card.appendChild(header);
+
+  // Workflow name
+  const workflowName = document.createElement('div');
+  workflowName.id = 'workflow-name';
+  workflowName.style.cssText = `
+    font-size: 14px;
+    color: #6b7280;
+    margin-bottom: 12px;
+  `;
+  card.appendChild(workflowName);
+
+  // Progress bar container
+  const progressContainer = document.createElement('div');
+  progressContainer.style.cssText = `
+    background: #e5e7eb;
+    border-radius: 4px;
+    height: 8px;
+    margin-bottom: 12px;
+    overflow: hidden;
+  `;
+
+  const progressBar = document.createElement('div');
+  progressBar.id = 'workflow-progress-bar';
+  progressBar.style.cssText = `
+    background: linear-gradient(90deg, #3b82f6, #8b5cf6);
+    height: 100%;
+    width: 0%;
+    transition: width 0.3s ease;
+  `;
+  progressContainer.appendChild(progressBar);
+  card.appendChild(progressContainer);
+
+  // Current node info
+  const currentNodeInfo = document.createElement('div');
+  currentNodeInfo.id = 'workflow-current-node';
+  currentNodeInfo.style.cssText = `
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    background: #f3f4f6;
+    border-radius: 6px;
+    margin-bottom: 8px;
+  `;
+
+  const nodeTypeIcon = document.createElement('span');
+  nodeTypeIcon.id = 'workflow-node-icon';
+  nodeTypeIcon.style.cssText = `
+    font-size: 16px;
+  `;
+  currentNodeInfo.appendChild(nodeTypeIcon);
+
+  const nodeName = document.createElement('span');
+  nodeName.id = 'workflow-node-name';
+  nodeName.style.cssText = `
+    font-size: 13px;
+    color: #374151;
+    flex: 1;
+  `;
+  currentNodeInfo.appendChild(nodeName);
+
+  card.appendChild(currentNodeInfo);
+
+  // Status text
+  const statusText = document.createElement('div');
+  statusText.id = 'workflow-status';
+  statusText.style.cssText = `
+    font-size: 12px;
+    color: #9ca3af;
+  `;
+  statusText.textContent = '正在执行...';
+  card.appendChild(statusText);
+
+  workflowOverlay.appendChild(card);
+  document.body.appendChild(workflowOverlay);
+
+  // Add spinner animation
+  const style = document.createElement('style');
+  style.textContent = `
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+  `;
+  document.head.appendChild(style);
+}
+
+/**
+ * Update workflow progress overlay
+ */
+function updateWorkflowOverlay(data: {
+  workflowName?: string;
+  currentNodeId?: string;
+  currentNodeName?: string;
+  currentNodeType?: string;
+  totalNodes?: number;
+  executedNodes?: number;
+  status?: 'running' | 'success' | 'error';
+  error?: string;
+}) {
+  if (!workflowOverlay) createWorkflowOverlay();
+
+  workflowProgress = { ...workflowProgress, ...data } as any;
+
+  // Update workflow name
+  const nameEl = document.getElementById('workflow-name');
+  if (nameEl && data.workflowName) {
+    nameEl.textContent = data.workflowName;
+  }
+
+  // Update progress bar
+  const progressBar = document.getElementById('workflow-progress-bar');
+  if (progressBar && data.totalNodes && data.executedNodes) {
+    const percent = Math.round((data.executedNodes / data.totalNodes) * 100);
+    progressBar.style.width = `${percent}%`;
+  }
+
+  // Update current node info
+  const nodeIcon = document.getElementById('workflow-node-icon');
+  const nodeNameEl = document.getElementById('workflow-node-name');
+  if (nodeIcon && nodeNameEl) {
+    if (data.currentNodeType) {
+      const icons: Record<string, string> = {
+        ai: '🧠',
+        automation: '⚡',
+        condition: '🔀',
+        start: '▶️',
+        end: '✅',
+      };
+      nodeIcon.textContent = icons[data.currentNodeType] || '●';
+    }
+    if (data.currentNodeName) {
+      nodeNameEl.textContent = data.currentNodeName;
+    }
+  }
+
+  // Update status
+  const titleEl = document.getElementById('workflow-title');
+  const spinnerEl = document.getElementById('workflow-spinner');
+  const statusEl = document.getElementById('workflow-status');
+
+  if (data.status === 'success') {
+    if (titleEl) titleEl.textContent = '执行完成';
+    if (spinnerEl) {
+      spinnerEl.style.borderTopColor = '#22c55e';
+      spinnerEl.style.animation = 'none';
+      spinnerEl.textContent = '✓';
+      spinnerEl.style.display = 'flex';
+      spinnerEl.style.alignItems = 'center';
+      spinnerEl.style.justifyContent = 'center';
+      spinnerEl.style.fontSize = '16px';
+      spinnerEl.style.color = '#22c55e';
+      spinnerEl.style.border = 'none';
+    }
+    if (statusEl) statusEl.textContent = '工作流执行成功';
+    if (progressBar) progressBar.style.background = 'linear-gradient(90deg, #22c55e, #16a34a)';
+    // Auto hide after 2 seconds
+    setTimeout(removeWorkflowOverlay, 2000);
+  } else if (data.status === 'error') {
+    if (titleEl) titleEl.textContent = '执行失败';
+    if (spinnerEl) {
+      spinnerEl.style.borderTopColor = '#ef4444';
+      spinnerEl.style.animation = 'none';
+      spinnerEl.textContent = '✗';
+      spinnerEl.style.display = 'flex';
+      spinnerEl.style.alignItems = 'center';
+      spinnerEl.style.justifyContent = 'center';
+      spinnerEl.style.fontSize = '16px';
+      spinnerEl.style.color = '#ef4444';
+      spinnerEl.style.border = 'none';
+    }
+    if (statusEl) {
+      statusEl.style.color = '#ef4444';
+      statusEl.textContent = data.error || '执行过程中发生错误';
+    }
+    if (progressBar) progressBar.style.background = '#ef4444';
+  }
+}
+
+/**
+ * Remove workflow overlay
+ */
+function removeWorkflowOverlay() {
+  if (workflowOverlay) {
+    workflowOverlay.remove();
+    workflowOverlay = null;
+    workflowProgress = null;
+  }
+}
+
 /**
  * Listen for messages from background
  */
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   switch (message.type) {
+    case 'ping_content_script':
+      sendResponse({ success: true, loaded: true });
+      break;
+
     case 'start_recording':
       startRecording(message.sessionId);
       sendResponse({ success: true });
@@ -427,6 +705,51 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 
     case 'check_recording_status':
       sendResponse({ isRecording, sessionId });
+      break;
+
+    // Workflow execution progress messages
+    case 'workflow_start':
+      createWorkflowOverlay();
+      updateWorkflowOverlay({
+        workflowName: message.workflowName,
+        totalNodes: message.totalNodes,
+        executedNodes: 0,
+        status: 'running',
+      });
+      sendResponse({ success: true });
+      break;
+
+    case 'workflow_progress':
+      updateWorkflowOverlay({
+        currentNodeId: message.nodeId,
+        currentNodeName: message.nodeName,
+        currentNodeType: message.nodeType,
+        executedNodes: message.executedNodes,
+        totalNodes: message.totalNodes,
+        status: 'running',
+      });
+      sendResponse({ success: true });
+      break;
+
+    case 'workflow_complete':
+      updateWorkflowOverlay({
+        status: 'success',
+        executedNodes: message.totalNodes,
+      });
+      sendResponse({ success: true });
+      break;
+
+    case 'workflow_error':
+      updateWorkflowOverlay({
+        status: 'error',
+        error: message.error,
+      });
+      sendResponse({ success: true });
+      break;
+
+    case 'workflow_hide':
+      removeWorkflowOverlay();
+      sendResponse({ success: true });
       break;
 
     default:

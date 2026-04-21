@@ -1443,5 +1443,254 @@
   },
   "skill_quickselect_remove": {
     "message": "Remover"
+  },
+  "options_tabs_workflows": {
+    "message": "Workflows"
+  },
+  "options_workflow_header": {
+    "message": "Workflows"
+  },
+  "options_workflow_description": {
+    "message": "Workflows são fluxos de automação visual com módulos de AI, Automation e Condition. Crie, edite, importe, exporte e execute workflows para tarefas de automação do navegador."
+  },
+  "workflow_create": {
+    "message": "Criar Workflow"
+  },
+  "workflow_import": {
+    "message": "Importar"
+  },
+  "workflow_export": {
+    "message": "Exportar"
+  },
+  "workflow_edit": {
+    "message": "Editar"
+  },
+  "workflow_delete": {
+    "message": "Excluir"
+  },
+  "workflow_execute": {
+    "message": "Executar"
+  },
+  "workflow_convert": {
+    "message": "Converter"
+  },
+  "workflow_convertFromSkill": {
+    "message": "Converter de Skill"
+  },
+  "workflow_convertToSkill": {
+    "message": "Converter para Skill"
+  },
+  "workflow_convertModalTitle": {
+    "message": "Converter Skill para Workflow"
+  },
+  "workflow_convertModalDescription": {
+    "message": "Selecione uma Skill para converter em Workflow. Cada SkillStep será um nó no workflow."
+  },
+  "workflow_noSkillsToConvert": {
+    "message": "Nenhuma Skill disponível para converter"
+  },
+  "workflow_convertSuccess": {
+    "message": "Convertido com sucesso"
+  },
+  "workflow_convertError": {
+    "message": "Falha na conversão"
+  },
+  "workflow_importModalTitle": {
+    "message": "Importar Workflows"
+  },
+  "workflow_importDescription": {
+    "message": "Cole um array JSON ou definição de workflow único para importar:"
+  },
+  "workflow_importPlaceholder": {
+    "message": "Cole o JSON do workflow aqui..."
+  },
+  "workflow_importError": {
+    "message": "Falha ao importar workflows. Verifique o formato JSON."
+  },
+  "workflow_saveError": {
+    "message": "Falha ao salvar workflow"
+  },
+  "workflow_deleteConfirm": {
+    "message": "Tem certeza que deseja excluir o workflow \"$1\"?"
+  },
+  "workflow_executePlaceholder": {
+    "message": "Workflow \"$1\" será executado. Este recurso requer integração com automação do navegador."
+  },
+  "workflow_searchPlaceholder": {
+    "message": "Pesquisar workflows..."
+  },
+  "workflow_allCategories": {
+    "message": "Todas Categorias"
+  },
+  "workflow_notFound": {
+    "message": "Nenhum workflow encontrado"
+  },
+  "workflow_empty": {
+    "message": "Nenhum workflow ainda. Crie ou importe um workflow para começar."
+  },
+  "workflow_name_placeholder": {
+    "message": "Nome do workflow"
+  },
+  "workflow_cancel": {
+    "message": "Cancelar"
+  },
+  "workflow_save": {
+    "message": "Salvar"
+  },
+  "workflow_close": {
+    "message": "Fechar"
+  },
+  "workflow_nodePalette": {
+    "message": "Adicionar Nó"
+  },
+  "workflow_editNode": {
+    "message": "Editar Nó"
+  },
+  "workflow_nodeName": {
+    "message": "Nome do Nó"
+  },
+  "workflow_aiPrompt": {
+    "message": "Prompt AI"
+  },
+  "workflow_outputVariable": {
+    "message": "Variável de Saída"
+  },
+  "workflow_action": {
+    "message": "Ação"
+  },
+  "workflow_conditionExpression": {
+    "message": "Expressão de Condição"
+  },
+  "workflow_evaluateWithAI": {
+    "message": "Evaluar com AI"
+  },
+  "workflow_category_automation": {
+    "message": "Automação"
+  },
+  "workflow_category_navigation": {
+    "message": "Navegação"
+  },
+  "workflow_category_dataExtraction": {
+    "message": "Extração de Dados"
+  },
+  "workflow_category_formInteraction": {
+    "message": "Interação com Formulário"
+  },
+  "workflow_category_analysis": {
+    "message": "Análise"
+  },
+  "workflow_category_custom": {
+    "message": "Personalizado"
+  },
+  "workflow_action_clickElement": {
+    "message": "Clicar Elemento"
+  },
+  "workflow_action_inputText": {
+    "message": "Inserir Texto"
+  },
+  "workflow_action_goToUrl": {
+    "message": "Navegar para URL"
+  },
+  "workflow_action_scroll": {
+    "message": "Rolar"
+  },
+  "workflow_action_wait": {
+    "message": "Aguardar"
+  },
+  "workflow_action_openTab": {
+    "message": "Abrir Aba"
+  },
+  "workflow_action_closeTab": {
+    "message": "Fechar Aba"
+  },
+  "workflow_action_switchTab": {
+    "message": "Alternar Aba"
+  },
+  "workflow_action_sendKeys": {
+    "message": "Enviar Teclas"
+  },
+  "workflow_action_selectDropdown": {
+    "message": "Selecionar Opção Dropdown"
+  },
+  "workflow_action_goBack": {
+    "message": "Voltar"
+  },
+  "workflow_action_goForward": {
+    "message": "Avançar"
+  },
+  "workflow_action_scrollTop": {
+    "message": "Rolar para Topo"
+  },
+  "workflow_action_scrollBottom": {
+    "message": "Rolar para Baixo"
+  },
+  "workflow_action_scrollText": {
+    "message": "Rolar para Texto"
+  },
+  "workflow_action_getDropdownOptions": {
+    "message": "Obter Opções Dropdown"
+  },
+  "workflow_action_cacheContent": {
+    "message": "Cachear Conteúdo"
+  },
+  "workflow_intent": {
+    "message": "Intenção"
+  },
+  "workflow_intent_placeholder": {
+    "message": "Descrição do propósito da ação"
+  },
+  "workflow_parameters": {
+    "message": "Parâmetros"
+  },
+  "workflow_param_url": {
+    "message": "URL"
+  },
+  "workflow_param_selector": {
+    "message": "Seletor"
+  },
+  "workflow_param_xpath": {
+    "message": "XPath"
+  },
+  "workflow_param_text": {
+    "message": "Texto"
+  },
+  "workflow_param_keys": {
+    "message": "Teclas"
+  },
+  "workflow_param_yPercent": {
+    "message": "Porcentagem Y"
+  },
+  "workflow_param_scrollText": {
+    "message": "Rolar para Texto"
+  },
+  "workflow_param_optionText": {
+    "message": "Texto da Opção"
+  },
+  "workflow_param_duration": {
+    "message": "Duração (ms)"
+  },
+  "workflow_param_tabIndex": {
+    "message": "Índice da Aba"
+  },
+  "workflow_editEdge": {
+    "message": "Editar Conexão"
+  },
+  "workflow_edgeInfo": {
+    "message": "Conexão"
+  },
+  "workflow_edgeDeleteHint": {
+    "message": "Clique no botão de exclusão acima para remover esta conexão."
+  },
+  "workflow_conditionPortsHint": {
+    "message": "Porta verde (superior-direita) = branch verdadeiro, Porta vermelha (inferior-direita) = branch falso"
+  },
+  "workflow_executeSuccess": {
+    "message": "Workflow \"$1\" executado com sucesso!"
+  },
+  "workflow_executeError": {
+    "message": "Falha ao executar workflow: $1"
+  },
+  "workflow_executeError_noTab": {
+    "message": "Nenhuma aba ativa encontrada. Por favor, abra uma aba do navegador primeiro."
   }
 }

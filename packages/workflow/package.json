@@ -1,14 +1,14 @@
 {
-  "name": "@extension/storage",
+  "name": "@extension/workflow",
   "version": "0.1.13",
-  "description": "chrome extension - storage",
+  "description": "Workflow system for Nanobrowser - visual workflow editor with AI, Automation, and Condition modules",
   "private": true,
   "sideEffects": false,
   "files": [
     "dist/**"
   ],
-  "main": "./dist/index.js",
   "types": "index.ts",
+  "main": "./dist/index.js",
   "scripts": {
     "clean:bundle": "rimraf dist",
     "clean:node_modules": "pnpx rimraf node_modules",
@@ -20,9 +20,12 @@
     "prettier": "prettier . --write --ignore-path ../../.prettierignore",
     "type-check": "tsc --noEmit"
   },
-  "devDependencies": {
+  "dependencies": {
     "@extension/skills": "workspace:*",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
     "@extension/tsconfig": "workspace:*",
-    "@extension/workflow": "workspace:*"
+    "rimraf": "^6.0.1"
   }
 }

@@ -9,6 +9,7 @@ import {
 } from '@extension/storage';
 import { t } from '@extension/i18n';
 import BrowserContext from './browser/context';
+import type Page from './browser/page';
 import { Executor } from './agent/executor';
 import { createLogger } from './log';
 import { ExecutionState } from './agent/event/types';
@@ -20,6 +21,8 @@ import { injectBuildDomTreeScripts } from './browser/dom/service';
 import { analytics } from './services/analytics';
 import { MCPService } from './services/mcp';
 import { SkillsService } from './services/skills';
+import { WorkflowService } from './services/workflow';
+import type { WorkflowResult, Workflow } from '@extension/workflow';
 import { recorderState, selectorGenerator, generateSkillFromRecording } from './recorder';
 
 const logger = createLogger('background');
@@ -32,6 +35,7 @@ const SIDE_PANEL_URL = chrome.runtime.getURL('side-panel/index.html');
 // Initialize MCP and Skills services
 const mcpService = new MCPService();
 const skillsService = new SkillsService();
+const workflowService = new WorkflowService();
 
 // Setup side panel behavior
 chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(error => console.error(error));
@@ -62,12 +66,12 @@ chrome.tabs.onRemoved.addListener(tabId => {
 logger.info('background loaded');
 
 // Initialize MCP and Skills services
-Promise.all([mcpService.initialize(), skillsService.initialize()])
+Promise.all([mcpService.initialize(), skillsService.initialize(), workflowService.initialize()])
   .then(() => {
-    logger.info('MCP and Skills services initialized');
+    logger.info('MCP, Skills and Workflow services initialized');
   })
   .catch(error => {
-    logger.error('Failed to initialize MCP/Skills services:', error);
+    logger.error('Failed to initialize MCP/Skills/Workflow services:', error);
   });
 
 // Initialize analytics
@@ -106,8 +110,433 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  // Handle workflow execution from options page
+  if (message.type === 'execute_workflow') {
+    handleExecuteWorkflow(message)
+      .then(result => sendResponse(result))
+      .catch(error =>
+        sendResponse({ success: false, error: error instanceof Error ? error.message : 'Execution failed' }),
+      );
+    return true; // Keep the message channel open for async response
+  }
+
   return false;
 });
+
+// Handler function for workflow execution
+async function handleExecuteWorkflow(message: {
+  workflowId: string;
+  tabId?: number;
+  taskId?: string;
+  params?: Record<string, unknown>;
+}): Promise<{ success: boolean; result?: WorkflowResult; error?: string }> {
+  const workflowId = message.workflowId;
+  const params = message.params || {};
+
+  if (!workflowId) {
+    return { success: false, error: 'Workflow ID is required' };
+  }
+
+  logger.info('execute_workflow request', workflowId);
+
+  // Declare variables outside try block for catch access
+  let workflow: Workflow | undefined;
+  let targetTabId: number | undefined;
+  let targetPage: Page | null = null;
+
+  try {
+    // Get workflow from registry (always fetches latest from storage)
+    workflow = await workflowService.getWorkflowInfo(workflowId);
+    if (!workflow) {
+      return { success: false, error: `Workflow "${workflowId}" not found` };
+    }
+
+    // Check if the workflow starts with a go_to_url action
+    const startNode = workflow.nodes.find((n: { type: string }) => n.type === 'start');
+    const firstEdge = workflow.edges.find((e: { source: string }) => e.source === startNode?.id);
+    const firstNodeId = firstEdge?.target;
+    const firstNode = workflow.nodes.find((n: { id: string }) => n.id === firstNodeId);
+
+    // If first action is go_to_url, navigate to that URL
+    if (firstNode?.type === 'automation' && firstNode.data.action === 'go_to_url') {
+      const targetUrl = (firstNode.data.parameters?.url as string) || (params.url as string);
+      if (targetUrl) {
+        logger.info('Workflow starts with go_to_url, navigating to:', targetUrl);
+        targetPage = await browserContext.openTab(targetUrl);
+        if (targetPage?.tabId) {
+          targetTabId = targetPage.tabId;
+          await injectBuildDomTreeScripts(targetTabId);
+          // Wait for page to load
+          await new Promise(resolve => setTimeout(resolve, 1000));
+          logger.info('Opened new tab for workflow:', targetTabId, targetUrl);
+        }
+      }
+    }
+
+    // If no target page from go_to_url, find existing valid tab
+    if (!targetPage) {
+      // Search for existing http/https tabs
+      const allTabs = await chrome.tabs.query({ currentWindow: true });
+      logger.info('Searching for valid web page tab among', allTabs.length, 'tabs');
+
+      for (const tab of allTabs) {
+        if (tab.id && tab.url && tab.url.startsWith('http')) {
+          browserContext.updateCurrentTabId(tab.id);
+          const page = await browserContext.getCurrentPage();
+          if (page && page.validWebPage) {
+            targetPage = page;
+            targetTabId = tab.id;
+            logger.info('Found existing valid tab:', tab.id, tab.url);
+            break;
+          }
+        }
+      }
+    }
+
+    // Still no valid page? Create a blank tab
+    if (!targetPage) {
+      logger.info('No valid tab found, creating a new tab');
+      targetPage = await browserContext.openTab('');
+      if (targetPage?.tabId) {
+        targetTabId = targetPage.tabId;
+        // Wait for blank page
+        await new Promise(resolve => setTimeout(resolve, 500));
+      }
+    }
+
+    // Final check
+    if (!targetPage || !targetPage.tabId) {
+      return {
+        success: false,
+        error: '无法创建执行页面，请检查浏览器状态',
+      };
+    }
+
+    targetTabId = targetPage.tabId;
+
+    // Attach the page if not already attached
+    if (!targetPage.attached && targetPage.validWebPage) {
+      logger.info('Attaching to page...', targetTabId);
+      try {
+        const attached = await browserContext.attachPage(targetPage);
+        if (!attached) {
+          return { success: false, error: '无法连接到页面' };
+        }
+        await injectBuildDomTreeScripts(targetTabId);
+        await new Promise(resolve => setTimeout(resolve, 500));
+        logger.info('Page attached successfully');
+      } catch (attachError) {
+        logger.error('Failed to attach page:', attachError);
+        return {
+          success: false,
+          error: attachError instanceof Error ? attachError.message : '连接页面失败',
+        };
+      }
+    }
+
+    logger.info('Page ready, starting workflow execution on tab:', targetTabId);
+
+    // Wait for content script to be ready
+    const waitForContentScript = async (tabId: number, maxRetries = 5): Promise<boolean> => {
+      for (let i = 0; i < maxRetries; i++) {
+        try {
+          const response = await chrome.tabs.sendMessage(tabId, { type: 'ping_content_script' });
+          if (response?.success) {
+            logger.info('Content script is ready on tab:', tabId);
+            return true;
+          }
+        } catch (e) {
+          logger.info(`Content script not ready, retry ${i + 1}/${maxRetries}...`);
+          await new Promise(resolve => setTimeout(resolve, 500));
+        }
+      }
+      return false;
+    };
+
+    // Try to inject content script if not ready
+    const ensureContentScript = async (tabId: number): Promise<boolean> => {
+      // First try to ping
+      const ready = await waitForContentScript(tabId, 3);
+      if (ready) return true;
+
+      // Try to inject content script manually
+      try {
+        logger.info('Attempting to inject content script manually on tab:', tabId);
+        await chrome.scripting.executeScript({
+          target: { tabId },
+          files: ['content/index.iife.js'],
+        });
+        // Wait for script to initialize
+        await new Promise(resolve => setTimeout(resolve, 300));
+        return await waitForContentScript(tabId, 3);
+      } catch (e) {
+        logger.error('Failed to inject content script:', e);
+        return false;
+      }
+    };
+
+    // Ensure content script is loaded before sending progress messages
+    const contentScriptReady = await ensureContentScript(targetTabId);
+    if (!contentScriptReady) {
+      logger.warning('Content script not ready on target tab, workflow will execute without overlay');
+    }
+
+    // Send start progress message to content script
+    if (contentScriptReady) {
+      try {
+        await chrome.tabs.sendMessage(targetTabId, {
+          type: 'workflow_start',
+          workflowName: workflow.name,
+          totalNodes: workflow.nodes.filter((n: { type: string }) => n.type !== 'start' && n.type !== 'end').length,
+        });
+      } catch (e) {
+        logger.warning('Failed to send workflow_start message:', e);
+      }
+    }
+
+    // Track executed nodes for progress
+    let executedNodesCount = 0;
+    const totalExecutableNodes = workflow.nodes.filter(
+      (n: { type: string }) => n.type !== 'start' && n.type !== 'end',
+    ).length;
+
+    // Create action executor that integrates with browser automation
+    const actionExecutor = async (action: string, params: Record<string, unknown>) => {
+      logger.info('Workflow action:', action, params);
+
+      // Send progress update to content script (only if ready)
+      if (contentScriptReady) {
+        try {
+          await chrome.tabs.sendMessage(targetTabId!, {
+            type: 'workflow_progress',
+            nodeId: `node-${executedNodesCount}`,
+            nodeName: action,
+            nodeType: 'automation',
+            executedNodes: executedNodesCount + 1,
+            totalNodes: totalExecutableNodes,
+          });
+        } catch (e) {
+          logger.warning('Failed to send progress message:', e);
+        }
+      }
+
+      executedNodesCount++;
+
+      try {
+        // Get the current page (should be attached now)
+        const currentPage = await browserContext.getCurrentPage();
+        if (!currentPage || !currentPage.attached) {
+          return { success: false, error: 'Page is not attached' };
+        }
+
+        // Execute action based on type
+        switch (action) {
+          case 'go_to_url': {
+            const url = params.url as string;
+            if (!url) return { success: false, error: 'URL is required' };
+            await browserContext.navigateTo(url);
+            return { success: true };
+          }
+
+          case 'click_element': {
+            const clickSelector = (params.selector as string) || (params.xpath as string);
+            if (!clickSelector) return { success: false, error: 'No selector provided' };
+            const result = await currentPage.clickBySelector(clickSelector);
+            return { success: result, error: result ? undefined : 'Element not found or click failed' };
+          }
+
+          case 'input_text': {
+            const inputSelector = (params.selector as string) || (params.xpath as string);
+            const text = params.text as string;
+            if (!inputSelector || !text) return { success: false, error: 'Missing selector or text' };
+            const result = await currentPage.inputBySelector(inputSelector, text);
+            return { success: result, error: result ? undefined : 'Element not found or input failed' };
+          }
+
+          case 'scroll_to_percent': {
+            const yPercent = (params.yPercent as number) || 0;
+            await currentPage.scrollToPercentDirect(yPercent);
+            return { success: true };
+          }
+
+          case 'scroll_to_top':
+            await currentPage.scrollToPercentDirect(0);
+            return { success: true };
+
+          case 'scroll_to_bottom':
+            await currentPage.scrollToPercentDirect(100);
+            return { success: true };
+
+          case 'wait': {
+            const duration = (params.duration as number) || 1000;
+            await new Promise(resolve => setTimeout(resolve, duration));
+            return { success: true };
+          }
+
+          case 'send_keys': {
+            const keys = params.keys as string;
+            if (!keys) return { success: false, error: 'Keys are required' };
+            await currentPage.sendKeys(keys);
+            return { success: true };
+          }
+
+          case 'go_back':
+            await currentPage.goBack();
+            return { success: true };
+
+          case 'go_forward':
+            await currentPage.goForward();
+            return { success: true };
+
+          case 'open_tab': {
+            const url = (params.url as string) || '';
+            const newPage = await browserContext.openTab(url);
+            if (newPage?.tabId) {
+              await injectBuildDomTreeScripts(newPage.tabId);
+            }
+            return { success: true };
+          }
+
+          case 'close_tab': {
+            const currentTabId = currentPage.tabId;
+            await browserContext.closeTab(currentTabId);
+            return { success: true };
+          }
+
+          case 'switch_tab': {
+            const tabs = await chrome.tabs.query({ currentWindow: true });
+            const targetIndex = params.tabIndex as number;
+            if (tabs[targetIndex]?.id) {
+              await browserContext.switchTab(tabs[targetIndex].id!);
+              return { success: true };
+            }
+            return { success: false, error: 'Invalid tab index' };
+          }
+
+          case 'select_dropdown_option': {
+            const dropdownSelector = params.selector as string;
+            const optionText = params.text as string;
+            if (!dropdownSelector || !optionText) return { success: false, error: 'Missing selector or option text' };
+            const result = await currentPage.selectOptionBySelector(dropdownSelector, optionText);
+            return { success: result, error: result ? undefined : 'Select failed' };
+          }
+
+          default:
+            return { success: false, error: `Unknown action: ${action}` };
+        }
+      } catch (actionError) {
+        logger.error('Workflow action failed:', action, actionError);
+        return {
+          success: false,
+          error: actionError instanceof Error ? actionError.message : 'Action failed',
+        };
+      }
+    };
+
+    // Create AI invoker that uses the Navigator agent
+    const aiInvoker = async (prompt: string, context?: Record<string, unknown>) => {
+      logger.info('Workflow AI invoke:', prompt, context);
+      try {
+        const providers = await llmProviderStore.getAllProviders();
+        if (Object.keys(providers).length === 0) {
+          return { success: false, error: t('bg_setup_noApiKeys') };
+        }
+
+        const agentModels = await agentModelStore.getAllAgentModels();
+        const navigatorModel = agentModels[AgentNameEnum.Navigator];
+        if (!navigatorModel) {
+          return { success: false, error: t('bg_setup_noNavigatorModel') };
+        }
+
+        const providerConfig = providers[navigatorModel.provider];
+        const llm = createChatModel(providerConfig, navigatorModel);
+
+        // Build context-aware prompt
+        const contextStr = context ? `\nContext: ${JSON.stringify(context)}` : '';
+        const fullPrompt = `${prompt}${contextStr}\n\n请返回执行结果，格式为JSON: { "result": "...", "success": true/false }`;
+
+        const response = await llm.invoke(fullPrompt);
+        const responseText = response.content as string;
+
+        // Try to parse response
+        try {
+          const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+          if (jsonMatch) {
+            const parsed = JSON.parse(jsonMatch[0]);
+            return {
+              success: parsed.success ?? true,
+              response: parsed.result || responseText,
+            };
+          }
+        } catch {
+          // Return raw response if parsing fails
+        }
+
+        return { success: true, response: responseText };
+      } catch (aiError) {
+        logger.error('Workflow AI invoke failed:', aiError);
+        return {
+          success: false,
+          error: aiError instanceof Error ? aiError.message : 'AI invoke failed',
+        };
+      }
+    };
+
+    // Execute workflow
+    const result = await workflowService.executeWorkflow(
+      workflowId,
+      targetPage.tabId,
+      message.params || {},
+      actionExecutor,
+      aiInvoker,
+    );
+
+    logger.info('execute_workflow result', targetPage.tabId, result);
+
+    // Send completion message to content script (only if ready)
+    if (contentScriptReady) {
+      try {
+        if (result.success) {
+          await chrome.tabs.sendMessage(targetTabId!, {
+            type: 'workflow_complete',
+            workflowName: workflow.name,
+            totalNodes: totalExecutableNodes,
+          });
+        } else {
+          await chrome.tabs.sendMessage(targetTabId!, {
+            type: 'workflow_error',
+            workflowName: workflow.name,
+            error: result.error || 'Workflow execution failed',
+          });
+        }
+      } catch (e) {
+        logger.warning('Failed to send workflow completion message:', e);
+      }
+    }
+
+    return { success: result.success, result };
+  } catch (error) {
+    logger.error('Execute workflow failed:', error);
+
+    // Send error message to content script if we have a valid tab
+    if (targetPage?.tabId) {
+      try {
+        await chrome.tabs.sendMessage(targetPage.tabId, {
+          type: 'workflow_error',
+          workflowName: workflow?.name || 'Unknown',
+          error: error instanceof Error ? error.message : 'Failed to execute workflow',
+        });
+      } catch {
+        // Ignore messaging errors
+      }
+    }
+
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to execute workflow',
+    };
+  }
+}
 
 // Handler functions for MCP/Skills messages
 async function handleMCPTestConnection(config: unknown): Promise<{ success: boolean; error?: string }> {

@@ -1421,6 +1421,140 @@ export default class Page {
     return false;
   }
 
+  // ============ Workflow Helper Methods ============
+  // These methods allow direct selector-based operations for workflow execution
+
+  /**
+   * Click element by CSS selector or XPath
+   */
+  async clickBySelector(selector: string): Promise<boolean> {
+    if (!this._puppeteerPage) {
+      throw new Error('Puppeteer page is not connected');
+    }
+
+    try {
+      // Try CSS selector first
+      let element: ElementHandle<Element> | null = null;
+      if (selector.startsWith('//') || selector.startsWith('/')) {
+        // XPath selector - use evaluate to find element
+        const handle = await this._puppeteerPage.evaluateHandle(xpath => {
+          const result = document.evaluate(xpath, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null);
+          return result.singleNodeValue as Element | null;
+        }, selector);
+        element = handle.asElement() as ElementHandle<Element> | null;
+      } else {
+        // CSS selector
+        element = await this._puppeteerPage.$(selector);
+      }
+
+      if (!element) {
+        logger.warning(`Element not found with selector: ${selector}`);
+        return false;
+      }
+
+      await this._scrollIntoViewIfNeeded(element);
+      await element.click();
+      logger.info('Click successful:', selector);
+      return true;
+    } catch (error) {
+      logger.error('Click failed:', selector, error);
+      return false;
+    }
+  }
+
+  /**
+   * Input text into element by CSS selector or XPath
+   */
+  async inputBySelector(selector: string, text: string): Promise<boolean> {
+    if (!this._puppeteerPage) {
+      throw new Error('Puppeteer page is not connected');
+    }
+
+    try {
+      let element: ElementHandle<Element> | null = null;
+      if (selector.startsWith('//') || selector.startsWith('/')) {
+        const handle = await this._puppeteerPage.evaluateHandle(xpath => {
+          const result = document.evaluate(xpath, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null);
+          return result.singleNodeValue as Element | null;
+        }, selector);
+        element = handle.asElement() as ElementHandle<Element> | null;
+      } else {
+        element = await this._puppeteerPage.$(selector);
+      }
+
+      if (!element) {
+        logger.warning(`Element not found with selector: ${selector}`);
+        return false;
+      }
+
+      await this._scrollIntoViewIfNeeded(element);
+      await element.click(); // Focus the element
+      await this._puppeteerPage.keyboard.type(text, { delay: 50 });
+      logger.info('Input successful:', selector, text);
+      return true;
+    } catch (error) {
+      logger.error('Input failed:', selector, error);
+      return false;
+    }
+  }
+
+  /**
+   * Select dropdown option by CSS selector
+   */
+  async selectOptionBySelector(selector: string, optionText: string): Promise<boolean> {
+    if (!this._puppeteerPage) {
+      throw new Error('Puppeteer page is not connected');
+    }
+
+    try {
+      let element: ElementHandle<Element> | null = null;
+      if (selector.startsWith('//') || selector.startsWith('/')) {
+        const handle = await this._puppeteerPage.evaluateHandle(xpath => {
+          const result = document.evaluate(xpath, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null);
+          return result.singleNodeValue as Element | null;
+        }, selector);
+        element = handle.asElement() as ElementHandle<Element> | null;
+      } else {
+        element = await this._puppeteerPage.$(selector);
+      }
+
+      if (!element) {
+        logger.warning(`Element not found with selector: ${selector}`);
+        return false;
+      }
+
+      // Check if it's a select element
+      const isSelect = await element.evaluate(el => el.tagName === 'SELECT');
+      if (!isSelect) {
+        logger.warning(`Element is not a SELECT: ${selector}`);
+        return false;
+      }
+
+      await element.select(optionText);
+      logger.info('Select option successful:', selector, optionText);
+      return true;
+    } catch (error) {
+      logger.error('Select option failed:', selector, error);
+      return false;
+    }
+  }
+
+  /**
+   * Scroll to percentage of page directly
+   */
+  async scrollToPercentDirect(yPercent: number): Promise<void> {
+    if (!this._puppeteerPage) {
+      throw new Error('Puppeteer is not connected');
+    }
+
+    await this._puppeteerPage.evaluate(percent => {
+      window.scrollTo({
+        top: (document.body.scrollHeight - window.innerHeight) * (percent / 100),
+        behavior: 'smooth',
+      });
+    }, yPercent);
+  }
+
   async waitForPageLoadState(timeout?: number) {
     const timeoutValue = timeout || 8000;
     await this._puppeteerPage?.waitForNavigation({ timeout: timeoutValue });
