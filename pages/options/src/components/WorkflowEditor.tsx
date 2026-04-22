@@ -4,9 +4,12 @@
  */
 
 import { useEffect, useRef, useState, useCallback } from 'react';
-import type { Edge, Node } from '@antv/x6';
-import { Graph } from '@antv/x6';
+import type { Edge as X6Edge, Node as X6Node } from '@antv/x6';
+import { Graph as X6Graph, Shape } from '@antv/x6';
 import { register } from '@antv/x6-react-shape';
+import { AntVDagreLayout } from '@antv/layout';
+import type { NodeData as LayoutNodeData, EdgeData as LayoutEdgeData } from '@antv/layout';
+import { Graph as LayoutGraph } from '@antv/graphlib';
 import {
   FiCpu,
   FiMousePointer,
@@ -17,6 +20,7 @@ import {
   FiX,
   FiMaximize2,
   FiMinimize2,
+  FiLayout,
 } from 'react-icons/fi';
 import { t } from '@extension/i18n';
 import type { Workflow, WorkflowNode, WorkflowEdge, WorkflowNodeType, NodeData } from '@extension/workflow';
@@ -33,16 +37,12 @@ interface NodeComponentProps {
 const AINodeComponent = ({ node }: NodeComponentProps) => {
   const data = node.getData();
   return (
-    <div className="ai-node flex items-center gap-2 px-3 py-2 rounded-lg bg-gradient-to-r from-purple-500 to-purple-600 text-white shadow-md min-w-[150px] relative">
-      {/* Input port */}
-      <div className="absolute left-0 top-1/2 -translate-y-1/2 -translate-x-1/2 w-3 h-3 rounded-full bg-white border-2 border-purple-400 cursor-crosshair port-in" />
+    <div className="ai-node flex items-center gap-2 px-3 py-2 rounded-lg bg-gradient-to-r from-purple-500 to-purple-600 text-white shadow-md min-w-[150px]">
       <FiCpu className="size-5" />
       <div className="flex flex-col">
         <span className="font-medium text-sm">AI Module</span>
         <span className="text-xs opacity-80 truncate max-w-[120px]">{data.prompt?.slice(0, 20) || 'AI Task'}...</span>
       </div>
-      {/* Output port */}
-      <div className="absolute right-0 top-1/2 -translate-y-1/2 translate-x-1/2 w-3 h-3 rounded-full bg-white border-2 border-purple-400 cursor-crosshair port-out" />
     </div>
   );
 };
@@ -53,16 +53,12 @@ const AINodeComponent = ({ node }: NodeComponentProps) => {
 const AutomationNodeComponent = ({ node }: NodeComponentProps) => {
   const data = node.getData();
   return (
-    <div className="automation-node flex items-center gap-2 px-3 py-2 rounded-lg bg-gradient-to-r from-blue-500 to-blue-600 text-white shadow-md min-w-[150px] relative">
-      {/* Input port */}
-      <div className="absolute left-0 top-1/2 -translate-y-1/2 -translate-x-1/2 w-3 h-3 rounded-full bg-white border-2 border-blue-400 cursor-crosshair port-in" />
+    <div className="automation-node flex items-center gap-2 px-3 py-2 rounded-lg bg-gradient-to-r from-blue-500 to-blue-600 text-white shadow-md min-w-[150px]">
       <FiMousePointer className="size-5" />
       <div className="flex flex-col">
         <span className="font-medium text-sm">Automation</span>
         <span className="text-xs opacity-80 truncate max-w-[120px]">{data.action || 'Action'}</span>
       </div>
-      {/* Output port */}
-      <div className="absolute right-0 top-1/2 -translate-y-1/2 translate-x-1/2 w-3 h-3 rounded-full bg-white border-2 border-blue-400 cursor-crosshair port-out" />
     </div>
   );
 };
@@ -73,9 +69,7 @@ const AutomationNodeComponent = ({ node }: NodeComponentProps) => {
 const ConditionNodeComponent = ({ node }: NodeComponentProps) => {
   const data = node.getData();
   return (
-    <div className="condition-node flex items-center gap-2 px-3 py-2 rounded-lg bg-gradient-to-r from-orange-500 to-orange-600 text-white shadow-md min-w-[150px] relative">
-      {/* Input port */}
-      <div className="absolute left-0 top-1/2 -translate-y-1/2 -translate-x-1/2 w-3 h-3 rounded-full bg-white border-2 border-orange-400 cursor-crosshair port-in" />
+    <div className="condition-node flex items-center gap-2 px-3 py-2 rounded-lg bg-gradient-to-r from-orange-500 to-orange-600 text-white shadow-md min-w-[150px]">
       <FiGitBranch className="size-5" />
       <div className="flex flex-col">
         <span className="font-medium text-sm">Condition</span>
@@ -83,16 +77,6 @@ const ConditionNodeComponent = ({ node }: NodeComponentProps) => {
           {data.conditionExpression?.slice(0, 20) || 'Branch'}...
         </span>
       </div>
-      {/* True output port (top) */}
-      <div
-        className="absolute right-0 top-1/4 translate-x-1/2 w-3 h-3 rounded-full bg-green-400 border-2 border-orange-400 cursor-crosshair port-out-true"
-        title="True branch"
-      />
-      {/* False output port (bottom) */}
-      <div
-        className="absolute right-0 bottom-1/4 translate-x-1/2 w-3 h-3 rounded-full bg-red-400 border-2 border-orange-400 cursor-crosshair port-out-false"
-        title="False branch"
-      />
     </div>
   );
 };
@@ -101,10 +85,8 @@ const ConditionNodeComponent = ({ node }: NodeComponentProps) => {
  * Start Node Component - only has output port
  */
 const StartNodeComponent = () => (
-  <div className="start-node flex items-center justify-center size-10 rounded-full bg-green-500 text-white shadow-md relative">
+  <div className="start-node flex items-center justify-center size-10 rounded-full bg-green-500 text-white shadow-md">
     <FiPlay className="size-5" />
-    {/* Output port */}
-    <div className="absolute right-0 top-1/2 -translate-y-1/2 translate-x-1/2 w-3 h-3 rounded-full bg-white border-2 border-green-400 cursor-crosshair port-out" />
   </div>
 );
 
@@ -112,14 +94,12 @@ const StartNodeComponent = () => (
  * End Node Component - only has input port
  */
 const EndNodeComponent = () => (
-  <div className="end-node flex items-center justify-center size-10 rounded-full bg-red-500 text-white shadow-md relative">
+  <div className="end-node flex items-center justify-center size-10 rounded-full bg-red-500 text-white shadow-md">
     <FiXCircle className="size-5" />
-    {/* Input port */}
-    <div className="absolute left-0 top-1/2 -translate-y-1/2 -translate-x-1/2 w-3 h-3 rounded-full bg-white border-2 border-red-400 cursor-crosshair port-in" />
   </div>
 );
 
-// Register React node shapes with ports
+// Register React node shapes with ports (ports are hidden by default, show on hover)
 register({
   shape: 'workflow-ai-node',
   component: AINodeComponent,
@@ -131,13 +111,13 @@ register({
         position: 'left',
         attrs: {
           circle: {
-            r: 8,
+            r: 6,
             magnet: true,
             stroke: '#9333ea',
-            strokeWidth: 3,
+            strokeWidth: 2,
             fill: '#fff',
             style: {
-              cursor: 'crosshair',
+              visibility: 'hidden',
             },
           },
         },
@@ -146,13 +126,13 @@ register({
         position: 'right',
         attrs: {
           circle: {
-            r: 8,
+            r: 6,
             magnet: true,
             stroke: '#9333ea',
-            strokeWidth: 3,
+            strokeWidth: 2,
             fill: '#fff',
             style: {
-              cursor: 'crosshair',
+              visibility: 'hidden',
             },
           },
         },
@@ -176,13 +156,13 @@ register({
         position: 'left',
         attrs: {
           circle: {
-            r: 8,
+            r: 6,
             magnet: true,
             stroke: '#3b82f6',
-            strokeWidth: 3,
+            strokeWidth: 2,
             fill: '#fff',
             style: {
-              cursor: 'crosshair',
+              visibility: 'hidden',
             },
           },
         },
@@ -191,13 +171,13 @@ register({
         position: 'right',
         attrs: {
           circle: {
-            r: 8,
+            r: 6,
             magnet: true,
             stroke: '#3b82f6',
-            strokeWidth: 3,
+            strokeWidth: 2,
             fill: '#fff',
             style: {
-              cursor: 'crosshair',
+              visibility: 'hidden',
             },
           },
         },
@@ -221,13 +201,13 @@ register({
         position: 'left',
         attrs: {
           circle: {
-            r: 8,
+            r: 6,
             magnet: true,
             stroke: '#f97316',
-            strokeWidth: 3,
+            strokeWidth: 2,
             fill: '#fff',
             style: {
-              cursor: 'crosshair',
+              visibility: 'hidden',
             },
           },
         },
@@ -236,13 +216,13 @@ register({
         position: { name: 'right', args: { y: 15 } },
         attrs: {
           circle: {
-            r: 8,
+            r: 6,
             magnet: true,
             stroke: '#22c55e',
-            strokeWidth: 3,
+            strokeWidth: 2,
             fill: '#fff',
             style: {
-              cursor: 'crosshair',
+              visibility: 'hidden',
             },
           },
         },
@@ -251,13 +231,13 @@ register({
         position: { name: 'right', args: { y: 45 } },
         attrs: {
           circle: {
-            r: 8,
+            r: 6,
             magnet: true,
             stroke: '#ef4444',
-            strokeWidth: 3,
+            strokeWidth: 2,
             fill: '#fff',
             style: {
-              cursor: 'crosshair',
+              visibility: 'hidden',
             },
           },
         },
@@ -282,13 +262,13 @@ register({
         position: 'right',
         attrs: {
           circle: {
-            r: 8,
+            r: 6,
             magnet: true,
             stroke: '#22c55e',
-            strokeWidth: 3,
+            strokeWidth: 2,
             fill: '#fff',
             style: {
-              cursor: 'crosshair',
+              visibility: 'hidden',
             },
           },
         },
@@ -309,13 +289,13 @@ register({
         position: 'left',
         attrs: {
           circle: {
-            r: 8,
+            r: 6,
             magnet: true,
             stroke: '#ef4444',
-            strokeWidth: 3,
+            strokeWidth: 2,
             fill: '#fff',
             style: {
-              cursor: 'crosshair',
+              visibility: 'hidden',
             },
           },
         },
@@ -351,14 +331,14 @@ export default function WorkflowEditor({
   isDarkMode = false,
 }: WorkflowEditorProps) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const graphRef = useRef<Graph | null>(null);
+  const graphRef = useRef<X6Graph | null>(null);
 
   const [workflowId] = useState(initialWorkflow?.id || `workflow-${Date.now()}`);
   const [workflowName, setWorkflowName] = useState(initialWorkflow?.name || 'New Workflow');
   const [workflowDescription, setWorkflowDescription] = useState(initialWorkflow?.description || '');
   const [workflowCategory, setWorkflowCategory] = useState<string>(initialWorkflow?.category || 'automation');
   const [selectedNode, setSelectedNode] = useState<WorkflowNode | null>(null);
-  const [selectedEdge, setSelectedEdge] = useState<Edge | null>(null);
+  const [selectedEdge, setSelectedEdge] = useState<X6Edge | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
 
   // Initialize graph
@@ -384,7 +364,7 @@ export default function WorkflowEditor({
     };
 
     // Helper function to load workflow into graph
-    const loadWorkflowIntoGraph = (graph: Graph, workflow: Workflow) => {
+    const loadWorkflowIntoGraph = (graph: X6Graph, workflow: Workflow) => {
       try {
         // Add nodes
         for (const node of workflow.nodes) {
@@ -403,23 +383,37 @@ export default function WorkflowEditor({
 
         // Add edges
         for (const edge of workflow.edges) {
-          graph.addEdge({
-            id: edge.id || `edge-${Date.now()}`,
-            source: edge.source,
-            target: edge.target,
-            attrs: {
-              line: {
-                stroke: isDarkMode ? '#60A5FA' : '#3B82F6',
-                strokeWidth: 2,
-                targetMarker: {
-                  name: 'classic',
-                  size: 10,
+          graph.addEdge(
+            new Shape.Edge({
+              id: edge.id || `edge-${Date.now()}`,
+              source: edge.source,
+              target: edge.target,
+              attrs: {
+                line: {
+                  stroke: isDarkMode ? '#60A5FA' : '#A2B1C3',
+                  strokeWidth: 2,
+                  targetMarker: {
+                    name: 'block',
+                    width: 12,
+                    height: 8,
+                  },
                 },
               },
-            },
-            labels: edge.label ? [{ text: edge.label }] : undefined,
-            zIndex: 1000,
-          });
+              router: {
+                name: 'manhattan',
+                args: {
+                  padding: 1,
+                },
+              },
+              connector: {
+                name: 'rounded',
+                args: {
+                  radius: 8,
+                },
+              },
+              zIndex: 0,
+            }),
+          );
         }
       } catch (error) {
         console.error('[WorkflowEditor] Failed to load workflow:', error);
@@ -427,7 +421,7 @@ export default function WorkflowEditor({
     };
 
     // Create graph instance
-    const graph: Graph = new Graph({
+    const graph: X6Graph = new X6Graph({
       container: containerRef.current,
       grid: {
         visible: true,
@@ -439,24 +433,17 @@ export default function WorkflowEditor({
       },
       mousewheel: {
         enabled: true,
+        zoomAtMousePosition: true,
         modifiers: [],
         minScale: 0.5,
         maxScale: 2,
       },
       connecting: {
-        anchor: 'center',
-        connectionPoint: 'anchor',
-        allowBlank: false,
-        allowLoop: false,
-        allowNode: true,
-        allowEdge: false,
-        highlight: true,
-        snap: true,
-        sourceAnchor: {
-          name: 'right',
-        },
-        targetAnchor: {
-          name: 'left',
+        router: {
+          name: 'manhattan',
+          args: {
+            padding: 1,
+          },
         },
         connector: {
           name: 'rounded',
@@ -464,47 +451,42 @@ export default function WorkflowEditor({
             radius: 8,
           },
         },
-        router: {
-          name: 'manhattan',
-          args: {
-            padding: 20,
-          },
+        anchor: 'center',
+        connectionPoint: 'anchor',
+        allowBlank: false,
+        allowLoop: false,
+        allowNode: true,
+        allowEdge: false,
+        snap: {
+          radius: 20,
         },
-        createEdge(): Edge {
-          return graph.createEdge({
+        createEdge() {
+          return new Shape.Edge({
             attrs: {
               line: {
-                stroke: isDarkMode ? '#60A5FA' : '#3B82F6',
+                stroke: isDarkMode ? '#60A5FA' : '#A2B1C3',
                 strokeWidth: 2,
-                strokeDasharray: '',
                 targetMarker: {
-                  name: 'classic',
-                  size: 10,
+                  name: 'block',
+                  width: 12,
+                  height: 8,
                 },
               },
             },
-            zIndex: 1000,
+            zIndex: 0,
           });
+        },
+        validateConnection({ targetMagnet }) {
+          return !!targetMagnet;
         },
       },
       highlighting: {
-        magnetAvailable: {
-          name: 'stroke',
-          args: {
-            attrs: {
-              fill: '#fff',
-              stroke: '#31D0C6',
-              strokeWidth: 3,
-            },
-          },
-        },
         magnetAdsorbed: {
           name: 'stroke',
           args: {
             attrs: {
-              fill: '#fff',
-              stroke: '#31D0C6',
-              strokeWidth: 4,
+              fill: '#5F95FF',
+              stroke: '#5F95FF',
             },
           },
         },
@@ -535,7 +517,7 @@ export default function WorkflowEditor({
     }
 
     // Handle node click for editing
-    graph.on('node:click', ({ node }: { node: Node }) => {
+    graph.on('node:click', ({ node }: { node: X6Node }) => {
       const nodeData = node.getData() as Record<string, unknown>;
       const nodeType = nodeData['type'] as string | undefined;
       // Clear edge selection
@@ -555,7 +537,7 @@ export default function WorkflowEditor({
     });
 
     // Handle edge click for selection
-    graph.on('edge:click', ({ edge }: { edge: Edge }) => {
+    graph.on('edge:click', ({ edge }: { edge: X6Edge }) => {
       setSelectedNode(null);
       setSelectedEdge(edge);
     });
@@ -564,6 +546,33 @@ export default function WorkflowEditor({
     graph.on('blank:click', () => {
       setSelectedNode(null);
       setSelectedEdge(null);
+    });
+
+    // Show ports on node mouseenter
+    graph.on('node:mouseenter', ({ node }) => {
+      const ports = node.getPorts();
+      ports.forEach(port => {
+        if (port.id) {
+          node.setPortProp(port.id, 'attrs/circle/style/visibility', 'visible');
+        }
+      });
+    });
+
+    // Hide ports on node mouseleave (except when connecting)
+    graph.on('node:mouseleave', ({ node }) => {
+      const ports = node.getPorts();
+      ports.forEach(port => {
+        if (port.id) {
+          node.setPortProp(port.id, 'attrs/circle/style/visibility', 'hidden');
+        }
+      });
+    });
+
+    // Also show ports when starting to connect from a port
+    graph.on('node:port:mouseenter', ({ node, port: portId }) => {
+      if (portId) {
+        node.setPortProp(portId, 'attrs/circle/style/visibility', 'visible');
+      }
     });
 
     // Cleanup
@@ -652,6 +661,72 @@ export default function WorkflowEditor({
   const handleDeleteEdge = () => {
     if (!selectedEdge) return;
     selectedEdge.remove();
+    setSelectedEdge(null);
+  };
+
+  // Auto layout the graph using Dagre layout
+  const handleAutoLayout = async () => {
+    if (!graphRef.current) return;
+
+    const graph = graphRef.current;
+    const nodes = graph.getNodes();
+    const edges = graph.getEdges();
+
+    if (nodes.length === 0) return;
+
+    // Create a layout graph with nodes and edges data
+    // Cast to expected Graph type from @antv/layout
+    const layoutGraph = new LayoutGraph<LayoutNodeData, LayoutEdgeData>({
+      nodes: nodes.map(node => ({
+        id: node.id,
+        data: {
+          x: node.position().x,
+          y: node.position().y,
+          size: [node.getSize().width, node.getSize().height],
+        } as LayoutNodeData,
+      })),
+      edges: edges.map(edge => ({
+        id: edge.id,
+        source: edge.getSourceCellId() || '',
+        target: edge.getTargetCellId() || '',
+        data: {} as LayoutEdgeData,
+      })),
+    });
+
+    // Create AntVDagre layout instance
+    const dagreLayout = new AntVDagreLayout({
+      rankdir: 'LR', // Left to right layout
+      align: 'UL', // Upper-left alignment
+      nodesep: 60, // Horizontal spacing between nodes in same rank
+      ranksep: 120, // Spacing between ranks (columns)
+      nodeSize: 180,
+    });
+
+    // Execute layout
+    const result = await dagreLayout.execute(layoutGraph);
+
+    // Apply new positions to nodes
+    result.nodes.forEach(layoutNode => {
+      const cell = graph.getCellById(String(layoutNode.id));
+      if (cell && cell.isNode()) {
+        // Get the size from node data or default
+        const size = layoutNode.data?.size || [180, 60];
+        const width = typeof size === 'number' ? size : size[0] || 180;
+        const height = typeof size === 'number' ? size : size[1] || 60;
+        // Center the node at the layout position
+        cell.position(layoutNode.data.x - width / 2, layoutNode.data.y - height / 2);
+      }
+    });
+
+    // Center the graph in the viewport
+    const graphArea = graph.getGraphArea();
+    const contentArea = graph.getContentArea();
+    const centerX = (graphArea.x + graphArea.width) / 2 - contentArea.width / 2;
+    const centerY = (graphArea.y + graphArea.height) / 2 - contentArea.height / 2;
+    graph.translate(centerX, centerY);
+
+    // Clear selection after layout
+    setSelectedNode(null);
     setSelectedEdge(null);
   };
 
@@ -772,6 +847,17 @@ export default function WorkflowEditor({
           </select>
         </div>
         <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={handleAutoLayout}
+            className={`p-2 rounded-md ${
+              isDarkMode
+                ? 'bg-slate-600 text-gray-200 hover:bg-slate-500'
+                : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+            }`}
+            title={t('workflow_autoLayout')}>
+            <FiLayout className="size-4" />
+          </button>
           <button
             type="button"
             onClick={() => setIsFullscreen(!isFullscreen)}

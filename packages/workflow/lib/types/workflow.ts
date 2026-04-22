@@ -78,6 +78,7 @@ export interface WorkflowEdge {
   target: string;
   label?: string;
   condition?: string; // For conditional edges (true/false branches)
+  marker?: 'block' | 'classic' | 'none'; // Arrow marker type
 }
 
 /**

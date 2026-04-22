@@ -9,9 +9,18 @@ import type {
   NodePosition,
 } from '../types';
 
+// Layout constants
+const NODE_WIDTH = 180;
+const NODE_HEIGHT = 60;
+const START_END_SIZE = 50;
+const HORIZONTAL_SPACING = 200;
+const VERTICAL_SPACING = 100;
+const BRANCH_OFFSET = 250;
+
 /**
  * Convert Skill to Workflow
  * Each SkillStep becomes an Automation node (or Condition node if it has conditions)
+ * Uses improved layout algorithm for better visual presentation
  */
 export function convertSkillToWorkflow(skill: Skill): Workflow {
   const nodes: WorkflowNode[] = [];
@@ -29,93 +38,40 @@ export function convertSkillToWorkflow(skill: Skill): Workflow {
     });
   }
 
+  // Layout state tracking
+  let currentX = 100;
+  let currentY = 200;
+  let lastNodeId = 'start';
+
   // Create start node
   const startNode: WorkflowNode = {
     id: 'start',
     type: 'start',
     name: 'Start',
-    position: { x: 0, y: 0 },
+    position: { x: currentX, y: currentY },
     data: {},
   };
   nodes.push(startNode);
 
-  // Track last node ID for edge creation
-  let lastNodeId = 'start';
-  let yOffset = 100;
+  // Move to first automation node position
+  currentX += HORIZONTAL_SPACING + START_END_SIZE / 2;
 
-  // Convert each SkillStep
-  for (let i = 0; i < skill.steps.length; i++) {
-    const step = skill.steps[i];
-    const nodeId = `step-${i}`;
+  // Process steps with layout tracking
+  const processedSteps = processSteps(skill.steps, nodes, edges, currentX, currentY);
 
-    // Check if step has condition
-    if (step.condition) {
-      // Create condition node
-      const conditionNode = createConditionNode(step, nodeId, yOffset);
-      nodes.push(conditionNode);
+  // Find the end position based on the farthest node
+  const maxXNode = nodes.reduce((max, node) => (node.position.x > max.position.x ? node : max), nodes[0]);
+  currentX = maxXNode.position.x + HORIZONTAL_SPACING;
 
-      // Edge from last node to condition node
-      edges.push({
-        id: `edge-${lastNodeId}-${nodeId}`,
-        source: lastNodeId,
-        target: nodeId,
-      });
-
-      // Process thenSteps
-      if (step.condition.thenSteps && step.condition.thenSteps.length > 0) {
-        const thenNodeIds = processConditionSteps(step.condition.thenSteps, nodes, edges, nodeId, 'true', yOffset);
-        lastNodeId = thenNodeIds[thenNodeIds.length - 1];
-      }
-
-      // Process elseSteps
-      if (step.condition.elseSteps && step.condition.elseSteps.length > 0) {
-        const elseNodeIds = processConditionSteps(
-          step.condition.elseSteps,
-          nodes,
-          edges,
-          nodeId,
-          'false',
-          yOffset + 100,
-        );
-        // Connect else branch back to main flow
-        // Note: This is simplified - real workflow would merge back
-      }
-
-      yOffset += 200;
-    } else {
-      // Create automation node
-      const automationNode: WorkflowNode = {
-        id: nodeId,
-        type: 'automation',
-        name: step.description || step.action,
-        description: step.description,
-        position: { x: 0, y: yOffset },
-        data: {
-          action: step.action,
-          parameters: step.parameters,
-          delayAfter: step.delay,
-        },
-      };
-      nodes.push(automationNode);
-
-      // Edge from last node to this node
-      edges.push({
-        id: `edge-${lastNodeId}-${nodeId}`,
-        source: lastNodeId,
-        target: nodeId,
-      });
-
-      lastNodeId = nodeId;
-      yOffset += 100;
-    }
-  }
+  // Get the last processed node ID
+  lastNodeId = processedSteps.lastNodeId;
 
   // Create end node
   const endNode: WorkflowNode = {
     id: 'end',
     type: 'end',
     name: 'End',
-    position: { x: 0, y: yOffset },
+    position: { x: currentX, y: currentY },
     data: {},
   };
   nodes.push(endNode);
@@ -125,6 +81,7 @@ export function convertSkillToWorkflow(skill: Skill): Workflow {
     id: `edge-${lastNodeId}-end`,
     source: lastNodeId,
     target: 'end',
+    marker: 'block',
   });
 
   return {
@@ -145,84 +102,247 @@ export function convertSkillToWorkflow(skill: Skill): Workflow {
 }
 
 /**
- * Create condition node from SkillStep with condition
+ * Process steps and create nodes with proper layout
  */
-function createConditionNode(step: SkillStep, nodeId: string, yOffset: number): WorkflowNode {
-  const condition = step.condition!;
-  const conditionExpression = condition.expression;
-
-  // Determine true and false node IDs
-  const trueNodeId =
-    condition.thenSteps && condition.thenSteps.length > 0
-      ? `${nodeId}-then-0`
-      : `step-${parseInt(nodeId.split('-')[1]) + 1}`;
-
-  const falseNodeId =
-    condition.elseSteps && condition.elseSteps.length > 0
-      ? `${nodeId}-else-0`
-      : `step-${parseInt(nodeId.split('-')[1]) + 1}`;
-
-  return {
-    id: nodeId,
-    type: 'condition',
-    name: `Condition: ${conditionExpression.slice(0, 30)}...`,
-    position: { x: 0, y: yOffset },
-    data: {
-      conditionExpression,
-      trueNodeId,
-      falseNodeId,
-      evaluateWithAI: true, // Default to AI evaluation for Skill conditions
-    },
-  };
-}
-
-/**
- * Process condition branch steps (thenSteps or elseSteps)
- */
-function processConditionSteps(
+function processSteps(
   steps: SkillStep[],
   nodes: WorkflowNode[],
   edges: WorkflowEdge[],
-  conditionNodeId: string,
-  branch: 'true' | 'false',
-  yOffset: number,
-): string[] {
-  const nodeIds: string[] = [];
-  let lastNodeId = conditionNodeId;
-  let localYOffset = yOffset;
+  startX: number,
+  centerY: number,
+): { lastNodeId: string; maxX: number } {
+  let currentX = startX;
+  let lastNodeId = 'start';
+  let branchMaxX = currentX;
 
   for (let i = 0; i < steps.length; i++) {
     const step = steps[i];
-    const nodeId = `${conditionNodeId}-${branch}-${i}`;
+    const nodeId = `step-${i}`;
 
+    if (step.condition) {
+      // Process condition step with branching layout
+      const result = processConditionStep(step, nodeId, nodes, edges, lastNodeId, currentX, centerY, i, steps.length);
+      lastNodeId = result.lastNodeId;
+      currentX = result.maxX + HORIZONTAL_SPACING;
+      branchMaxX = Math.max(branchMaxX, result.maxX);
+    } else {
+      // Create automation node in main flow
+      const automationNode: WorkflowNode = {
+        id: nodeId,
+        type: 'automation',
+        name: step.description || step.action,
+        description: step.description,
+        position: { x: currentX, y: centerY },
+        data: {
+          action: step.action,
+          parameters: step.parameters,
+          delayAfter: step.delay,
+          name: step.description || step.action,
+        },
+      };
+      nodes.push(automationNode);
+
+      // Edge from last node to this node
+      edges.push({
+        id: `edge-${lastNodeId}-${nodeId}`,
+        source: lastNodeId,
+        target: nodeId,
+        marker: 'block',
+      });
+
+      lastNodeId = nodeId;
+      currentX += HORIZONTAL_SPACING + NODE_WIDTH;
+      branchMaxX = currentX;
+    }
+  }
+
+  return { lastNodeId, maxX: branchMaxX };
+}
+
+/**
+ * Process condition step with branching layout
+ */
+function processConditionStep(
+  step: SkillStep,
+  nodeId: string,
+  nodes: WorkflowNode[],
+  edges: WorkflowEdge[],
+  lastNodeId: string,
+  currentX: number,
+  centerY: number,
+  stepIndex: number,
+  totalSteps: number,
+): { lastNodeId: string; maxX: number } {
+  const condition = step.condition!;
+
+  // Create condition node at main flow position
+  const conditionNode: WorkflowNode = {
+    id: nodeId,
+    type: 'condition',
+    name: `Condition`,
+    description: condition.expression,
+    position: { x: currentX, y: centerY },
+    data: {
+      conditionExpression: condition.expression,
+      evaluateWithAI: true,
+    },
+  };
+  nodes.push(conditionNode);
+
+  // Edge from last node to condition
+  edges.push({
+    id: `edge-${lastNodeId}-${nodeId}`,
+    source: lastNodeId,
+    target: nodeId,
+    marker: 'block',
+  });
+
+  let maxX = currentX;
+  let finalNodeId = nodeId;
+
+  // Calculate branch positions
+  const branchYTop = centerY - BRANCH_OFFSET / 2;
+  const branchYBottom = centerY + BRANCH_OFFSET / 2;
+  const branchStartX = currentX + HORIZONTAL_SPACING;
+
+  // Process then branch (top)
+  let thenLastNodeId = nodeId;
+  if (condition.thenSteps && condition.thenSteps.length > 0) {
+    const thenResult = processBranchSteps(
+      condition.thenSteps,
+      nodes,
+      edges,
+      nodeId,
+      branchStartX,
+      branchYTop,
+      `${nodeId}-then`,
+      'true',
+    );
+    thenLastNodeId = thenResult.lastNodeId;
+    maxX = Math.max(maxX, thenResult.maxX);
+  }
+
+  // Process else branch (bottom)
+  let elseLastNodeId = nodeId;
+  if (condition.elseSteps && condition.elseSteps.length > 0) {
+    const elseResult = processBranchSteps(
+      condition.elseSteps,
+      nodes,
+      edges,
+      nodeId,
+      branchStartX,
+      branchYBottom,
+      `${nodeId}-else`,
+      'false',
+    );
+    elseLastNodeId = elseResult.lastNodeId;
+    maxX = Math.max(maxX, elseResult.maxX);
+  }
+
+  // If this is the last step, merge both branches to end
+  // Otherwise, continue with the main flow
+  if (stepIndex === totalSteps - 1) {
+    // Both branches will connect to end node (handled by main function)
+    finalNodeId = thenLastNodeId; // Use then branch as primary
+    // Add merge point if both branches exist
+    if (
+      condition.thenSteps &&
+      condition.thenSteps.length > 0 &&
+      condition.elseSteps &&
+      condition.elseSteps.length > 0
+    ) {
+      // Connect else branch to the same end (will be handled)
+      // The end node connection will use the appropriate last node
+    }
+  } else {
+    // Create a merge node to continue main flow
+    const mergeX = maxX + HORIZONTAL_SPACING;
+    const mergeNodeId = `${nodeId}-merge`;
+
+    // Merge node connects both branches
+    if (condition.thenSteps && condition.thenSteps.length > 0) {
+      edges.push({
+        id: `edge-${thenLastNodeId}-${mergeNodeId}`,
+        source: thenLastNodeId,
+        target: mergeNodeId,
+        marker: 'block',
+      });
+    }
+    if (condition.elseSteps && condition.elseSteps.length > 0) {
+      edges.push({
+        id: `edge-${elseLastNodeId}-${mergeNodeId}`,
+        source: elseLastNodeId,
+        target: mergeNodeId,
+        marker: 'block',
+      });
+    }
+
+    finalNodeId = mergeNodeId;
+    maxX = mergeX;
+  }
+
+  return { lastNodeId: finalNodeId, maxX };
+}
+
+/**
+ * Process branch steps (then or else)
+ */
+function processBranchSteps(
+  steps: SkillStep[],
+  nodes: WorkflowNode[],
+  edges: WorkflowEdge[],
+  parentNodeId: string,
+  startX: number,
+  y: number,
+  idPrefix: string,
+  branch: 'true' | 'false',
+): { lastNodeId: string; maxX: number } {
+  let currentX = startX;
+  let lastNodeId = parentNodeId;
+
+  for (let i = 0; i < steps.length; i++) {
+    const step = steps[i];
+    const nodeId = `${idPrefix}-${i}`;
+
+    // Create automation node for branch
     const automationNode: WorkflowNode = {
       id: nodeId,
       type: 'automation',
       name: step.description || step.action,
       description: step.description,
-      position: { x: branch === 'true' ? 0 : 300, y: localYOffset },
+      position: { x: currentX, y },
       data: {
         action: step.action,
         parameters: step.parameters,
         delayAfter: step.delay,
+        name: step.description || step.action,
       },
     };
     nodes.push(automationNode);
-    nodeIds.push(nodeId);
 
-    // Edge from last node to this node
-    edges.push({
-      id: `edge-${lastNodeId}-${nodeId}`,
-      source: lastNodeId,
-      target: nodeId,
-      condition: branch,
-    });
+    // Edge from parent or last branch node
+    if (i === 0) {
+      edges.push({
+        id: `edge-${parentNodeId}-${nodeId}`,
+        source: parentNodeId,
+        target: nodeId,
+        condition: branch,
+        marker: 'block',
+      });
+    } else {
+      edges.push({
+        id: `edge-${lastNodeId}-${nodeId}`,
+        source: lastNodeId,
+        target: nodeId,
+        marker: 'block',
+      });
+    }
 
     lastNodeId = nodeId;
-    localYOffset += 100;
+    currentX += HORIZONTAL_SPACING + NODE_WIDTH;
   }
 
-  return nodeIds;
+  return { lastNodeId, maxX: currentX - HORIZONTAL_SPACING };
 }
 
 /**

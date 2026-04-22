@@ -1697,5 +1697,8 @@
   },
   "workflow_exitFullscreen": {
     "message": "退出全屏模式"
+  },
+  "workflow_autoLayout": {
+    "message": "自动布局"
   }
 }

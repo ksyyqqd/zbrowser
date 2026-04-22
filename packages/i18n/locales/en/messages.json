@@ -1701,5 +1701,8 @@
   },
   "workflow_exitFullscreen": {
     "message": "Exit fullscreen mode"
+  },
+  "workflow_autoLayout": {
+    "message": "Auto layout"
   }
 }

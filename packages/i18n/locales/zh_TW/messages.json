@@ -1686,5 +1686,17 @@
   },
   "workflow_executeError_noTab": {
     "message": "未找到活動標籤頁，請先開啟一個瀏覽器標籤頁"
+  },
+  "workflow_description_placeholder": {
+    "message": "描述工作流用途..."
+  },
+  "workflow_autoLayout": {
+    "message": "自動布局"
+  },
+  "workflow_exitFullscreen": {
+    "message": "退出全屏"
+  },
+  "workflow_enterFullscreen": {
+    "message": "進入全屏"
   }
 }

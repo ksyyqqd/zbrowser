@@ -1692,5 +1692,17 @@
   },
   "workflow_executeError_noTab": {
     "message": "Nenhuma aba ativa encontrada. Por favor, abra uma aba do navegador primeiro."
+  },
+  "workflow_description_placeholder": {
+    "message": "Descreva o propósito do workflow..."
+  },
+  "workflow_autoLayout": {
+    "message": "Layout automático"
+  },
+  "workflow_exitFullscreen": {
+    "message": "Sair da tela cheia"
+  },
+  "workflow_enterFullscreen": {
+    "message": "Entrar na tela cheia"
   }
 }
