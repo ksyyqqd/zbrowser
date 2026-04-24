@@ -1444,6 +1444,27 @@
   "skill_quickselect_remove": {
     "message": "Remove"
   },
+  "workflow_quickselect_title": {
+    "message": "Workflow Quick Select"
+  },
+  "workflow_quickselect_searchPlaceholder": {
+    "message": "Search workflows..."
+  },
+  "workflow_quickselect_notFound": {
+    "message": "No workflow found"
+  },
+  "workflow_quickselect_empty": {
+    "message": "No workflows available"
+  },
+  "workflow_quickselect_manage": {
+    "message": "Manage Workflows"
+  },
+  "workflow_quickselect_close": {
+    "message": "Close"
+  },
+  "workflow_quickselect_execute": {
+    "message": "Execute"
+  },
   "options_tabs_workflows": {
     "message": "Workflows"
   },

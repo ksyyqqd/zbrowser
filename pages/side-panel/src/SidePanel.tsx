@@ -1037,6 +1037,102 @@ const SidePanel = () => {
     }
   };
 
+  // 处理执行 Workflow
+  const handleExecuteWorkflow = async (workflowId: string) => {
+    console.log('handleExecuteWorkflow', workflowId);
+
+    // 阻止在历史会话中执行
+    if (isHistoricalSession) {
+      console.log('无法在历史会话中执行 Workflow');
+      return;
+    }
+
+    try {
+      // 获取 Workflow 信息
+      const { userWorkflowsStore } = await import('@extension/storage');
+      const workflowConfig = await userWorkflowsStore.getWorkflow(workflowId);
+      if (!workflowConfig) {
+        appendMessage({
+          actor: Actors.SYSTEM,
+          content: `Workflow "${workflowId}" 未找到`,
+          timestamp: Date.now(),
+        });
+        return;
+      }
+
+      // 确保 port 连接
+      if (!portRef.current) {
+        setupConnection();
+        await new Promise(resolve => setTimeout(resolve, 100));
+        if (!portRef.current) {
+          throw new Error('连接建立失败');
+        }
+      }
+
+      // 获取活动标签页
+      const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+      const tabId = tabs[0]?.id;
+      if (!tabId) {
+        throw new Error('未找到活动标签页');
+      }
+
+      targetTabIdRef.current = tabId;
+
+      const displayText = `🔄 执行 Workflow: ${workflowConfig.name}`;
+
+      // 创建会话
+      const newSession = await chatHistoryStore.createSession(displayText);
+      const taskId = newSession.id;
+      sessionIdRef.current = taskId;
+      setCurrentSessionId(taskId);
+      setCurrentStep(null);
+
+      // 添加用户消息
+      appendMessage(
+        {
+          actor: Actors.USER,
+          content: displayText,
+          timestamp: Date.now(),
+        },
+        taskId,
+      );
+
+      // 添加系统消息
+      appendMessage(
+        {
+          actor: Actors.SYSTEM,
+          content: `正在执行 Workflow "${workflowConfig.name}"...`,
+          timestamp: Date.now(),
+        },
+        taskId,
+      );
+
+      setIsFollowUpMode(false);
+      setInputEnabled(false);
+      setShowStopButton(true);
+
+      // 发送执行 Workflow 消息到 background
+      portRef.current.postMessage({
+        type: 'execute_workflow',
+        taskId,
+        tabId,
+        workflowId,
+        params: {},
+      });
+
+      console.log('[Workflow] 执行请求已发送:', workflowId);
+    } catch (error) {
+      console.error('[Workflow] 执行失败:', error);
+      appendMessage({
+        actor: Actors.SYSTEM,
+        content: `Workflow 执行失败: ${error instanceof Error ? error.message : '未知错误'}`,
+        timestamp: Date.now(),
+      });
+      setInputEnabled(true);
+      setShowStopButton(false);
+    }
+  };
+
   // 处理发送消息
   const handleSendMessage = async (
     text: string,
@@ -2026,6 +2122,7 @@ ${trimmedText}`;
                           historicalSessionId={isHistoricalSession && replayEnabled ? currentSessionId : null}
                           onReplay={handleReplay}
                           onExecuteSkill={handleExecuteSkill}
+                          onExecuteWorkflow={handleExecuteWorkflow}
                         />
                       </div>
                       <div className="flex-1 overflow-y-auto px-2 pb-2">
@@ -2062,6 +2159,7 @@ ${trimmedText}`;
                           historicalSessionId={isHistoricalSession && replayEnabled ? currentSessionId : null}
                           onReplay={handleReplay}
                           onExecuteSkill={handleExecuteSkill}
+                          onExecuteWorkflow={handleExecuteWorkflow}
                         />
                       </div>
                     </>

@@ -43,6 +43,45 @@ Keep the description brief and actionable for an automation agent. Focus on elem
 }
 
 /**
+ * Analyze user-uploaded image using vision model and generate description
+ */
+async function analyzeUserImageWithVisionModel(
+  imageBase64: string,
+  imageName: string,
+  visionLLM: NonNullable<AgentContext['visionLLM']>,
+): Promise<string> {
+  try {
+    const visionPrompt = `Analyze this user-uploaded image and provide a detailed description focused on:
+1. What type of content is in the image (e.g., webpage screenshot, document, photo, diagram, etc.)
+2. Key visual elements and their positions (text, buttons, forms, images, etc.)
+3. Any actionable information or instructions visible
+4. If it's a screenshot, describe the page state and interactive elements
+5. Any other relevant details that would help an automation agent understand the user's intent
+
+Keep the description comprehensive and actionable. File name: ${imageName}`;
+
+    const response = await visionLLM.invoke([
+      new HumanMessage({
+        content: [
+          { type: 'text', text: visionPrompt },
+          {
+            type: 'image_url',
+            image_url: { url: `data:image/jpeg;base64,${imageBase64}` },
+          },
+        ],
+      }),
+    ]);
+
+    const analysisText = typeof response.content === 'string' ? response.content : '';
+    logger.info(`Vision analysis for user image '${imageName}' completed:`, analysisText.slice(0, 200));
+    return analysisText;
+  } catch (error) {
+    logger.error(`Vision analysis for user image '${imageName}' failed:`, error);
+    return `[Vision analysis failed for ${imageName}: ${error instanceof Error ? error.message : 'Unknown error'}]`;
+  }
+}
+
+/**
  * Abstract base class for all prompt types
  */
 abstract class BasePrompt {
@@ -207,4 +246,4 @@ ${actionResultsDescription}
   }
 }
 
-export { BasePrompt };
+export { BasePrompt, analyzeUserImageWithVisionModel };

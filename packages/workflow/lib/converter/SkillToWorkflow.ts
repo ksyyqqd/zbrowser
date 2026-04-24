@@ -1,20 +1,10 @@
-import type { Skill, SkillStep, SkillParameter, StepCondition } from '@extension/skills';
-import type {
-  Workflow,
-  WorkflowNode,
-  WorkflowEdge,
-  WorkflowVariable,
-  WorkflowCategory,
-  NodeData,
-  NodePosition,
-} from '../types';
+import type { Skill, SkillStep } from '@extension/skills';
+import type { Workflow, WorkflowNode, WorkflowEdge, WorkflowVariable } from '../types';
 
 // Layout constants
 const NODE_WIDTH = 180;
-const NODE_HEIGHT = 60;
 const START_END_SIZE = 50;
 const HORIZONTAL_SPACING = 200;
-const VERTICAL_SPACING = 100;
 const BRANCH_OFFSET = 250;
 
 /**
@@ -40,7 +30,7 @@ export function convertSkillToWorkflow(skill: Skill): Workflow {
 
   // Layout state tracking
   let currentX = 100;
-  let currentY = 200;
+  const currentY = 200;
   let lastNodeId = 'start';
 
   // Create start node
@@ -89,7 +79,6 @@ export function convertSkillToWorkflow(skill: Skill): Workflow {
     name: skill.name,
     description: skill.description,
     version: skill.version,
-    category: mapSkillCategoryToWorkflow(skill.category),
     nodes,
     edges,
     variables,
@@ -343,22 +332,4 @@ function processBranchSteps(
   }
 
   return { lastNodeId, maxX: currentX - HORIZONTAL_SPACING };
-}
-
-/**
- * Map Skill category to Workflow category
- */
-function mapSkillCategoryToWorkflow(category: string): WorkflowCategory {
-  const validCategories: WorkflowCategory[] = [
-    'navigation',
-    'data-extraction',
-    'form-interaction',
-    'analysis',
-    'automation',
-    'custom',
-  ];
-  if (validCategories.includes(category as WorkflowCategory)) {
-    return category as WorkflowCategory;
-  }
-  return 'custom';
 }

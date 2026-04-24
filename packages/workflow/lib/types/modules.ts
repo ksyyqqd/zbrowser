@@ -3,17 +3,11 @@ import { z } from 'zod';
 /**
  * AI Module configuration
  * Executes AI agent with custom prompt
+ * Model configuration is handled by the session mechanism, not here
  */
 export interface AIModuleConfig {
   prompt: string;
-  modelConfig?: {
-    provider?: string;
-    model?: string;
-    temperature?: number;
-    maxTokens?: number;
-  };
   outputVariable?: string; // Variable name to store AI response
-  timeout?: number; // Maximum execution time in ms
   contextVariables?: string[]; // Variables to include in AI context
 }
 
@@ -90,16 +84,7 @@ export interface SimpleExpression {
 
 export const AIModuleConfigSchema = z.object({
   prompt: z.string().min(1),
-  modelConfig: z
-    .object({
-      provider: z.string().optional(),
-      model: z.string().optional(),
-      temperature: z.number().min(0).max(2).optional(),
-      maxTokens: z.number().positive().optional(),
-    })
-    .optional(),
   outputVariable: z.string().optional(),
-  timeout: z.number().positive().optional(),
   contextVariables: z.array(z.string()).optional(),
 });
 

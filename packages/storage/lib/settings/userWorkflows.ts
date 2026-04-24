@@ -1,14 +1,7 @@
 import { StorageEnum } from '../base/enums';
 import { createStorage } from '../base/base';
 import type { BaseStorage } from '../base/types';
-import type {
-  Workflow,
-  WorkflowNode,
-  WorkflowEdge,
-  WorkflowVariable,
-  WorkflowCategory,
-  WorkflowExecutionConfig,
-} from '@extension/workflow';
+import type { WorkflowNode, WorkflowEdge, WorkflowVariable, WorkflowExecutionConfig } from '@extension/workflow';
 
 /**
  * User-defined Workflow Configuration (stored in extension storage)
@@ -18,7 +11,6 @@ export interface UserWorkflowConfig {
   name: string;
   description: string;
   version: string;
-  category: WorkflowCategory;
   nodes: WorkflowNode[];
   edges: WorkflowEdge[];
   variables: WorkflowVariable[];

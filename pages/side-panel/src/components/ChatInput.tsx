@@ -1,9 +1,9 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { FaMicrophone, FaImage } from 'react-icons/fa';
 import { AiOutlineLoading3Quarters } from 'react-icons/ai';
-import { FiPlay } from 'react-icons/fi';
 import { t } from '@extension/i18n';
 import SkillQuickSelect, { SkillTag } from './SkillQuickSelect';
+import WorkflowQuickSelect from './WorkflowQuickSelect';
 import type { Skill } from '@extension/skills';
 
 interface ChatInputProps {
@@ -24,6 +24,7 @@ interface ChatInputProps {
   historicalSessionId?: string | null;
   onReplay?: (sessionId: string) => void;
   onExecuteSkill?: (skillId: string, params: Record<string, unknown>) => void;
+  onExecuteWorkflow?: (workflowId: string) => void;
 }
 
 interface AttachedFile {
@@ -56,6 +57,7 @@ export default function ChatInput({
   historicalSessionId,
   onReplay,
   onExecuteSkill,
+  onExecuteWorkflow,
 }: ChatInputProps) {
   const [text, setText] = useState('');
   const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([]);
@@ -492,6 +494,10 @@ export default function ChatInput({
                 onSkillSelected={handleSkillSelected}
                 disabled={disabled}
               />
+            )}
+            {/* Workflow 快速执行 */}
+            {onExecuteWorkflow && (
+              <WorkflowQuickSelect isDarkMode={isDarkMode} onExecuteWorkflow={onExecuteWorkflow} disabled={disabled} />
             )}
             {/* 语音按钮 */}
             {onMicClick && (

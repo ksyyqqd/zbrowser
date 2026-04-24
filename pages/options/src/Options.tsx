@@ -26,7 +26,18 @@ const TABS: { id: TabTypes; icon: React.ComponentType<{ className?: string }>; l
 ];
 
 const Options = () => {
-  const [activeTab, setActiveTab] = useState<TabTypes>('models');
+  // Read initial tab from URL query parameter (e.g., ?tab=workflows)
+  const getInitialTab = (): TabTypes => {
+    const params = new URLSearchParams(window.location.search);
+    const tabParam = params.get('tab');
+    const validTabs: TabTypes[] = ['general', 'models', 'mcp', 'skills', 'workflows', 'firewall', 'analytics', 'help'];
+    if (tabParam && validTabs.includes(tabParam as TabTypes)) {
+      return tabParam as TabTypes;
+    }
+    return 'models';
+  };
+
+  const [activeTab, setActiveTab] = useState<TabTypes>(getInitialTab);
   const [isDarkMode, setIsDarkMode] = useState(false);
 
   // Check for dark mode preference

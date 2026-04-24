@@ -1,4 +1,5 @@
 import { type BaseMessage, AIMessage, HumanMessage, type SystemMessage, ToolMessage } from '@langchain/core/messages';
+import type { BaseChatModel } from '@langchain/core/language_models/chat_models';
 import { MessageHistory, MessageMetadata } from '@src/background/agent/messages/views';
 import { createLogger } from '@src/background/log';
 import {
@@ -57,6 +58,7 @@ export default class MessageManager {
     task: string,
     messageContext?: string,
     images?: { name: string; base64: string }[],
+    visionLLM?: BaseChatModel,
   ): void {
     // Add system message
     this.addMessageWithTokens(systemMessage, 'init');
@@ -70,7 +72,7 @@ export default class MessageManager {
     }
 
     // Add task instructions (支持图片)
-    const taskMessage = MessageManager.taskInstructions(task, images);
+    const taskMessage = MessageManager.taskInstructions(task, images, visionLLM);
     this.addMessageWithTokens(taskMessage, 'init');
 
     // Add sensitive data info if sensitive data is provided
@@ -147,9 +149,14 @@ export default class MessageManager {
    * Create the task instructions
    * @param task - The raw description of the task
    * @param images - Optional user-uploaded images
+   * @param visionLLM - Optional vision model (if provided, images are analyzed separately)
    * @returns A HumanMessage object containing the task instructions
    */
-  private static taskInstructions(task: string, images?: { name: string; base64: string }[]): HumanMessage {
+  private static taskInstructions(
+    task: string,
+    images?: { name: string; base64: string }[],
+    visionLLM?: BaseChatModel,
+  ): HumanMessage {
     const { userText, attachmentsInner } = splitUserTextAndAttachments(task);
 
     // Filter and wrap user text
@@ -164,19 +171,22 @@ export default class MessageManager {
       textContent = `${wrappedUser}\n\n${wrappedFiles}`;
     }
 
-    // Add image info if images provided
+    // Add image info if images provided (but only as text reference)
+    // The actual visual analysis will be handled by Executor.injectUserImagesAnalysis when visionLLM exists
     if (images && images.length > 0) {
-      const imageInfo = images.map(img => `用户提供的图片: ${img.name}`).join('\n');
+      const imageInfo = images.map(img => `User provided image: ${img.name}`).join('\n');
       textContent = `${textContent}\n\n${imageInfo}`;
     }
 
-    // 如果有图片，创建多模态消息
-    if (images && images.length > 0) {
+    // If there's a separate visionLLM, send text-only message
+    // Images are analyzed separately in Executor.injectUserImagesAnalysis
+    if (images && images.length > 0 && !visionLLM) {
+      // No separate vision model - send multimodal message directly to Navigator
       const messageContent: Array<{ type: string; text?: string; image_url?: { url: string } }> = [
         { type: 'text', text: textContent },
       ];
 
-      // 添加每张图片
+      // Add each image
       for (const img of images) {
         messageContent.push({
           type: 'image_url',
@@ -184,8 +194,14 @@ export default class MessageManager {
         });
       }
 
-      logger.info(`Task message with ${images.length} user-provided images`);
+      logger.info(`Task message with ${images.length} user-provided images sent directly to Navigator`);
       return new HumanMessage({ content: messageContent });
+    }
+
+    if (images && images.length > 0) {
+      logger.info(
+        `Task message references ${images.length} user-provided images (analysis will be added separately by vision model)`,
+      );
     }
 
     return new HumanMessage({ content: textContent });

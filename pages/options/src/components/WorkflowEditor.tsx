@@ -336,7 +336,6 @@ export default function WorkflowEditor({
   const [workflowId] = useState(initialWorkflow?.id || `workflow-${Date.now()}`);
   const [workflowName, setWorkflowName] = useState(initialWorkflow?.name || 'New Workflow');
   const [workflowDescription, setWorkflowDescription] = useState(initialWorkflow?.description || '');
-  const [workflowCategory, setWorkflowCategory] = useState<string>(initialWorkflow?.category || 'automation');
   const [selectedNode, setSelectedNode] = useState<WorkflowNode | null>(null);
   const [selectedEdge, setSelectedEdge] = useState<X6Edge | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -764,7 +763,6 @@ export default function WorkflowEditor({
       name: workflowName || 'Untitled Workflow',
       description: workflowDescription || `${workflowName || 'Untitled Workflow'} - automated workflow`,
       version: '1.0.0',
-      category: workflowCategory as Workflow['category'],
       nodes,
       edges,
       variables: [],
@@ -772,7 +770,7 @@ export default function WorkflowEditor({
       createdAt: initialWorkflow?.createdAt || Date.now(),
       updatedAt: Date.now(),
     };
-  }, [workflowId, workflowName, workflowDescription, workflowCategory, initialWorkflow]);
+  }, [workflowId, workflowName, workflowDescription, initialWorkflow]);
 
   // Create empty workflow
   const createEmptyWorkflow = (): Workflow => ({
@@ -780,7 +778,6 @@ export default function WorkflowEditor({
     name: workflowName,
     description: workflowDescription,
     version: '1.0.0',
-    category: workflowCategory as Workflow['category'],
     nodes: [],
     edges: [],
     variables: [],
@@ -832,19 +829,6 @@ export default function WorkflowEditor({
               isDarkMode ? 'border-slate-600 bg-slate-700 text-gray-200' : 'border-gray-300 bg-white text-gray-700'
             }`}
           />
-          <select
-            value={workflowCategory}
-            onChange={e => setWorkflowCategory(e.target.value)}
-            className={`px-3 py-1.5 rounded-md border text-sm ${
-              isDarkMode ? 'border-slate-600 bg-slate-700 text-gray-200' : 'border-gray-300 bg-white text-gray-700'
-            }`}>
-            <option value="automation">{t('workflow_category_automation')}</option>
-            <option value="navigation">{t('workflow_category_navigation')}</option>
-            <option value="data-extraction">{t('workflow_category_dataExtraction')}</option>
-            <option value="form-interaction">{t('workflow_category_formInteraction')}</option>
-            <option value="analysis">{t('workflow_category_analysis')}</option>
-            <option value="custom">{t('workflow_category_custom')}</option>
-          </select>
         </div>
         <div className="flex items-center gap-2">
           <button

@@ -1440,6 +1440,27 @@
   "skill_quickselect_remove": {
     "message": "移除"
   },
+  "workflow_quickselect_title": {
+    "message": "工作流快捷选择"
+  },
+  "workflow_quickselect_searchPlaceholder": {
+    "message": "搜索工作流..."
+  },
+  "workflow_quickselect_notFound": {
+    "message": "未找到工作流"
+  },
+  "workflow_quickselect_empty": {
+    "message": "暂无可用工作流"
+  },
+  "workflow_quickselect_manage": {
+    "message": "管理工作流"
+  },
+  "workflow_quickselect_close": {
+    "message": "关闭"
+  },
+  "workflow_quickselect_execute": {
+    "message": "执行"
+  },
   "options_tabs_workflows": {
     "message": "工作流"
   },

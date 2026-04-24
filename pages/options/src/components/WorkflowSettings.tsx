@@ -15,24 +15,13 @@ import {
   serializeWorkflows,
   validateWorkflowStructure,
 } from '@extension/workflow';
-import type { Workflow, WorkflowCategory } from '@extension/workflow';
+import type { Workflow } from '@extension/workflow';
 import type { Skill } from '@extension/skills';
 import WorkflowEditor from './WorkflowEditor';
 
 interface WorkflowSettingsProps {
   isDarkMode?: boolean;
 }
-
-type WorkflowCategoryLabels = Record<WorkflowCategory, string>;
-
-const WORKFLOW_CATEGORIES: WorkflowCategoryLabels = {
-  navigation: 'Navigation',
-  'data-extraction': 'Data Extraction',
-  'form-interaction': 'Form Interaction',
-  analysis: 'Analysis',
-  automation: 'Automation',
-  custom: 'Custom',
-};
 
 export default function WorkflowSettings({ isDarkMode = false }: WorkflowSettingsProps) {
   const [workflows, setWorkflows] = useState<UserWorkflowConfig[]>([]);
@@ -44,8 +33,6 @@ export default function WorkflowSettings({ isDarkMode = false }: WorkflowSetting
   const [isConvertModalOpen, setIsConvertModalOpen] = useState(false);
   const [importContent, setImportContent] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
-  const [filterCategory, setFilterCategory] = useState<string>('all');
-  const [newWorkflowCategory, setNewWorkflowCategory] = useState<string>('automation');
 
   // Load workflows on mount
   useEffect(() => {
@@ -79,8 +66,7 @@ export default function WorkflowSettings({ isDarkMode = false }: WorkflowSetting
       !searchQuery ||
       w.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       w.description.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesCategory = filterCategory === 'all' || w.category === filterCategory;
-    return matchesSearch && matchesCategory;
+    return matchesSearch;
   });
 
   // Create new workflow
@@ -103,7 +89,6 @@ export default function WorkflowSettings({ isDarkMode = false }: WorkflowSetting
         name: workflow.name,
         description: workflow.description,
         version: workflow.version,
-        category: workflow.category,
         nodes: workflow.nodes,
         edges: workflow.edges,
         variables: workflow.variables,
@@ -155,7 +140,6 @@ export default function WorkflowSettings({ isDarkMode = false }: WorkflowSetting
             name: result.name,
             description: result.description,
             version: result.version,
-            category: result.category,
             nodes: result.nodes,
             edges: result.edges,
             variables: result.variables,
@@ -190,7 +174,6 @@ export default function WorkflowSettings({ isDarkMode = false }: WorkflowSetting
         name: w.name,
         description: w.description,
         version: w.version,
-        category: w.category,
         nodes: w.nodes,
         edges: w.edges,
         variables: w.variables,
@@ -259,7 +242,6 @@ export default function WorkflowSettings({ isDarkMode = false }: WorkflowSetting
         name: workflow.name,
         description: workflow.description,
         version: workflow.version,
-        category: workflow.category,
         nodes: workflow.nodes,
         edges: workflow.edges,
         variables: workflow.variables,
@@ -285,7 +267,6 @@ export default function WorkflowSettings({ isDarkMode = false }: WorkflowSetting
         name: workflow.name,
         description: workflow.description,
         version: workflow.version,
-        category: workflow.category,
         nodes: workflow.nodes,
         edges: workflow.edges,
         variables: workflow.variables,
@@ -397,7 +378,7 @@ export default function WorkflowSettings({ isDarkMode = false }: WorkflowSetting
         </p>
       </div>
 
-      {/* Search and Filter */}
+      {/* Search */}
       <div className="flex items-center gap-3">
         <input
           type="text"
@@ -408,19 +389,6 @@ export default function WorkflowSettings({ isDarkMode = false }: WorkflowSetting
             isDarkMode ? 'border-slate-600 bg-slate-700 text-gray-200' : 'border-gray-300 bg-white text-gray-700'
           }`}
         />
-        <select
-          value={filterCategory}
-          onChange={e => setFilterCategory(e.target.value)}
-          className={`px-3 py-2 rounded-md border text-sm ${
-            isDarkMode ? 'border-slate-600 bg-slate-700 text-gray-200' : 'border-gray-300 bg-white text-gray-700'
-          }`}>
-          <option value="all">{t('workflow_allCategories')}</option>
-          {Object.entries(WORKFLOW_CATEGORIES).map(([key, label]) => (
-            <option key={key} value={key}>
-              {label}
-            </option>
-          ))}
-        </select>
         <span className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
           {filteredWorkflows.length} / {workflows.length} workflows
         </span>
@@ -451,12 +419,6 @@ export default function WorkflowSettings({ isDarkMode = false }: WorkflowSetting
                     {workflow.description}
                   </p>
                   <div className="flex items-center gap-2 mt-2">
-                    <span
-                      className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs ${
-                        isDarkMode ? 'bg-blue-900 text-blue-300' : 'bg-blue-100 text-blue-700'
-                      }`}>
-                      {WORKFLOW_CATEGORIES[workflow.category]}
-                    </span>
                     <span className={`text-xs ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>
                       {workflow.nodes.length} nodes
                     </span>
@@ -515,7 +477,6 @@ export default function WorkflowSettings({ isDarkMode = false }: WorkflowSetting
                       name: selectedWorkflow.name,
                       description: selectedWorkflow.description,
                       version: selectedWorkflow.version,
-                      category: selectedWorkflow.category,
                       nodes: selectedWorkflow.nodes,
                       edges: selectedWorkflow.edges,
                       variables: selectedWorkflow.variables,

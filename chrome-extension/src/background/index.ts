@@ -1041,6 +1041,35 @@ ${stepsDescription}
             }
           }
 
+          case 'execute_workflow': {
+            if (!message.tabId) return port.postMessage({ type: 'error', error: t('bg_errors_noTabId') });
+            if (!message.workflowId) return port.postMessage({ type: 'error', error: 'Workflow ID is required' });
+
+            logger.info('execute_workflow via port', message.tabId, message.workflowId);
+
+            try {
+              const workflowResult = await handleExecuteWorkflow({
+                workflowId: message.workflowId,
+                tabId: message.tabId,
+                taskId: message.taskId,
+                params: message.params || {},
+              });
+
+              if (workflowResult.success) {
+                port.postMessage({ type: 'success', result: workflowResult });
+              } else {
+                port.postMessage({ type: 'error', error: workflowResult.error || 'Workflow execution failed' });
+              }
+            } catch (error) {
+              logger.error('Execute workflow via port failed:', error);
+              return port.postMessage({
+                type: 'error',
+                error: error instanceof Error ? error.message : 'Failed to execute workflow',
+              });
+            }
+            break;
+          }
+
           default:
             return port.postMessage({ type: 'error', error: t('errors_cmd_unknown', [message.type]) });
         }

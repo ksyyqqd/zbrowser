@@ -1,17 +1,6 @@
 import { z } from 'zod';
 
 /**
- * Workflow category
- */
-export type WorkflowCategory =
-  | 'navigation'
-  | 'data-extraction'
-  | 'form-interaction'
-  | 'analysis'
-  | 'automation'
-  | 'custom';
-
-/**
  * Workflow node type
  */
 export type WorkflowNodeType = 'ai' | 'automation' | 'condition' | 'start' | 'end';
@@ -32,15 +21,9 @@ export interface NodeData {
   type?: string; // Node type (ai, automation, condition, start, end)
   name?: string; // Node name
 
-  // AI Module configuration
+  // AI Module configuration (simplified - model handled by session)
   prompt?: string;
-  modelConfig?: {
-    provider?: string;
-    model?: string;
-    temperature?: number;
-  };
   outputVariable?: string;
-  timeout?: number;
   contextVariables?: string[];
 
   // Automation Module configuration
@@ -109,7 +92,6 @@ export interface Workflow {
   name: string;
   description: string;
   version: string;
-  category: WorkflowCategory;
   nodes: WorkflowNode[];
   edges: WorkflowEdge[];
   variables: WorkflowVariable[];
@@ -136,15 +118,7 @@ export const NodeDataSchema = z.object({
   type: z.string().optional(),
   name: z.string().optional(),
   prompt: z.string().optional(),
-  modelConfig: z
-    .object({
-      provider: z.string().optional(),
-      model: z.string().optional(),
-      temperature: z.number().optional(),
-    })
-    .optional(),
   outputVariable: z.string().optional(),
-  timeout: z.number().optional(),
   contextVariables: z.array(z.string()).optional(),
   action: z.string().optional(),
   intent: z.string().optional(),
@@ -193,7 +167,6 @@ export const WorkflowSchema = z.object({
   name: z.string().min(1),
   description: z.string(), // Allow empty description
   version: z.string().default('1.0.0'),
-  category: z.enum(['navigation', 'data-extraction', 'form-interaction', 'analysis', 'automation', 'custom']),
   nodes: z.array(WorkflowNodeSchema),
   edges: z.array(WorkflowEdgeSchema),
   variables: z.array(WorkflowVariableSchema).default([]),

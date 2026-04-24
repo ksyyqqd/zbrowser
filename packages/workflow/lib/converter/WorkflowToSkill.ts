@@ -30,7 +30,7 @@ export function convertWorkflowToSkill(workflow: Workflow): Skill {
     name: workflow.name,
     description: workflow.description,
     version: workflow.version,
-    category: workflow.category as Skill['category'],
+    category: 'custom', // Default category for workflow-generated skills
     author: 'workflow-converter',
     tags: [],
     parameters,
@@ -156,8 +156,8 @@ function convertNodeToStep(node: WorkflowNode, workflow: Workflow): SkillStep {
         description: node.data.prompt || node.name,
         parameters: {
           prompt: node.data.prompt,
-          modelConfig: node.data.modelConfig,
           outputVariable: node.data.outputVariable,
+          contextVariables: node.data.contextVariables,
         },
         onError: workflow.executionConfig.onError,
       };

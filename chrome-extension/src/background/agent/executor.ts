@@ -6,6 +6,7 @@ import { NavigatorAgent, NavigatorActionRegistry } from './agents/navigator';
 import { PlannerAgent, type PlannerOutput } from './agents/planner';
 import { NavigatorPrompt } from './prompts/navigator';
 import { PlannerPrompt } from './prompts/planner';
+import { BasePrompt, analyzeUserImageWithVisionModel } from './prompts/base';
 import { createLogger } from '@src/background/log';
 import MessageManager from './messages/service';
 import type BrowserContext from '../browser/context';
@@ -158,12 +159,13 @@ export class Executor {
     });
 
     this.context = context;
-    // Initialize message history (传递用户上传的图片)
+    // Initialize message history (传递用户上传的图片和视觉模型)
     this.context.messageManager.initTaskMessages(
       this.navigatorPrompt.getSystemMessage(),
       task,
       undefined,
       this.userImages,
+      visionLLM,
     );
     // Note: MCP/Skills info will be injected at the start of execute() method
   }
@@ -201,6 +203,42 @@ export class Executor {
       }
     } catch (error) {
       logger.warning('Failed to inject skills info:', error);
+    }
+  }
+
+  /**
+   * Analyze user-uploaded images with vision model and inject analysis results
+   */
+  private async injectUserImagesAnalysis(): Promise<void> {
+    if (!this.userImages || this.userImages.length === 0) {
+      return;
+    }
+
+    if (!this.context.visionLLM) {
+      // No separate vision model, images will be sent directly to Navigator
+      // This is handled in MessageManager.taskInstructions
+      logger.info('No separate vision model, user images will be sent directly to Navigator');
+      return;
+    }
+
+    logger.info(`Analyzing ${this.userImages.length} user-uploaded images with vision model`);
+
+    try {
+      const analysisResults: string[] = [];
+
+      for (const img of this.userImages) {
+        const analysis = await analyzeUserImageWithVisionModel(img.base64, img.name, this.context.visionLLM);
+        analysisResults.push(`\n[Analysis of user image: ${img.name}]\n${analysis}`);
+      }
+
+      // Add analysis results as a human message
+      const analysisMessage = new HumanMessage({
+        content: `The user has provided the following images for this task:\n${analysisResults.join('\n')}\n\nPlease use this visual analysis information to help complete the task.`,
+      });
+      this.context.messageManager.addMessageWithTokens(analysisMessage, 'user_images_analysis');
+      logger.info('User images analysis injected into agent context');
+    } catch (error) {
+      logger.error('Failed to analyze user images:', error);
     }
   }
 
@@ -303,6 +341,9 @@ ${skillList}
 
     try {
       this.context.emitEvent(Actors.SYSTEM, ExecutionState.TASK_START, this.context.taskId);
+
+      // Analyze user-uploaded images with vision model FIRST
+      await this.injectUserImagesAnalysis();
 
       // Inject MCP tools and Skills info into agent context before starting
       if (this.mcpService) {

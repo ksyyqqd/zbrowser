@@ -38,13 +38,6 @@ export class WorkflowRegistry {
   }
 
   /**
-   * Get workflows by category
-   */
-  getWorkflowsByCategory(category: string): Workflow[] {
-    return this.getAllWorkflows().filter(w => w.category === category);
-  }
-
-  /**
    * Search workflows by name or description
    */
   searchWorkflows(query: string): Workflow[] {
