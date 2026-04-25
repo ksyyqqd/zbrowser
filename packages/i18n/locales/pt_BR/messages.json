@@ -1541,7 +1541,10 @@
     "message": "Fechar"
   },
   "workflow_nodePalette": {
-    "message": "Adicionar Nó"
+    "message": "Nós de Processo"
+  },
+  "workflow_controlPalette": {
+    "message": "Controle de Fluxo"
   },
   "workflow_editNode": {
     "message": "Editar Nó"
@@ -1704,5 +1707,71 @@
   },
   "workflow_enterFullscreen": {
     "message": "Entrar na tela cheia"
+  },
+  "workflow_nodeType_ai": {
+    "message": "Módulo AI"
+  },
+  "workflow_nodeType_ai_default": {
+    "message": "Tarefa AI"
+  },
+  "workflow_nodeType_ai_desc": {
+    "message": "Decisão inteligente por AI"
+  },
+  "workflow_nodeType_automation": {
+    "message": "Automação"
+  },
+  "workflow_nodeType_automation_default": {
+    "message": "Ação"
+  },
+  "workflow_nodeType_automation_desc": {
+    "message": "Ações e controles do navegador"
+  },
+  "workflow_nodeType_condition": {
+    "message": "Condição"
+  },
+  "workflow_nodeType_condition_default": {
+    "message": "Ramificação"
+  },
+  "workflow_nodeType_condition_desc": {
+    "message": "Ramificação baseada em condições"
+  },
+  "workflow_nodeType_start": {
+    "message": "Início"
+  },
+  "workflow_nodeType_start_desc": {
+    "message": "Ponto de entrada do workflow"
+  },
+  "workflow_nodeType_end": {
+    "message": "Fim"
+  },
+  "workflow_nodeType_end_desc": {
+    "message": "Ponto de saída do workflow"
+  },
+  "workflow_newWorkflow_defaultName": {
+    "message": "Novo Workflow"
+  },
+  "workflow_untitledWorkflow": {
+    "message": "Workflow sem título"
+  },
+  "workflow_automatedWorkflowDesc": {
+    "message": "$NAME$ - workflow automatizado",
+    "placeholders": {
+      "name": {
+        "content": "$1",
+        "example": "Meu Workflow"
+      }
+    }
+  },
+  "workflow_branches": {
+    "message": "Ramificações"
+  },
+  "workflow_addBranch": {
+    "message": "Adicionar ramificação"
+  },
+  "workflow_removeBranch": {
+    "message": "Remover ramificação"
+  },
+  "workflow_branchNamePlaceholder": {
+    "message": "Nome da ramificação"
   }
 }

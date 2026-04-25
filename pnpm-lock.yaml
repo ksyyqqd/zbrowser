@@ -438,6 +438,9 @@ importers:
       '@antv/x6':
         specifier: ^2.18.0
         version: 2.19.2
+      '@antv/x6-plugin-dnd':
+        specifier: ^2.1.1
+        version: 2.1.1(@antv/x6@2.19.2)
       '@antv/x6-react-shape':
         specifier: ^2.2.0
         version: 2.2.3(@antv/x6@2.19.2)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -557,6 +560,11 @@ packages:
 
   '@antv/x6-geometry@2.0.5':
     resolution: {integrity: sha512-MId6riEQkxphBpVeTcL4ZNXL4lScyvDEPLyIafvWMcWNTGK0jgkK7N20XSzqt8ltJb0mGUso5s56mrk8ysHu2A==}
+
+  '@antv/x6-plugin-dnd@2.1.1':
+    resolution: {integrity: sha512-v0szzik1RkadPDn4Qi5mOSaB2AeI78D40/YuCYbPVzplG+HydGsHwO3MLTgJPQ+R5n0eM0W5F850p1VfTOHR7g==}
+    peerDependencies:
+      '@antv/x6': ^2.x
 
   '@antv/x6-react-shape@2.2.3':
     resolution: {integrity: sha512-42PGxk3XLnx9bsHQiRPauai5UQCrsh0MbWI3MyHRpjQaC30FK1rqyjH/EJ8qH0p6/cAndszZzCaiPqBbs3FqLQ==}
@@ -4480,6 +4488,10 @@ snapshots:
       utility-types: 3.11.0
 
   '@antv/x6-geometry@2.0.5': {}
+
+  '@antv/x6-plugin-dnd@2.1.1(@antv/x6@2.19.2)':
+    dependencies:
+      '@antv/x6': 2.19.2
 
   '@antv/x6-react-shape@2.2.3(@antv/x6@2.19.2)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)':
     dependencies:

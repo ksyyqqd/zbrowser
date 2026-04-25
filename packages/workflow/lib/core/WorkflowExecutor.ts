@@ -185,6 +185,17 @@ export class WorkflowExecutor {
     const startTime = Date.now();
     const prompt = node.data.prompt || '';
 
+    // Check if prompt is empty
+    if (!prompt.trim()) {
+      return {
+        nodeId: node.id,
+        nodeType: 'ai',
+        success: false,
+        error: 'AI module has no prompt configured',
+        duration: Date.now() - startTime,
+      };
+    }
+
     // Build context variables
     const contextData: Record<string, unknown> = {};
     const contextVars = node.data.contextVariables || [];
@@ -241,6 +252,7 @@ export class WorkflowExecutor {
 
   /**
    * Handle Condition Module execution
+   * Supports both legacy (trueNodeId/falseNodeId) and new (branches + sourcePort) formats
    */
   private async handleConditionModule(
     node: WorkflowNode,
@@ -248,40 +260,97 @@ export class WorkflowExecutor {
     context: WorkflowExecutionContext,
   ): Promise<NodeResult> {
     const startTime = Date.now();
-    const expression = node.data.conditionExpression || '';
-    const evaluateWithAI = node.data.evaluateWithAI ?? false;
+    const evaluateWithAI = node.data.evaluateWithAI ?? true;
+
+    // Check for new branch format
+    const branches = node.data.branches;
+    const prompt = node.data.prompt || node.data.conditionExpression || '';
+
+    // Legacy format: trueNodeId/falseNodeId
     const trueNodeId = node.data.trueNodeId || '';
     const falseNodeId = node.data.falseNodeId || '';
 
-    let conditionResult: boolean;
+    // Determine next node based on format
+    let nextNodeId: string;
 
-    if (evaluateWithAI) {
-      // Use AI to evaluate complex conditions
-      const aiPrompt = `Evaluate the following condition and return 'true' or 'false'. Condition: ${expression}`;
+    if (branches && branches.length > 0) {
+      // New multi-branch format: use AI to select branch
+      const branchNames = branches.map(b => b.name).join(', ');
+      const aiPrompt = `${prompt}\n\nAvailable branches: ${branchNames}\n\nSelect the most appropriate branch name. Return only the branch name, nothing else.`;
+
       const aiResult = await context.invokeAI(aiPrompt);
-      conditionResult = aiResult.response?.toLowerCase().includes('true') ?? false;
+      const selectedBranchName = aiResult.response?.trim() || '';
+
+      // Find the matching branch
+      const selectedBranch =
+        branches.find(b => b.name.toLowerCase() === selectedBranchName.toLowerCase() || b.id === selectedBranchName) ||
+        branches[0]; // Default to first branch if no match
+
+      // Find the edge for this branch using sourcePort
+      const branchEdge = workflow.edges.find(
+        e => e.source === node.id && (e.sourcePort === selectedBranch.id || e.condition === selectedBranch.id),
+      );
+
+      nextNodeId = branchEdge?.target || '';
+
+      // Emit branch selection event
+      await this.emitEvent(context, {
+        type: 'BRANCH_SELECT',
+        workflowId: workflow.id,
+        nodeId: node.id,
+        nodeName: node.name,
+        details: `Branch: ${selectedBranch.name} → ${nextNodeId}`,
+      });
+
+      return {
+        nodeId: node.id,
+        nodeType: 'condition',
+        success: true,
+        output: selectedBranch.name,
+        nextNodeId,
+        duration: Date.now() - startTime,
+      };
+    } else if (trueNodeId || falseNodeId) {
+      // Legacy format: binary true/false branches
+      let conditionResult: boolean;
+
+      if (evaluateWithAI) {
+        const aiPrompt = `Evaluate the following condition and return 'true' or 'false'. Condition: ${prompt}`;
+        const aiResult = await context.invokeAI(aiPrompt);
+        conditionResult = aiResult.response?.toLowerCase().includes('true') ?? false;
+      } else {
+        conditionResult = this.evaluateSimpleExpression(prompt, context);
+      }
+
+      nextNodeId = conditionResult ? trueNodeId : falseNodeId;
+
+      // Emit branch selection event
+      await this.emitEvent(context, {
+        type: 'BRANCH_SELECT',
+        workflowId: workflow.id,
+        nodeId: node.id,
+        nodeName: node.name,
+        details: conditionResult ? `Branch: true → ${trueNodeId}` : `Branch: false → ${falseNodeId}`,
+      });
+
+      return {
+        nodeId: node.id,
+        nodeType: 'condition',
+        success: true,
+        output: conditionResult,
+        nextNodeId,
+        duration: Date.now() - startTime,
+      };
     } else {
-      // Use simple expression parsing
-      conditionResult = this.evaluateSimpleExpression(expression, context);
+      // No branch configuration - return error
+      return {
+        nodeId: node.id,
+        nodeType: 'condition',
+        success: false,
+        error: 'Condition node has no branches configured',
+        duration: Date.now() - startTime,
+      };
     }
-
-    // Emit branch selection event
-    await this.emitEvent(context, {
-      type: 'BRANCH_SELECT',
-      workflowId: workflow.id,
-      nodeId: node.id,
-      nodeName: node.name,
-      details: conditionResult ? `Branch: true → ${trueNodeId}` : `Branch: false → ${falseNodeId}`,
-    });
-
-    return {
-      nodeId: node.id,
-      nodeType: 'condition',
-      success: true,
-      output: conditionResult,
-      nextNodeId: conditionResult ? trueNodeId : falseNodeId,
-      duration: Date.now() - startTime,
-    };
   }
 
   /**

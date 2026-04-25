@@ -1464,6 +1464,7 @@ export default class Page {
 
   /**
    * Input text into element by CSS selector or XPath
+   * Clears existing content before typing new text
    */
   async inputBySelector(selector: string, text: string): Promise<boolean> {
     if (!this._puppeteerPage) {
@@ -1489,6 +1490,14 @@ export default class Page {
 
       await this._scrollIntoViewIfNeeded(element);
       await element.click(); // Focus the element
+
+      // Clear existing content: select all then delete
+      await this._puppeteerPage.keyboard.down('Control');
+      await this._puppeteerPage.keyboard.press('a');
+      await this._puppeteerPage.keyboard.up('Control');
+      await this._puppeteerPage.keyboard.press('Backspace');
+
+      // Type the new text
       await this._puppeteerPage.keyboard.type(text, { delay: 50 });
       logger.info('Input successful:', selector, text);
       return true;

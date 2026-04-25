@@ -22,6 +22,7 @@
     "@antv/graphlib": "^2.0.4",
     "@antv/layout": "1.2.14-beta.8",
     "@antv/x6": "^2.18.0",
+    "@antv/x6-plugin-dnd": "^2.1.1",
     "@antv/x6-react-shape": "^2.2.0",
     "@extension/i18n": "workspace:*",
     "@extension/mcp-client": "workspace:*",

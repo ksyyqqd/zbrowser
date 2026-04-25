@@ -94,8 +94,15 @@ function extractElementInfo(element: HTMLElement): {
 
 /**
  * Generate simple XPath for element
+ * Produces valid XPath by either using a short //*[@id] path
+ * or building the full path from element to body
  */
 function generateSimpleXPath(element: HTMLElement): string {
+  // If element has an id, use the short and reliable //*[@id] form
+  if (element.id) {
+    return `//*[@id="${element.id}"]`;
+  }
+
   const parts: string[] = [];
   let current: HTMLElement | null = element;
 
@@ -112,11 +119,10 @@ function generateSimpleXPath(element: HTMLElement): string {
       }
     }
 
-    // Add id if exists
-    if (current.id) {
-      selector = `//*[@id="${current.id}"]`;
+    // If an ancestor has an id, stop traversal and use //*[@id] as prefix
+    if (current.parentElement?.id) {
       parts.unshift(selector);
-      break;
+      return `//*[@id="${current.parentElement.id}"]/${parts.join('/')}`;
     }
 
     parts.unshift(selector);

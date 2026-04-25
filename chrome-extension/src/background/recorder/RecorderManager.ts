@@ -261,6 +261,8 @@ class ActionConverter {
             intent: description,
             selector,
             xpath: action.element?.xpath,
+            fallbacks: action.element?.fallbacks || [],
+            attributes: action.element?.attributes || {},
           },
           onError: 'retry',
         };
@@ -283,6 +285,8 @@ class ActionConverter {
             intent: description,
             selector,
             xpath: action.element?.xpath,
+            fallbacks: action.element?.fallbacks || [],
+            attributes: action.element?.attributes || {},
             text: isParametric ? '{{inputValue}}' : action.value || '',
           },
           onError: 'stop',
@@ -325,6 +329,9 @@ class ActionConverter {
           parameters: {
             intent: `Select option ${action.value}`,
             selector: action.element?.primary,
+            xpath: action.element?.xpath,
+            fallbacks: action.element?.fallbacks || [],
+            attributes: action.element?.attributes || {},
             text: action.value || '',
           },
           onError: 'stop',

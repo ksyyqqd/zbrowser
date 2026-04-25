@@ -69,41 +69,64 @@ function traverseWorkflow(
   // Convert node to SkillStep
   const step = convertNodeToStep(currentNode, workflow);
 
-  // Handle condition nodes with branches
+  // Handle condition nodes with dynamic branches
   if (currentNode.type === 'condition') {
-    // Create condition structure with thenSteps and elseSteps
-    const thenSteps: SkillStep[] = [];
-    const elseSteps: SkillStep[] = [];
+    const branches = currentNode.data.branches || [];
+    const branchStepsMap: Record<string, SkillStep[]> = {};
 
-    const trueNodeId = currentNode.data.trueNodeId;
-    const falseNodeId = currentNode.data.falseNodeId;
+    // Find edges originating from this condition node
+    const conditionEdges = workflow.edges.filter(e => e.source === currentNode.id);
 
-    if (trueNodeId) {
-      const trueNode = workflow.nodes.find(n => n.id === trueNodeId);
-      if (trueNode) {
-        traverseBranch(workflow, trueNode, thenSteps, new Set<string>());
+    for (const branch of branches) {
+      const branchSteps: SkillStep[] = [];
+      // Find the edge for this branch (by sourcePort matching branch.id)
+      const branchEdge = conditionEdges.find(e => e.sourcePort === branch.id || e.condition === branch.id);
+      if (branchEdge) {
+        const targetNode = workflow.nodes.find(n => n.id === branchEdge.target);
+        if (targetNode) {
+          traverseBranch(workflow, targetNode, branchSteps, new Set<string>());
+        }
       }
+      branchStepsMap[branch.id] = branchSteps;
     }
 
-    if (falseNodeId) {
-      const falseNode = workflow.nodes.find(n => n.id === falseNodeId);
-      if (falseNode) {
-        traverseBranch(workflow, falseNode, elseSteps, new Set<string>());
-      }
-    }
+    // Legacy fallback: if no branches defined, use trueNodeId/falseNodeId
+    if (branches.length === 0) {
+      const thenSteps: SkillStep[] = [];
+      const elseSteps: SkillStep[] = [];
 
-    // Add condition to step
-    step.condition = {
-      type: 'if',
-      expression: currentNode.data.conditionExpression || '',
-      thenSteps,
-      elseSteps,
-    };
+      const trueNodeId = currentNode.data.trueNodeId;
+      const falseNodeId = currentNode.data.falseNodeId;
+
+      if (trueNodeId) {
+        const trueNode = workflow.nodes.find(n => n.id === trueNodeId);
+        if (trueNode) traverseBranch(workflow, trueNode, thenSteps, new Set<string>());
+      }
+      if (falseNodeId) {
+        const falseNode = workflow.nodes.find(n => n.id === falseNodeId);
+        if (falseNode) traverseBranch(workflow, falseNode, elseSteps, new Set<string>());
+      }
+
+      // Legacy 2-branch condition
+      step.condition = {
+        type: 'if',
+        expression: currentNode.data.prompt || currentNode.data.conditionExpression || '',
+        thenSteps,
+        elseSteps,
+      };
+    } else {
+      // New multi-branch condition
+      step.condition = {
+        type: 'switch',
+        expression: currentNode.data.prompt || currentNode.data.conditionExpression || '',
+        branches: branches.map(b => ({
+          name: b.name,
+          steps: branchStepsMap[b.id] || [],
+        })),
+      };
+    }
 
     steps.push(step);
-
-    // Continue from merge point (simplified - after both branches)
-    // In real workflow, we'd need to find the merge point
     return;
   }
 
@@ -149,10 +172,9 @@ function convertNodeToStep(node: WorkflowNode, workflow: Workflow): SkillStep {
 
   switch (node.type) {
     case 'ai':
-      // AI module becomes a special action or uses AI invocation
       return {
         id: stepId,
-        action: 'ai_invoke', // Custom action for AI
+        action: 'ai_invoke',
         description: node.data.prompt || node.name,
         parameters: {
           prompt: node.data.prompt,
@@ -178,8 +200,9 @@ function convertNodeToStep(node: WorkflowNode, workflow: Workflow): SkillStep {
         action: 'condition_check',
         description: node.name,
         parameters: {
-          expression: node.data.conditionExpression,
-          evaluateWithAI: node.data.evaluateWithAI,
+          expression: node.data.prompt || node.data.conditionExpression,
+          evaluateWithAI: node.data.evaluateWithAI ?? true,
+          branches: node.data.branches || [],
         },
         onError: workflow.executionConfig.onError,
       };

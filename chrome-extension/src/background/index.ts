@@ -22,7 +22,7 @@ import { analytics } from './services/analytics';
 import { MCPService } from './services/mcp';
 import { SkillsService } from './services/skills';
 import { WorkflowService } from './services/workflow';
-import type { WorkflowResult, Workflow } from '@extension/workflow';
+import type { WorkflowResult, Workflow, WorkflowEvent } from '@extension/workflow';
 import { recorderState, selectorGenerator, generateSkillFromRecording } from './recorder';
 
 const logger = createLogger('background');
@@ -122,6 +122,77 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   return false;
 });
+
+/**
+ * Build a prioritized list of selectors from workflow action parameters.
+ * Order: primary selector → xpath → fallbacks → attribute-based selectors
+ */
+function buildSelectorList(params: Record<string, unknown>): string[] {
+  const selectors: string[] = [];
+
+  // 1. Primary CSS selector
+  const primary = params.selector as string;
+  if (primary && primary.trim()) {
+    selectors.push(primary.trim());
+  }
+
+  // 2. XPath
+  const xpath = params.xpath as string;
+  if (xpath && xpath.trim()) {
+    selectors.push(xpath.trim());
+  }
+
+  // 3. Fallback selectors
+  const fallbacks = params.fallbacks as string[] | undefined;
+  if (fallbacks && Array.isArray(fallbacks)) {
+    for (const fb of fallbacks) {
+      if (fb && fb.trim() && !selectors.includes(fb.trim())) {
+        selectors.push(fb.trim());
+      }
+    }
+  }
+
+  // 4. Build attribute-based selectors from recorded attributes
+  const attributes = params.attributes as Record<string, string> | undefined;
+  const tagName = (params.attributes as Record<string, string> | undefined)?.tagName;
+  if (attributes && tagName) {
+    // Try common attribute combinations
+    const attrSelectors: string[] = [];
+
+    // id
+    if (attributes.id) {
+      attrSelectors.push(`#${attributes.id}`);
+    }
+
+    // data-testid
+    if (attributes['data-testid']) {
+      attrSelectors.push(`[data-testid="${attributes['data-testid']}"]`);
+    }
+
+    // name
+    if (attributes.name) {
+      attrSelectors.push(`${tagName}[name="${attributes.name}"]`);
+    }
+
+    // type + placeholder combination (for inputs)
+    if (attributes.type && attributes.placeholder) {
+      attrSelectors.push(`${tagName}[type="${attributes.type}"][placeholder="${attributes.placeholder}"]`);
+    }
+
+    // aria-label
+    if (attributes.ariaLabel) {
+      attrSelectors.push(`[aria-label="${attributes.ariaLabel}"]`);
+    }
+
+    for (const attrSel of attrSelectors) {
+      if (!selectors.includes(attrSel)) {
+        selectors.push(attrSel);
+      }
+    }
+  }
+
+  return selectors;
+}
 
 // Handler function for workflow execution
 async function handleExecuteWorkflow(message: {
@@ -339,18 +410,24 @@ async function handleExecuteWorkflow(message: {
           }
 
           case 'click_element': {
-            const clickSelector = (params.selector as string) || (params.xpath as string);
-            if (!clickSelector) return { success: false, error: 'No selector provided' };
-            const result = await currentPage.clickBySelector(clickSelector);
-            return { success: result, error: result ? undefined : 'Element not found or click failed' };
+            const clickSelectors = buildSelectorList(params);
+            if (clickSelectors.length === 0) return { success: false, error: 'No selector provided' };
+            for (const sel of clickSelectors) {
+              const result = await currentPage.clickBySelector(sel);
+              if (result) return { success: true };
+            }
+            return { success: false, error: `Element not found with selectors: ${clickSelectors.join(', ')}` };
           }
 
           case 'input_text': {
-            const inputSelector = (params.selector as string) || (params.xpath as string);
+            const inputSelectors = buildSelectorList(params);
             const text = params.text as string;
-            if (!inputSelector || !text) return { success: false, error: 'Missing selector or text' };
-            const result = await currentPage.inputBySelector(inputSelector, text);
-            return { success: result, error: result ? undefined : 'Element not found or input failed' };
+            if (inputSelectors.length === 0 || !text) return { success: false, error: 'Missing selector or text' };
+            for (const sel of inputSelectors) {
+              const result = await currentPage.inputBySelector(sel, text);
+              if (result) return { success: true };
+            }
+            return { success: false, error: `Element not found with selectors: ${inputSelectors.join(', ')}` };
           }
 
           case 'scroll_to_percent': {
@@ -437,48 +514,71 @@ async function handleExecuteWorkflow(message: {
     const aiInvoker = async (prompt: string, context?: Record<string, unknown>) => {
       logger.info('Workflow AI invoke:', prompt, context);
       try {
-        const providers = await llmProviderStore.getAllProviders();
-        if (Object.keys(providers).length === 0) {
-          return { success: false, error: t('bg_setup_noApiKeys') };
-        }
+        // Create a full Executor session - same flow as user chat conversation
+        // This gives AI module access to page context, Navigator agent, etc.
+        const aiTaskId = `wf-ai-${Date.now()}`;
 
-        const agentModels = await agentModelStore.getAllAgentModels();
-        const navigatorModel = agentModels[AgentNameEnum.Navigator];
-        if (!navigatorModel) {
-          return { success: false, error: t('bg_setup_noNavigatorModel') };
-        }
+        // Inject workflow context variables into the task prompt
+        const contextStr = context ? `\n上下文变量: ${JSON.stringify(context)}` : '';
+        const taskDescription = `${prompt}${contextStr}`;
 
-        const providerConfig = providers[navigatorModel.provider];
-        const llm = createChatModel(providerConfig, navigatorModel);
+        const executor = await setupExecutor(aiTaskId, taskDescription, browserContext);
 
-        // Build context-aware prompt
-        const contextStr = context ? `\nContext: ${JSON.stringify(context)}` : '';
-        const fullPrompt = `${prompt}${contextStr}\n\n请返回执行结果，格式为JSON: { "result": "...", "success": true/false }`;
+        // Collect result from executor events
+        let finalResult: { success: boolean; response?: string; error?: string } = {
+          success: false,
+          error: 'AI execution timed out',
+        };
 
-        const response = await llm.invoke(fullPrompt);
-        const responseText = response.content as string;
+        executor.subscribeExecutionEvents(async event => {
+          // Forward AI executor events to side panel so user can see execution process
+          if (currentPort) {
+            try {
+              currentPort.postMessage(event);
+            } catch (e) {
+              logger.warning('Failed to forward AI executor event to side panel:', e);
+            }
+          }
 
-        // Try to parse response
-        try {
-          const jsonMatch = responseText.match(/\{[\s\S]*\}/);
-          if (jsonMatch) {
-            const parsed = JSON.parse(jsonMatch[0]);
-            return {
-              success: parsed.success ?? true,
-              response: parsed.result || responseText,
+          if (event.state === ExecutionState.TASK_OK) {
+            finalResult = {
+              success: true,
+              response: event.data?.details || event.data?.taskId || 'Task completed',
+            };
+          } else if (event.state === ExecutionState.TASK_FAIL) {
+            finalResult = {
+              success: false,
+              error: event.data?.details || 'AI task failed',
             };
           }
-        } catch {
-          // Return raw response if parsing fails
-        }
+        });
 
-        return { success: true, response: responseText };
+        // Run the executor
+        await executor.execute();
+
+        // Clean up the AI executor after completion (don't interfere with main currentExecutor)
+        await executor.cleanup();
+
+        logger.info('Workflow AI executor result:', finalResult.success, finalResult.response?.slice(0, 100));
+        return finalResult;
       } catch (aiError) {
         logger.error('Workflow AI invoke failed:', aiError);
         return {
           success: false,
           error: aiError instanceof Error ? aiError.message : 'AI invoke failed',
         };
+      }
+    };
+
+    // Create workflow event emitter to forward events to side panel
+    const workflowEventEmitter = async (event: WorkflowEvent) => {
+      if (currentPort) {
+        try {
+          // Send workflow events with a special type so side panel can distinguish them
+          currentPort.postMessage({ type: 'workflow_event', event });
+        } catch (e) {
+          logger.warning('Failed to forward workflow event to side panel:', e);
+        }
       }
     };
 
@@ -489,6 +589,7 @@ async function handleExecuteWorkflow(message: {
       message.params || {},
       actionExecutor,
       aiInvoker,
+      workflowEventEmitter,
     );
 
     logger.info('execute_workflow result', targetPage.tabId, result);

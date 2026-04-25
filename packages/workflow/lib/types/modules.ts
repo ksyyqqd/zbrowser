@@ -47,13 +47,16 @@ export interface AutomationModuleConfig {
 
 /**
  * Condition Module configuration
- * Evaluates conditions and routes to different branches
+ * Evaluates conditions via AI prompt and routes to different named branches
  */
 export interface ConditionModuleConfig {
-  conditionExpression: string; // Expression to evaluate
-  trueNodeId: string; // Node ID for true branch
-  falseNodeId: string; // Node ID for false branch
-  evaluateWithAI: boolean; // true: AI evaluation, false: simple expression
+  prompt: string; // AI prompt to evaluate and decide which branch to take
+  branches: Array<{ id: string; name: string }>; // Dynamic branch definitions, each maps to an output port
+  evaluateWithAI: boolean; // true: AI evaluation (recommended), false: simple expression (legacy)
+  // Legacy fields kept for backward compatibility
+  conditionExpression?: string; // Deprecated: use prompt instead
+  trueNodeId?: string; // Deprecated: use branches + edge sourcePort instead
+  falseNodeId?: string; // Deprecated: use branches + edge sourcePort instead
 }
 
 /**
@@ -116,11 +119,18 @@ export const AutomationModuleConfigSchema = z.object({
   intent: z.string().optional(),
 });
 
+const ConditionBranchSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+});
+
 export const ConditionModuleConfigSchema = z.object({
-  conditionExpression: z.string().min(1),
-  trueNodeId: z.string(),
-  falseNodeId: z.string(),
+  prompt: z.string().min(1),
+  branches: z.array(ConditionBranchSchema).min(1),
   evaluateWithAI: z.boolean(),
+  conditionExpression: z.string().optional(),
+  trueNodeId: z.string().optional(),
+  falseNodeId: z.string().optional(),
 });
 
 export const ExpressionOperatorSchema = z.enum([

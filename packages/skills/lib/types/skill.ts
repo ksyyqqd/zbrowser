@@ -56,11 +56,12 @@ export interface SkillStep {
  * Step condition for conditional execution
  */
 export interface StepCondition {
-  type: 'if' | 'while';
-  expression: string; // Expression to evaluate (e.g., "{{result.success}}")
+  type: 'if' | 'switch' | 'while';
+  expression: string; // Expression to evaluate (e.g., "{{result.success}}" or AI prompt)
   maxIterations?: number; // For while loops
   thenSteps?: SkillStep[];
   elseSteps?: SkillStep[];
+  branches?: Array<{ name: string; steps: SkillStep[] }>; // For switch conditions
 }
 
 /**

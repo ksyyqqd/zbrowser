@@ -1556,7 +1556,10 @@
     "message": "關閉"
   },
   "workflow_nodePalette": {
-    "message": "添加節點"
+    "message": "流程節點"
+  },
+  "workflow_controlPalette": {
+    "message": "流程控制"
   },
   "workflow_editNode": {
     "message": "編輯節點"
@@ -1719,5 +1722,71 @@
   },
   "workflow_enterFullscreen": {
     "message": "進入全屏"
+  },
+  "workflow_nodeType_ai": {
+    "message": "AI模組"
+  },
+  "workflow_nodeType_ai_default": {
+    "message": "AI任務"
+  },
+  "workflow_nodeType_ai_desc": {
+    "message": "AI智慧決策"
+  },
+  "workflow_nodeType_automation": {
+    "message": "自動化"
+  },
+  "workflow_nodeType_automation_default": {
+    "message": "操作"
+  },
+  "workflow_nodeType_automation_desc": {
+    "message": "瀏覽器操作與控制"
+  },
+  "workflow_nodeType_condition": {
+    "message": "條件分支"
+  },
+  "workflow_nodeType_condition_default": {
+    "message": "分支"
+  },
+  "workflow_nodeType_condition_desc": {
+    "message": "基於條件進行分支"
+  },
+  "workflow_nodeType_start": {
+    "message": "開始"
+  },
+  "workflow_nodeType_start_desc": {
+    "message": "工作流程入口"
+  },
+  "workflow_nodeType_end": {
+    "message": "結束"
+  },
+  "workflow_nodeType_end_desc": {
+    "message": "工作流程出口"
+  },
+  "workflow_newWorkflow_defaultName": {
+    "message": "新工作流程"
+  },
+  "workflow_untitledWorkflow": {
+    "message": "未命名工作流程"
+  },
+  "workflow_automatedWorkflowDesc": {
+    "message": "$NAME$ - 自動化工作流程",
+    "placeholders": {
+      "name": {
+        "content": "$1",
+        "example": "我的工作流程"
+      }
+    }
+  },
+  "workflow_branches": {
+    "message": "分支"
+  },
+  "workflow_addBranch": {
+    "message": "添加分支"
+  },
+  "workflow_removeBranch": {
+    "message": "刪除分支"
+  },
+  "workflow_branchNamePlaceholder": {
+    "message": "分支名稱"
   }
 }

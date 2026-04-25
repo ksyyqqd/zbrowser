@@ -28,10 +28,11 @@ export interface UserSkillConfig {
     description?: string;
     parameters: Record<string, unknown>;
     condition?: {
-      type: 'if' | 'while';
+      type: 'if' | 'switch' | 'while';
       expression: string;
       thenSteps?: unknown[];
       elseSteps?: unknown[];
+      branches?: Array<{ name: string; steps: unknown[] }>;
     };
     onError: 'continue' | 'stop' | 'retry';
     retryCount?: number;

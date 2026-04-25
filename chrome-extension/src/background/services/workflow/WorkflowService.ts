@@ -5,6 +5,7 @@ import {
   type WorkflowResult,
   type WorkflowExecutionContext,
   type WorkflowNode,
+  type WorkflowEvent,
   type ActionResult,
   type AIResult,
 } from '@extension/workflow';
@@ -22,6 +23,7 @@ class WorkflowExecutionContextImpl implements WorkflowExecutionContext {
   private variables: Record<string, unknown> = {};
   private actionExecutor?: (action: string, params: Record<string, unknown>) => Promise<ActionResult>;
   private aiInvoker?: (prompt: string, context?: Record<string, unknown>) => Promise<AIResult>;
+  private eventEmitter?: (event: WorkflowEvent) => Promise<void>;
 
   // Execution state tracking
   currentNodeId?: string;
@@ -31,10 +33,12 @@ class WorkflowExecutionContextImpl implements WorkflowExecutionContext {
     tabId: number,
     actionExecutor?: (action: string, params: Record<string, unknown>) => Promise<ActionResult>,
     aiInvoker?: (prompt: string, context?: Record<string, unknown>) => Promise<AIResult>,
+    eventEmitter?: (event: WorkflowEvent) => Promise<void>,
   ) {
     this.tabId = tabId;
     this.actionExecutor = actionExecutor;
     this.aiInvoker = aiInvoker;
+    this.eventEmitter = eventEmitter;
   }
 
   async executeAction(actionName: string, params: Record<string, unknown>): Promise<ActionResult> {
@@ -67,7 +71,10 @@ class WorkflowExecutionContextImpl implements WorkflowExecutionContext {
 
   async emitEvent(event: import('@extension/workflow').WorkflowEvent): Promise<void> {
     logger.info('Workflow event:', event.type, event.nodeId, event.details);
-    // Events can be sent to UI via Chrome messaging if needed
+    // Forward events to UI via provided emitter callback
+    if (this.eventEmitter) {
+      await this.eventEmitter(event);
+    }
   }
 }
 
@@ -152,6 +159,7 @@ export class WorkflowService {
     params: Record<string, unknown> = {},
     actionExecutor?: (action: string, params: Record<string, unknown>) => Promise<ActionResult>,
     aiInvoker?: (prompt: string, context?: Record<string, unknown>) => Promise<AIResult>,
+    eventEmitter?: (event: WorkflowEvent) => Promise<void>,
   ): Promise<WorkflowResult> {
     // Always fetch latest workflow from storage to ensure we have the most recent version
     const latestWorkflow = await userWorkflowsStore.getWorkflow(workflowId);
@@ -168,8 +176,8 @@ export class WorkflowService {
     // Update registry with latest version
     this.registry.registerWorkflow(latestWorkflow as Workflow);
 
-    // Create execution context
-    const context = new WorkflowExecutionContextImpl(tabId, actionExecutor, aiInvoker);
+    // Create execution context with event emitter for UI forwarding
+    const context = new WorkflowExecutionContextImpl(tabId, actionExecutor, aiInvoker, eventEmitter);
 
     // Set initial variables from params
     for (const [key, value] of Object.entries(params)) {
@@ -183,10 +191,7 @@ export class WorkflowService {
   /**
    * List all workflows
    */
-  listWorkflows(category?: string): Workflow[] {
-    if (category) {
-      return this.registry.getWorkflowsByCategory(category);
-    }
+  listWorkflows(): Workflow[] {
     return this.registry.getAllWorkflows();
   }
 

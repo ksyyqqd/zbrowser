@@ -1562,7 +1562,10 @@
     "message": "Close"
   },
   "workflow_nodePalette": {
-    "message": "Add Node"
+    "message": "Process Nodes"
+  },
+  "workflow_controlPalette": {
+    "message": "Flow Control"
   },
   "workflow_editNode": {
     "message": "Edit Node"
@@ -1725,5 +1728,71 @@
   },
   "workflow_autoLayout": {
     "message": "Auto layout"
+  },
+  "workflow_nodeType_ai": {
+    "message": "AI Module"
+  },
+  "workflow_nodeType_ai_default": {
+    "message": "AI Task"
+  },
+  "workflow_nodeType_ai_desc": {
+    "message": "AI-powered decision making"
+  },
+  "workflow_nodeType_automation": {
+    "message": "Automation"
+  },
+  "workflow_nodeType_automation_default": {
+    "message": "Action"
+  },
+  "workflow_nodeType_automation_desc": {
+    "message": "Browser actions & controls"
+  },
+  "workflow_nodeType_condition": {
+    "message": "Condition"
+  },
+  "workflow_nodeType_condition_default": {
+    "message": "Branch"
+  },
+  "workflow_nodeType_condition_desc": {
+    "message": "Branch based on conditions"
+  },
+  "workflow_nodeType_start": {
+    "message": "Start"
+  },
+  "workflow_nodeType_start_desc": {
+    "message": "Workflow entry point"
+  },
+  "workflow_nodeType_end": {
+    "message": "End"
+  },
+  "workflow_nodeType_end_desc": {
+    "message": "Workflow exit point"
+  },
+  "workflow_newWorkflow_defaultName": {
+    "message": "New Workflow"
+  },
+  "workflow_untitledWorkflow": {
+    "message": "Untitled Workflow"
+  },
+  "workflow_automatedWorkflowDesc": {
+    "message": "$NAME$ - automated workflow",
+    "placeholders": {
+      "name": {
+        "content": "$1",
+        "example": "My Workflow"
+      }
+    }
+  },
+  "workflow_branches": {
+    "message": "Branches"
+  },
+  "workflow_addBranch": {
+    "message": "Add Branch"
+  },
+  "workflow_removeBranch": {
+    "message": "Remove Branch"
+  },
+  "workflow_branchNamePlaceholder": {
+    "message": "Branch name"
   }
 }

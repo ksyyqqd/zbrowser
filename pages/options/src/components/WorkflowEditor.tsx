@@ -1,12 +1,14 @@
 /**
  * Workflow Editor Component
  * Visual workflow editor using AntV X6 for creating/editing workflows
+ * Supports drag-and-drop from left palette to canvas via @antv/x6-plugin-dnd
  */
 
 import { useEffect, useRef, useState, useCallback } from 'react';
 import type { Edge as X6Edge, Node as X6Node } from '@antv/x6';
 import { Graph as X6Graph, Shape } from '@antv/x6';
 import { register } from '@antv/x6-react-shape';
+import { Dnd } from '@antv/x6-plugin-dnd';
 import { AntVDagreLayout } from '@antv/layout';
 import type { NodeData as LayoutNodeData, EdgeData as LayoutEdgeData } from '@antv/layout';
 import { Graph as LayoutGraph } from '@antv/graphlib';
@@ -21,14 +23,21 @@ import {
   FiMaximize2,
   FiMinimize2,
   FiLayout,
+  FiMoreVertical,
 } from 'react-icons/fi';
 import { t } from '@extension/i18n';
+import type { MessageKey } from '@extension/i18n';
 import type { Workflow, WorkflowNode, WorkflowEdge, WorkflowNodeType, NodeData } from '@extension/workflow';
 
 // ============ Node Components with Ports ============
 
+/** Extended NodeData with runtime-only UI state (selected) */
+interface NodeDataWithUI extends NodeData {
+  selected?: boolean;
+}
+
 interface NodeComponentProps {
-  node: { getData: () => NodeData };
+  node: { getData: () => NodeDataWithUI };
 }
 
 /**
@@ -36,12 +45,22 @@ interface NodeComponentProps {
  */
 const AINodeComponent = ({ node }: NodeComponentProps) => {
   const data = node.getData();
+  const isSelected = data.selected;
   return (
-    <div className="ai-node flex items-center gap-2 px-3 py-2 rounded-lg bg-gradient-to-r from-purple-500 to-purple-600 text-white shadow-md min-w-[150px]">
-      <FiCpu className="size-5" />
-      <div className="flex flex-col">
-        <span className="font-medium text-sm">AI Module</span>
-        <span className="text-xs opacity-80 truncate max-w-[120px]">{data.prompt?.slice(0, 20) || 'AI Task'}...</span>
+    <div
+      className={`ai-node flex items-center gap-2.5 px-3.5 py-2.5 rounded-xl text-white shadow-lg min-w-[160px] transition-all duration-150 ${
+        isSelected
+          ? 'bg-gradient-to-r from-purple-400 to-purple-500 ring-2 ring-blue-400 ring-offset-1 shadow-blue-400/30'
+          : 'bg-gradient-to-r from-purple-500 to-purple-600 hover:scale-[1.03]'
+      }`}>
+      <div className="flex items-center justify-center size-8 rounded-lg bg-white/20 shrink-0">
+        <FiCpu className="size-4" />
+      </div>
+      <div className="flex flex-col min-w-0">
+        <span className="font-semibold text-sm leading-tight">{t('workflow_nodeType_ai')}</span>
+        <span className="text-xs opacity-75 truncate max-w-[110px]">
+          {data.prompt?.slice(0, 20) || t('workflow_nodeType_ai_default')}...
+        </span>
       </div>
     </div>
   );
@@ -52,30 +71,59 @@ const AINodeComponent = ({ node }: NodeComponentProps) => {
  */
 const AutomationNodeComponent = ({ node }: NodeComponentProps) => {
   const data = node.getData();
+  const isSelected = data.selected;
   return (
-    <div className="automation-node flex items-center gap-2 px-3 py-2 rounded-lg bg-gradient-to-r from-blue-500 to-blue-600 text-white shadow-md min-w-[150px]">
-      <FiMousePointer className="size-5" />
-      <div className="flex flex-col">
-        <span className="font-medium text-sm">Automation</span>
-        <span className="text-xs opacity-80 truncate max-w-[120px]">{data.action || 'Action'}</span>
+    <div
+      className={`automation-node flex items-center gap-2.5 px-3.5 py-2.5 rounded-xl text-white shadow-lg min-w-[160px] transition-all duration-150 ${
+        isSelected
+          ? 'bg-gradient-to-r from-blue-400 to-blue-500 ring-2 ring-blue-400 ring-offset-1 shadow-blue-400/30'
+          : 'bg-gradient-to-r from-blue-500 to-blue-600 hover:scale-[1.03]'
+      }`}>
+      <div className="flex items-center justify-center size-8 rounded-lg bg-white/20 shrink-0">
+        <FiMousePointer className="size-4" />
+      </div>
+      <div className="flex flex-col min-w-0">
+        <span className="font-semibold text-sm leading-tight">{t('workflow_nodeType_automation')}</span>
+        <span className="text-xs opacity-75 truncate max-w-[110px]">
+          {data.action || t('workflow_nodeType_automation_default')}
+        </span>
       </div>
     </div>
   );
 };
 
 /**
- * Condition Module Node Component - has two output ports for true/false branches
+ * Condition Module Node Component - dynamically renders branch names
  */
 const ConditionNodeComponent = ({ node }: NodeComponentProps) => {
   const data = node.getData();
+  const isSelected = data.selected;
+  const branches = data.branches || [];
   return (
-    <div className="condition-node flex items-center gap-2 px-3 py-2 rounded-lg bg-gradient-to-r from-orange-500 to-orange-600 text-white shadow-md min-w-[150px]">
-      <FiGitBranch className="size-5" />
-      <div className="flex flex-col">
-        <span className="font-medium text-sm">Condition</span>
-        <span className="text-xs opacity-80 truncate max-w-[120px]">
-          {data.conditionExpression?.slice(0, 20) || 'Branch'}...
-        </span>
+    <div
+      className={`condition-node flex items-center gap-2.5 px-3.5 py-2.5 rounded-xl text-white shadow-lg min-w-[160px] transition-all duration-150 ${
+        isSelected
+          ? 'bg-gradient-to-r from-orange-400 to-orange-500 ring-2 ring-blue-400 ring-offset-1 shadow-blue-400/30'
+          : 'bg-gradient-to-r from-orange-500 to-orange-600 hover:scale-[1.03]'
+      }`}>
+      <div className="flex items-center justify-center size-8 rounded-lg bg-white/20 shrink-0">
+        <FiGitBranch className="size-4" />
+      </div>
+      <div className="flex flex-col min-w-0">
+        <span className="font-semibold text-sm leading-tight">{t('workflow_nodeType_condition')}</span>
+        {branches.length > 0 ? (
+          <div className="flex flex-col gap-0.5 mt-0.5">
+            {branches.map(b => (
+              <span key={b.id} className="text-xs opacity-80 truncate max-w-[110px] leading-tight">
+                → {b.name}
+              </span>
+            ))}
+          </div>
+        ) : (
+          <span className="text-xs opacity-75 truncate max-w-[110px]">
+            {data.conditionExpression?.slice(0, 20) || t('workflow_nodeType_condition_default')}...
+          </span>
+        )}
       </div>
     </div>
   );
@@ -84,20 +132,38 @@ const ConditionNodeComponent = ({ node }: NodeComponentProps) => {
 /**
  * Start Node Component - only has output port
  */
-const StartNodeComponent = () => (
-  <div className="start-node flex items-center justify-center size-10 rounded-full bg-green-500 text-white shadow-md">
-    <FiPlay className="size-5" />
-  </div>
-);
+const StartNodeComponent = ({ node }: NodeComponentProps) => {
+  const data = node.getData();
+  const isSelected = data.selected;
+  return (
+    <div
+      className={`start-node flex items-center justify-center size-11 rounded-full text-white shadow-lg transition-all duration-150 ${
+        isSelected
+          ? 'bg-green-400 ring-2 ring-blue-400 ring-offset-1 shadow-green-400/30'
+          : 'bg-gradient-to-br from-green-400 to-green-500 hover:scale-[1.06]'
+      }`}>
+      <FiPlay className="size-5" />
+    </div>
+  );
+};
 
 /**
  * End Node Component - only has input port
  */
-const EndNodeComponent = () => (
-  <div className="end-node flex items-center justify-center size-10 rounded-full bg-red-500 text-white shadow-md">
-    <FiXCircle className="size-5" />
-  </div>
-);
+const EndNodeComponent = ({ node }: NodeComponentProps) => {
+  const data = node.getData();
+  const isSelected = data.selected;
+  return (
+    <div
+      className={`end-node flex items-center justify-center size-11 rounded-full text-white shadow-lg transition-all duration-150 ${
+        isSelected
+          ? 'bg-red-400 ring-2 ring-blue-400 ring-offset-1 shadow-red-400/30'
+          : 'bg-gradient-to-br from-red-400 to-red-500 hover:scale-[1.06]'
+      }`}>
+      <FiXCircle className="size-5" />
+    </div>
+  );
+};
 
 // Register React node shapes with ports (ports are hidden by default, show on hover)
 register({
@@ -194,7 +260,7 @@ register({
   shape: 'workflow-condition-node',
   component: ConditionNodeComponent,
   width: 180,
-  height: 60,
+  height: 80,
   ports: {
     groups: {
       in: {
@@ -212,28 +278,13 @@ register({
           },
         },
       },
-      outTrue: {
-        position: { name: 'right', args: { y: 15 } },
+      out: {
+        position: 'right',
         attrs: {
           circle: {
             r: 6,
             magnet: true,
-            stroke: '#22c55e',
-            strokeWidth: 2,
-            fill: '#fff',
-            style: {
-              visibility: 'hidden',
-            },
-          },
-        },
-      },
-      outFalse: {
-        position: { name: 'right', args: { y: 45 } },
-        attrs: {
-          circle: {
-            r: 6,
-            magnet: true,
-            stroke: '#ef4444',
+            stroke: '#f97316',
             strokeWidth: 2,
             fill: '#fff',
             style: {
@@ -243,11 +294,7 @@ register({
         },
       },
     },
-    items: [
-      { id: 'in', group: 'in' },
-      { id: 'out-true', group: 'outTrue' },
-      { id: 'out-false', group: 'outFalse' },
-    ],
+    items: [{ id: 'in', group: 'in' }],
   },
 });
 
@@ -316,11 +363,141 @@ interface WorkflowEditorProps {
 
 // ============ Node Palette Data ============
 
-const nodePalette = [
-  { type: 'ai', label: 'AI Module', icon: FiCpu, shape: 'workflow-ai-node' },
-  { type: 'automation', label: 'Automation', icon: FiMousePointer, shape: 'workflow-automation-node' },
-  { type: 'condition', label: 'Condition', icon: FiGitBranch, shape: 'workflow-condition-node' },
+interface PaletteItem {
+  type: string;
+  labelKey: MessageKey;
+  descriptionKey: MessageKey;
+  icon: React.ComponentType<{ className?: string }>;
+  shape: string;
+  color: string;
+  bgClass: string;
+  iconClass: string;
+  borderClass: string;
+}
+
+const nodePalette: PaletteItem[] = [
+  {
+    type: 'ai',
+    labelKey: 'workflow_nodeType_ai',
+    descriptionKey: 'workflow_nodeType_ai_desc',
+    icon: FiCpu,
+    shape: 'workflow-ai-node',
+    color: 'purple',
+    bgClass: 'bg-purple-50 dark:bg-purple-900/20',
+    iconClass: 'text-purple-500',
+    borderClass: 'border-purple-200 dark:border-purple-700/50',
+  },
+  {
+    type: 'automation',
+    labelKey: 'workflow_nodeType_automation',
+    descriptionKey: 'workflow_nodeType_automation_desc',
+    icon: FiMousePointer,
+    shape: 'workflow-automation-node',
+    color: 'blue',
+    bgClass: 'bg-blue-50 dark:bg-blue-900/20',
+    iconClass: 'text-blue-500',
+    borderClass: 'border-blue-200 dark:border-blue-700/50',
+  },
+  {
+    type: 'condition',
+    labelKey: 'workflow_nodeType_condition',
+    descriptionKey: 'workflow_nodeType_condition_desc',
+    icon: FiGitBranch,
+    shape: 'workflow-condition-node',
+    color: 'orange',
+    bgClass: 'bg-orange-50 dark:bg-orange-900/20',
+    iconClass: 'text-orange-500',
+    borderClass: 'border-orange-200 dark:border-orange-700/50',
+  },
 ];
+
+const controlPalette: PaletteItem[] = [
+  {
+    type: 'start',
+    labelKey: 'workflow_nodeType_start',
+    descriptionKey: 'workflow_nodeType_start_desc',
+    icon: FiPlay,
+    shape: 'workflow-start-node',
+    color: 'green',
+    bgClass: 'bg-green-50 dark:bg-green-900/20',
+    iconClass: 'text-green-500',
+    borderClass: 'border-green-200 dark:border-green-700/50',
+  },
+  {
+    type: 'end',
+    labelKey: 'workflow_nodeType_end',
+    descriptionKey: 'workflow_nodeType_end_desc',
+    icon: FiXCircle,
+    shape: 'workflow-end-node',
+    color: 'red',
+    bgClass: 'bg-red-50 dark:bg-red-900/20',
+    iconClass: 'text-red-500',
+    borderClass: 'border-red-200 dark:border-red-700/50',
+  },
+];
+
+// ============ Default Node Data ============
+
+function getDefaultNodeData(type: WorkflowNodeType): NodeData {
+  const data: NodeData = {};
+  if (type === 'ai') {
+    data.prompt = '请分析当前页面内容并提取关键信息';
+  } else if (type === 'automation') {
+    data.action = 'wait';
+    data.parameters = {};
+  } else if (type === 'condition') {
+    data.prompt = '';
+    data.branches = [
+      { id: 'branch-yes', name: '是' },
+      { id: 'branch-no', name: '否' },
+    ];
+    data.evaluateWithAI = true;
+  }
+  return data;
+}
+
+/**
+ * Update condition node's output ports based on its branches
+ */
+function syncConditionPorts(graph: X6Graph, nodeId: string, branches: Array<{ id: string; name: string }>) {
+  const cell = graph.getCellById(nodeId);
+  if (!cell || !cell.isNode()) return;
+
+  // Remove all existing out ports
+  const existingPorts = cell.getPorts().filter(p => p.group !== 'in' && p.id);
+  for (const port of existingPorts) {
+    cell.removePort(port.id!);
+  }
+
+  // Add ports for each branch
+  for (const branch of branches) {
+    cell.addPort({
+      id: branch.id,
+      group: 'out',
+      attrs: {
+        text: { text: branch.name },
+      },
+    });
+  }
+}
+
+// Helper function to get i18n label key for node type
+const getNodeTypeLabelKey = (type: WorkflowNodeType): MessageKey => {
+  switch (type) {
+    case 'ai':
+      return 'workflow_nodeType_ai';
+    case 'automation':
+      return 'workflow_nodeType_automation';
+    case 'condition':
+      return 'workflow_nodeType_condition';
+    case 'start':
+      return 'workflow_nodeType_start';
+    case 'end':
+      return 'workflow_nodeType_end';
+    default:
+      return 'workflow_nodeType_automation';
+  }
+};
 
 // ============ Main Workflow Editor Component ============
 
@@ -332,35 +509,36 @@ export default function WorkflowEditor({
 }: WorkflowEditorProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const graphRef = useRef<X6Graph | null>(null);
+  const dndRef = useRef<Dnd | null>(null);
 
   const [workflowId] = useState(initialWorkflow?.id || `workflow-${Date.now()}`);
-  const [workflowName, setWorkflowName] = useState(initialWorkflow?.name || 'New Workflow');
+  const [workflowName, setWorkflowName] = useState(initialWorkflow?.name || t('workflow_newWorkflow_defaultName'));
   const [workflowDescription, setWorkflowDescription] = useState(initialWorkflow?.description || '');
   const [selectedNode, setSelectedNode] = useState<WorkflowNode | null>(null);
   const [selectedEdge, setSelectedEdge] = useState<X6Edge | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
 
+  // Helper function to get shape name for node type
+  const getShapeForNodeType = useCallback((type: WorkflowNodeType): string => {
+    switch (type) {
+      case 'ai':
+        return 'workflow-ai-node';
+      case 'automation':
+        return 'workflow-automation-node';
+      case 'condition':
+        return 'workflow-condition-node';
+      case 'start':
+        return 'workflow-start-node';
+      case 'end':
+        return 'workflow-end-node';
+      default:
+        return 'workflow-automation-node';
+    }
+  }, []);
+
   // Initialize graph
   useEffect(() => {
     if (!containerRef.current) return;
-
-    // Helper function to get shape name for node type
-    const getShapeForNodeType = (type: WorkflowNodeType): string => {
-      switch (type) {
-        case 'ai':
-          return 'workflow-ai-node';
-        case 'automation':
-          return 'workflow-automation-node';
-        case 'condition':
-          return 'workflow-condition-node';
-        case 'start':
-          return 'workflow-start-node';
-        case 'end':
-          return 'workflow-end-node';
-        default:
-          return 'workflow-automation-node';
-      }
-    };
 
     // Helper function to load workflow into graph
     const loadWorkflowIntoGraph = (graph: X6Graph, workflow: Workflow) => {
@@ -378,6 +556,10 @@ export default function WorkflowEditor({
             id: node.id,
             data: { ...nodeData, type: node.type, name: node.name || node.id },
           });
+          // Sync condition node ports for dynamic branches
+          if (node.type === 'condition' && nodeData.branches) {
+            syncConditionPorts(graph, node.id, nodeData.branches);
+          }
         }
 
         // Add edges
@@ -385,7 +567,7 @@ export default function WorkflowEditor({
           graph.addEdge(
             new Shape.Edge({
               id: edge.id || `edge-${Date.now()}`,
-              source: edge.source,
+              source: { cell: edge.source, port: edge.sourcePort },
               target: edge.target,
               attrs: {
                 line: {
@@ -424,8 +606,19 @@ export default function WorkflowEditor({
       container: containerRef.current,
       grid: {
         visible: true,
-        type: 'dot',
+        type: 'doubleMesh',
         size: 20,
+        args: [
+          {
+            color: isDarkMode ? '#334155' : '#d1d5db',
+            thickness: 1,
+          },
+          {
+            color: isDarkMode ? '#1e293b' : '#e5e7eb',
+            thickness: 1,
+            factor: 4,
+          },
+        ],
       },
       panning: {
         enabled: true,
@@ -492,6 +685,10 @@ export default function WorkflowEditor({
       },
     });
 
+    // Create DnD instance
+    const dnd = new Dnd({ target: graph });
+    dndRef.current = dnd;
+
     graphRef.current = graph;
 
     // Load initial workflow nodes if provided
@@ -519,8 +716,21 @@ export default function WorkflowEditor({
     graph.on('node:click', ({ node }: { node: X6Node }) => {
       const nodeData = node.getData() as Record<string, unknown>;
       const nodeType = nodeData['type'] as string | undefined;
+
+      // Clear all nodes' selected state
+      graph.getNodes().forEach(n => {
+        const d = n.getData() as Record<string, unknown>;
+        if (d['selected']) {
+          n.setData({ ...d, selected: false }, { overwrite: true });
+        }
+      });
+
       // Clear edge selection
       setSelectedEdge(null);
+
+      // Set selected state on clicked node
+      node.setData({ ...nodeData, selected: true }, { overwrite: true });
+
       // Only select editable nodes (not start/end)
       if (nodeType && ['ai', 'automation', 'condition'].includes(nodeType)) {
         setSelectedNode({
@@ -537,12 +747,26 @@ export default function WorkflowEditor({
 
     // Handle edge click for selection
     graph.on('edge:click', ({ edge }: { edge: X6Edge }) => {
+      // Clear all nodes' selected state
+      graph.getNodes().forEach(n => {
+        const d = n.getData() as Record<string, unknown>;
+        if (d['selected']) {
+          n.setData({ ...d, selected: false }, { overwrite: true });
+        }
+      });
       setSelectedNode(null);
       setSelectedEdge(edge);
     });
 
     // Handle blank click to deselect
     graph.on('blank:click', () => {
+      // Clear all nodes' selected state
+      graph.getNodes().forEach(n => {
+        const d = n.getData() as Record<string, unknown>;
+        if (d['selected']) {
+          n.setData({ ...d, selected: false }, { overwrite: true });
+        }
+      });
       setSelectedNode(null);
       setSelectedEdge(null);
     });
@@ -553,6 +777,7 @@ export default function WorkflowEditor({
       ports.forEach(port => {
         if (port.id) {
           node.setPortProp(port.id, 'attrs/circle/style/visibility', 'visible');
+          node.setPortProp(port.id, 'attrs/circle/r', 8);
         }
       });
     });
@@ -563,6 +788,7 @@ export default function WorkflowEditor({
       ports.forEach(port => {
         if (port.id) {
           node.setPortProp(port.id, 'attrs/circle/style/visibility', 'hidden');
+          node.setPortProp(port.id, 'attrs/circle/r', 6);
         }
       });
     });
@@ -571,34 +797,18 @@ export default function WorkflowEditor({
     graph.on('node:port:mouseenter', ({ node, port: portId }) => {
       if (portId) {
         node.setPortProp(portId, 'attrs/circle/style/visibility', 'visible');
+        node.setPortProp(portId, 'attrs/circle/r', 8);
       }
     });
 
     // Cleanup
     return () => {
+      dndRef.current = null;
       graph.dispose();
     };
-  }, [initialWorkflow, isDarkMode]);
+  }, [initialWorkflow, isDarkMode, getShapeForNodeType]);
 
-  // Get shape name for node type (for use outside useEffect)
-  const getShapeForNodeType = useCallback((type: WorkflowNodeType): string => {
-    switch (type) {
-      case 'ai':
-        return 'workflow-ai-node';
-      case 'automation':
-        return 'workflow-automation-node';
-      case 'condition':
-        return 'workflow-condition-node';
-      case 'start':
-        return 'workflow-start-node';
-      case 'end':
-        return 'workflow-end-node';
-      default:
-        return 'workflow-automation-node';
-    }
-  }, []);
-
-  // Add node from palette
+  // Add node from palette (fallback click method, also used after drag)
   const handleAddNode = (type: WorkflowNodeType) => {
     if (!graphRef.current) return;
 
@@ -610,36 +820,55 @@ export default function WorkflowEditor({
     const area = graph.getGraphArea();
     const position = { x: (area.x + area.width) / 2, y: (area.y + area.height) / 2 };
 
-    const data: NodeData = {};
-    if (type === 'ai') {
-      data.prompt = '';
-    } else if (type === 'automation') {
-      data.action = 'wait';
-      data.parameters = {};
-    } else if (type === 'condition') {
-      data.conditionExpression = '';
-      data.trueNodeId = '';
-      data.falseNodeId = '';
-      data.evaluateWithAI = true;
-    }
+    const name = t(getNodeTypeLabelKey(type));
+    const defaultData = getDefaultNodeData(type);
 
     graph.addNode({
       shape,
       x: position.x,
       y: position.y,
       id: nodeId,
-      data: { ...data, type, name: nodePalette.find(n => n.type === type)?.label || type },
+      data: { ...defaultData, type, name },
     });
+
+    // Sync condition node ports after adding
+    if (type === 'condition' && defaultData.branches) {
+      syncConditionPorts(graph, nodeId, defaultData.branches);
+    }
 
     // Select the newly added node
     setSelectedNode({
       id: nodeId,
       type,
-      name: nodePalette.find(n => n.type === type)?.label || type,
+      name,
       position,
-      data: { ...data, type, name: nodePalette.find(n => n.type === type)?.label || type },
+      data: { ...defaultData, type, name },
     });
   };
+
+  // Handle drag start from palette card
+  const handleDragStart = useCallback(
+    (e: React.MouseEvent, type: WorkflowNodeType) => {
+      if (!graphRef.current || !dndRef.current) return;
+
+      const shape = getShapeForNodeType(type);
+      const isSmallNode = type === 'start' || type === 'end';
+      const width = isSmallNode ? 50 : 180;
+      const height = isSmallNode ? 50 : 60;
+      const defaultData = getDefaultNodeData(type);
+      const label = t(getNodeTypeLabelKey(type));
+
+      const node = graphRef.current.createNode({
+        shape,
+        width,
+        height,
+        data: { ...defaultData, type, name: label },
+      });
+
+      dndRef.current.start(node, e.nativeEvent);
+    },
+    [getShapeForNodeType],
+  );
 
   // Delete selected node
   const handleDeleteNode = () => {
@@ -674,7 +903,6 @@ export default function WorkflowEditor({
     if (nodes.length === 0) return;
 
     // Create a layout graph with nodes and edges data
-    // Cast to expected Graph type from @antv/layout
     const layoutGraph = new LayoutGraph<LayoutNodeData, LayoutEdgeData>({
       nodes: nodes.map(node => ({
         id: node.id,
@@ -694,10 +922,10 @@ export default function WorkflowEditor({
 
     // Create AntVDagre layout instance
     const dagreLayout = new AntVDagreLayout({
-      rankdir: 'LR', // Left to right layout
-      align: 'UL', // Upper-left alignment
-      nodesep: 60, // Horizontal spacing between nodes in same rank
-      ranksep: 120, // Spacing between ranks (columns)
+      rankdir: 'LR',
+      align: 'UL',
+      nodesep: 60,
+      ranksep: 120,
       nodeSize: 180,
     });
 
@@ -708,11 +936,9 @@ export default function WorkflowEditor({
     result.nodes.forEach(layoutNode => {
       const cell = graph.getCellById(String(layoutNode.id));
       if (cell && cell.isNode()) {
-        // Get the size from node data or default
         const size = layoutNode.data?.size || [180, 60];
         const width = typeof size === 'number' ? size : size[0] || 180;
         const height = typeof size === 'number' ? size : size[1] || 60;
-        // Center the node at the layout position
         cell.position(layoutNode.data.x - width / 2, layoutNode.data.y - height / 2);
       }
     });
@@ -751,17 +977,20 @@ export default function WorkflowEditor({
 
     // Convert edges
     graph.getEdges().forEach(edge => {
+      const sourcePort = edge.getSourcePortId() || undefined;
       edges.push({
         id: edge.id,
         source: edge.getSourceCellId() || '',
         target: edge.getTargetCellId() || '',
+        sourcePort,
       });
     });
 
     return {
       id: workflowId,
-      name: workflowName || 'Untitled Workflow',
-      description: workflowDescription || `${workflowName || 'Untitled Workflow'} - automated workflow`,
+      name: workflowName || t('workflow_untitledWorkflow'),
+      description:
+        workflowDescription || t('workflow_automatedWorkflowDesc', [workflowName || t('workflow_untitledWorkflow')]),
       version: '1.0.0',
       nodes,
       edges,
@@ -798,25 +1027,63 @@ export default function WorkflowEditor({
 
     const node = graphRef.current.getCellById(selectedNode.id);
     if (node) {
-      node.setData({ ...updatedNode.data, name: updatedNode.name, type: updatedNode.type });
-      // Force re-render
-      node.setAttrs({});
+      node.setData({ ...updatedNode.data, name: updatedNode.name, type: updatedNode.type }, { overwrite: true });
+      // Sync condition node ports when branches change
+      if (updatedNode.type === 'condition' && updatedNode.data.branches) {
+        syncConditionPorts(graphRef.current, updatedNode.id, updatedNode.data.branches);
+      }
     }
     setSelectedNode(updatedNode);
   };
+
+  // Palette card component
+  const PaletteCard = ({
+    item,
+    isDark,
+    onDragStart,
+    onClick,
+  }: {
+    item: (typeof nodePalette)[number] | (typeof controlPalette)[number];
+    isDark: boolean;
+    onDragStart: (e: React.MouseEvent, type: WorkflowNodeType) => void;
+    onClick: () => void;
+  }) => (
+    <div
+      onMouseDown={e => onDragStart(e, item.type as WorkflowNodeType)}
+      onClick={onClick}
+      className={`group flex items-center gap-2 px-2.5 py-2 rounded-lg cursor-grab border transition-all duration-150 select-none active:cursor-grabbing active:scale-[0.97] hover:shadow-sm ${item.bgClass} ${item.borderClass}`}
+      style={isDark ? { borderColor: item.borderClass.includes('dark:') ? undefined : undefined } : undefined}>
+      <div className={`flex items-center justify-center size-7 rounded-md ${item.bgClass} shrink-0`}>
+        <item.icon className={`size-3.5 ${item.iconClass}`} />
+      </div>
+      <div className="flex flex-col min-w-0 flex-1">
+        <span className={`text-sm font-medium leading-tight ${isDark ? 'text-gray-200' : 'text-gray-800'}`}>
+          {t(item.labelKey)}
+        </span>
+        <span className={`text-xs leading-tight ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+          {t(item.descriptionKey)}
+        </span>
+      </div>
+      <FiMoreVertical
+        className={`size-3.5 opacity-0 group-hover:opacity-60 shrink-0 ${isDark ? 'text-gray-400' : 'text-gray-400'}`}
+      />
+    </div>
+  );
 
   return (
     <div className={`workflow-editor flex flex-col h-full ${isFullscreen ? 'fixed inset-0 z-[100]' : ''}`}>
       {/* Header */}
       <div
-        className={`flex items-center justify-between px-4 py-3 border-b ${isDarkMode ? 'border-slate-700 bg-slate-800' : 'border-gray-200 bg-white'}`}>
+        className={`flex items-center justify-between px-4 py-2.5 border-b shadow-sm ${
+          isDarkMode ? 'border-slate-700 bg-slate-800' : 'border-gray-200 bg-white'
+        }`}>
         <div className="flex items-center gap-3 flex-1">
           <input
             type="text"
             value={workflowName}
             onChange={e => setWorkflowName(e.target.value)}
             placeholder={t('workflow_name_placeholder')}
-            className={`px-3 py-1.5 rounded-md border text-sm font-medium w-40 ${
+            className={`px-3 py-1.5 rounded-lg border text-sm font-medium w-40 focus:ring-2 focus:ring-blue-400/50 transition-colors ${
               isDarkMode ? 'border-slate-600 bg-slate-700 text-gray-200' : 'border-gray-300 bg-white text-gray-700'
             }`}
           />
@@ -825,7 +1092,7 @@ export default function WorkflowEditor({
             value={workflowDescription}
             onChange={e => setWorkflowDescription(e.target.value)}
             placeholder={t('workflow_description_placeholder')}
-            className={`px-3 py-1.5 rounded-md border text-sm flex-1 max-w-md ${
+            className={`px-3 py-1.5 rounded-lg border text-sm flex-1 max-w-md focus:ring-2 focus:ring-blue-400/50 transition-colors ${
               isDarkMode ? 'border-slate-600 bg-slate-700 text-gray-200' : 'border-gray-300 bg-white text-gray-700'
             }`}
           />
@@ -834,10 +1101,8 @@ export default function WorkflowEditor({
           <button
             type="button"
             onClick={handleAutoLayout}
-            className={`p-2 rounded-md ${
-              isDarkMode
-                ? 'bg-slate-600 text-gray-200 hover:bg-slate-500'
-                : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+            className={`p-2 rounded-lg transition-colors ${
+              isDarkMode ? 'text-gray-300 hover:bg-slate-600' : 'text-gray-600 hover:bg-gray-100'
             }`}
             title={t('workflow_autoLayout')}>
             <FiLayout className="size-4" />
@@ -845,10 +1110,8 @@ export default function WorkflowEditor({
           <button
             type="button"
             onClick={() => setIsFullscreen(!isFullscreen)}
-            className={`p-2 rounded-md ${
-              isDarkMode
-                ? 'bg-slate-600 text-gray-200 hover:bg-slate-500'
-                : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+            className={`p-2 rounded-lg transition-colors ${
+              isDarkMode ? 'text-gray-300 hover:bg-slate-600' : 'text-gray-600 hover:bg-gray-100'
             }`}
             title={isFullscreen ? t('workflow_exitFullscreen') : t('workflow_enterFullscreen')}>
             {isFullscreen ? <FiMinimize2 className="size-4" /> : <FiMaximize2 className="size-4" />}
@@ -856,45 +1119,66 @@ export default function WorkflowEditor({
           <button
             type="button"
             onClick={onCancel}
-            className={`px-4 py-1.5 rounded-md text-sm ${
+            className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-colors ${
               isDarkMode
-                ? 'bg-slate-600 text-gray-200 hover:bg-slate-500'
-                : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                ? 'bg-slate-700 text-gray-200 hover:bg-slate-600'
+                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
             }`}>
             {t('workflow_cancel')}
           </button>
           <button
             type="button"
             onClick={handleSave}
-            className="px-4 py-1.5 rounded-md text-sm bg-blue-600 text-white hover:bg-blue-500">
+            className="px-4 py-1.5 rounded-lg text-sm font-medium bg-blue-600 text-white hover:bg-blue-500 shadow-sm transition-colors">
             {t('workflow_save')}
           </button>
         </div>
       </div>
 
       {/* Canvas Area */}
-      <div className="flex flex-1">
-        {/* Node Palette */}
+      <div className="flex flex-1 min-h-0">
+        {/* Node Palette - Draggable Cards */}
         <div
-          className={`w-48 border-r p-3 ${isDarkMode ? 'border-slate-700 bg-slate-800' : 'border-gray-200 bg-gray-50'}`}>
-          <h3 className={`text-sm font-medium mb-3 ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
-            {t('workflow_nodePalette')}
-          </h3>
-          <div className="space-y-2">
-            {nodePalette.map(item => (
-              <button
-                key={item.type}
-                type="button"
-                onClick={() => handleAddNode(item.type as WorkflowNodeType)}
-                className={`flex items-center gap-2 px-3 py-2 rounded-md w-full text-sm ${
-                  isDarkMode
-                    ? 'bg-slate-700 text-gray-200 hover:bg-slate-600'
-                    : 'bg-white text-gray-700 hover:bg-gray-100 border border-gray-200'
-                }`}>
-                <item.icon className="size-4" />
-                {item.label}
-              </button>
-            ))}
+          className={`w-56 border-r flex flex-col ${
+            isDarkMode ? 'border-slate-700 bg-slate-800/80' : 'border-gray-200 bg-gray-50/80'
+          }`}
+          style={{ overflow: 'auto' }}>
+          {/* Process Nodes Section */}
+          <div className="px-3 pt-3 pb-1">
+            <h3
+              className={`text-xs font-semibold uppercase tracking-wider mb-2 ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>
+              {t('workflow_nodePalette')}
+            </h3>
+            <div className="space-y-1.5">
+              {nodePalette.map(item => (
+                <PaletteCard
+                  key={item.type}
+                  item={item}
+                  isDark={isDarkMode}
+                  onDragStart={handleDragStart}
+                  onClick={() => handleAddNode(item.type as WorkflowNodeType)}
+                />
+              ))}
+            </div>
+          </div>
+
+          {/* Control Nodes Section */}
+          <div className="px-3 pt-3 pb-3 mt-2 border-t border-dashed ${isDarkMode ? 'border-slate-600' : 'border-gray-300'}">
+            <h3
+              className={`text-xs font-semibold uppercase tracking-wider mb-2 ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>
+              {t('workflow_controlPalette')}
+            </h3>
+            <div className="space-y-1.5">
+              {controlPalette.map(item => (
+                <PaletteCard
+                  key={item.type}
+                  item={item}
+                  isDark={isDarkMode}
+                  onDragStart={handleDragStart}
+                  onClick={() => handleAddNode(item.type as WorkflowNodeType)}
+                />
+              ))}
+            </div>
           </div>
         </div>
 
@@ -908,12 +1192,12 @@ export default function WorkflowEditor({
         {/* Right-side Node Editor Panel */}
         {(selectedNode || selectedEdge) && (
           <div
-            className={`w-72 border-l overflow-y-auto ${
+            className={`w-72 border-l overflow-y-auto shadow-lg ${
               isDarkMode ? 'border-slate-700 bg-slate-800' : 'border-gray-200 bg-white'
             }`}>
             {/* Panel Header with Close and Delete buttons */}
             <div
-              className={`flex items-center justify-between px-4 py-3 border-b ${
+              className={`flex items-center justify-between px-4 py-2.5 border-b ${
                 isDarkMode ? 'border-slate-700' : 'border-gray-200'
               }`}>
               <h3 className={`text-sm font-semibold ${isDarkMode ? 'text-gray-200' : 'text-gray-800'}`}>
@@ -924,7 +1208,7 @@ export default function WorkflowEditor({
                   <button
                     type="button"
                     onClick={handleDeleteNode}
-                    className="p-1.5 rounded-md text-red-500 hover:bg-red-100 dark:hover:bg-red-900/30"
+                    className="p-1.5 rounded-md text-red-500 hover:bg-red-100 dark:hover:bg-red-900/30 transition-colors"
                     title={t('workflow_delete')}>
                     <FiTrash2 className="size-4" />
                   </button>
@@ -933,7 +1217,7 @@ export default function WorkflowEditor({
                   <button
                     type="button"
                     onClick={handleDeleteEdge}
-                    className="p-1.5 rounded-md text-red-500 hover:bg-red-100 dark:hover:bg-red-900/30"
+                    className="p-1.5 rounded-md text-red-500 hover:bg-red-100 dark:hover:bg-red-900/30 transition-colors"
                     title={t('workflow_delete')}>
                     <FiTrash2 className="size-4" />
                   </button>
@@ -944,7 +1228,7 @@ export default function WorkflowEditor({
                     setSelectedNode(null);
                     setSelectedEdge(null);
                   }}
-                  className={`p-1.5 rounded-md ${
+                  className={`p-1.5 rounded-md transition-colors ${
                     isDarkMode ? 'text-gray-400 hover:bg-slate-700' : 'text-gray-500 hover:bg-gray-100'
                   }`}
                   title={t('workflow_close')}>
@@ -1076,7 +1360,7 @@ function NodeEditorPanel({ node, onSave, isDarkMode }: NodeEditorPanelProps) {
   };
 
   // Handle other field changes
-  const handleFieldChange = (field: string, value: string | boolean) => {
+  const handleFieldChange = (field: string, value: string | boolean | Array<{ id: string; name: string }>) => {
     const updated = {
       ...editedNode,
       data: {
@@ -1111,7 +1395,7 @@ function NodeEditorPanel({ node, onSave, isDarkMode }: NodeEditorPanelProps) {
           type="text"
           value={editedNode.name}
           onChange={e => handleNameChange(e.target.value)}
-          className={`mt-1 w-full px-3 py-2 rounded-md border text-sm ${
+          className={`mt-1 w-full px-3 py-2 rounded-lg border text-sm focus:ring-2 focus:ring-blue-400/50 transition-colors ${
             isDarkMode ? 'border-slate-600 bg-slate-700 text-gray-200' : 'border-gray-300 bg-white text-gray-700'
           }`}
         />
@@ -1120,14 +1404,18 @@ function NodeEditorPanel({ node, onSave, isDarkMode }: NodeEditorPanelProps) {
       {/* Node Type Badge */}
       <div>
         <span
-          className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
+          className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold ${
             editedNode.type === 'ai'
               ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400'
               : editedNode.type === 'automation'
                 ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400'
                 : 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400'
           }`}>
-          {editedNode.type === 'ai' ? 'AI Module' : editedNode.type === 'automation' ? 'Automation' : 'Condition'}
+          {editedNode.type === 'ai'
+            ? t('workflow_nodeType_ai')
+            : editedNode.type === 'automation'
+              ? t('workflow_nodeType_automation')
+              : t('workflow_nodeType_condition')}
         </span>
       </div>
 
@@ -1141,7 +1429,7 @@ function NodeEditorPanel({ node, onSave, isDarkMode }: NodeEditorPanelProps) {
             <textarea
               value={editedNode.data.prompt || ''}
               onChange={e => handleFieldChange('prompt', e.target.value)}
-              className={`mt-1 w-full px-3 py-2 rounded-md border text-sm ${
+              className={`mt-1 w-full px-3 py-2 rounded-lg border text-sm focus:ring-2 focus:ring-blue-400/50 transition-colors ${
                 isDarkMode ? 'border-slate-600 bg-slate-700 text-gray-200' : 'border-gray-300 bg-white text-gray-700'
               }`}
               rows={4}
@@ -1155,7 +1443,7 @@ function NodeEditorPanel({ node, onSave, isDarkMode }: NodeEditorPanelProps) {
               type="text"
               value={editedNode.data.outputVariable || ''}
               onChange={e => handleFieldChange('outputVariable', e.target.value)}
-              className={`mt-1 w-full px-3 py-2 rounded-md border text-sm ${
+              className={`mt-1 w-full px-3 py-2 rounded-lg border text-sm focus:ring-2 focus:ring-blue-400/50 transition-colors ${
                 isDarkMode ? 'border-slate-600 bg-slate-700 text-gray-200' : 'border-gray-300 bg-white text-gray-700'
               }`}
             />
@@ -1174,7 +1462,7 @@ function NodeEditorPanel({ node, onSave, isDarkMode }: NodeEditorPanelProps) {
               type="text"
               value={editedNode.data.intent || ''}
               onChange={e => handleFieldChange('intent', e.target.value)}
-              className={`mt-1 w-full px-3 py-2 rounded-md border text-sm ${
+              className={`mt-1 w-full px-3 py-2 rounded-lg border text-sm focus:ring-2 focus:ring-blue-400/50 transition-colors ${
                 isDarkMode ? 'border-slate-600 bg-slate-700 text-gray-200' : 'border-gray-300 bg-white text-gray-700'
               }`}
               placeholder={t('workflow_intent_placeholder')}
@@ -1188,7 +1476,7 @@ function NodeEditorPanel({ node, onSave, isDarkMode }: NodeEditorPanelProps) {
             <select
               value={currentAction}
               onChange={e => handleActionChange(e.target.value)}
-              className={`mt-1 w-full px-3 py-2 rounded-md border text-sm ${
+              className={`mt-1 w-full px-3 py-2 rounded-lg border text-sm focus:ring-2 focus:ring-blue-400/50 transition-colors ${
                 isDarkMode ? 'border-slate-600 bg-slate-700 text-gray-200' : 'border-gray-300 bg-white text-gray-700'
               }`}>
               <option value="click_element">{t('workflow_action_clickElement')}</option>
@@ -1212,7 +1500,10 @@ function NodeEditorPanel({ node, onSave, isDarkMode }: NodeEditorPanelProps) {
           </div>
           {/* Dynamic action-specific parameters */}
           {actionParamFields.length > 0 && (
-            <div className="space-y-2 pt-2 border-t border-dashed ${isDarkMode ? 'border-slate-600' : 'border-gray-300'}">
+            <div
+              className={`space-y-2 pt-2 border-t border-dashed ${
+                isDarkMode ? 'border-slate-600' : 'border-gray-300'
+              }`}>
               <label className={`text-xs font-medium ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
                 {t('workflow_parameters')}
               </label>
@@ -1224,7 +1515,7 @@ function NodeEditorPanel({ node, onSave, isDarkMode }: NodeEditorPanelProps) {
                       type="number"
                       value={(currentParams[field.key] as number) || 0}
                       onChange={e => handleParameterChange(field.key, parseFloat(e.target.value) || 0)}
-                      className={`mt-0.5 w-full px-3 py-1.5 rounded-md border text-sm ${
+                      className={`mt-0.5 w-full px-3 py-1.5 rounded-lg border text-sm focus:ring-2 focus:ring-blue-400/50 transition-colors ${
                         isDarkMode
                           ? 'border-slate-600 bg-slate-700 text-gray-200'
                           : 'border-gray-300 bg-white text-gray-700'
@@ -1236,7 +1527,7 @@ function NodeEditorPanel({ node, onSave, isDarkMode }: NodeEditorPanelProps) {
                       type="text"
                       value={(currentParams[field.key] as string) || ''}
                       onChange={e => handleParameterChange(field.key, e.target.value)}
-                      className={`mt-0.5 w-full px-3 py-1.5 rounded-md border text-sm ${
+                      className={`mt-0.5 w-full px-3 py-1.5 rounded-lg border text-sm focus:ring-2 focus:ring-blue-400/50 transition-colors ${
                         isDarkMode
                           ? 'border-slate-600 bg-slate-700 text-gray-200'
                           : 'border-gray-300 bg-white text-gray-700'
@@ -1253,19 +1544,82 @@ function NodeEditorPanel({ node, onSave, isDarkMode }: NodeEditorPanelProps) {
 
       {editedNode.type === 'condition' && (
         <div className="space-y-3">
+          {/* AI Prompt for condition evaluation */}
           <div>
             <label className={`text-xs font-medium ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
-              {t('workflow_conditionExpression')}
+              {t('workflow_aiPrompt')}
             </label>
             <textarea
-              value={editedNode.data.conditionExpression || ''}
-              onChange={e => handleFieldChange('conditionExpression', e.target.value)}
-              className={`mt-1 w-full px-3 py-2 rounded-md border text-sm ${
+              value={editedNode.data.prompt || ''}
+              onChange={e => handleFieldChange('prompt', e.target.value)}
+              className={`mt-1 w-full px-3 py-2 rounded-lg border text-sm focus:ring-2 focus:ring-blue-400/50 transition-colors ${
                 isDarkMode ? 'border-slate-600 bg-slate-700 text-gray-200' : 'border-gray-300 bg-white text-gray-700'
               }`}
-              rows={2}
+              rows={3}
+              placeholder={t('workflow_conditionExpression')}
             />
           </div>
+
+          {/* Branch management */}
+          <div>
+            <label className={`text-xs font-medium ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+              {t('workflow_branches')}
+            </label>
+            <div className="mt-1 space-y-1.5">
+              {(editedNode.data.branches || []).map((branch, index) => (
+                <div key={branch.id} className="flex items-center gap-1.5">
+                  <span
+                    className={`flex items-center justify-center size-5 rounded text-xs font-semibold ${
+                      isDarkMode ? 'bg-orange-900/30 text-orange-400' : 'bg-orange-100 text-orange-700'
+                    }`}>
+                    {index + 1}
+                  </span>
+                  <input
+                    type="text"
+                    value={branch.name}
+                    onChange={e => {
+                      const newBranches = [...(editedNode.data.branches || [])];
+                      newBranches[index] = { ...newBranches[index], name: e.target.value };
+                      handleFieldChange('branches', newBranches);
+                    }}
+                    className={`flex-1 px-2 py-1 rounded-md border text-sm focus:ring-2 focus:ring-blue-400/50 transition-colors ${
+                      isDarkMode
+                        ? 'border-slate-600 bg-slate-700 text-gray-200'
+                        : 'border-gray-300 bg-white text-gray-700'
+                    }`}
+                    placeholder={t('workflow_branchNamePlaceholder')}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const newBranches = [...(editedNode.data.branches || [])];
+                      newBranches.splice(index, 1);
+                      handleFieldChange('branches', newBranches);
+                    }}
+                    className="p-1 rounded-md text-red-500 hover:bg-red-100 dark:hover:bg-red-900/30 transition-colors"
+                    title={t('workflow_removeBranch')}>
+                    <FiTrash2 className="size-3.5" />
+                  </button>
+                </div>
+              ))}
+              <button
+                type="button"
+                onClick={() => {
+                  const newBranches = [...(editedNode.data.branches || [])];
+                  newBranches.push({ id: `branch-${Date.now()}`, name: '' });
+                  handleFieldChange('branches', newBranches);
+                }}
+                className={`mt-1 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
+                  isDarkMode
+                    ? 'bg-slate-700 text-gray-300 hover:bg-slate-600'
+                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                }`}>
+                + {t('workflow_addBranch')}
+              </button>
+            </div>
+          </div>
+
+          {/* Evaluate with AI toggle */}
           <div className="flex items-center gap-2">
             <input
               type="checkbox"

@@ -266,6 +266,8 @@ const SidePanel = () => {
   const spotlightActiveRef = useRef(false);
   /** 捣乱模式标记 — 捣乱时不显示遮罩 */
   const isMischiefModeRef = useRef(false);
+  /** 工作流执行模式标记 — 在工作流执行期间，AI子任务的终端事件不应改变UI状态 */
+  const isWorkflowModeRef = useRef(false);
   /** 任务目标标签ID — 记住任务发起时的标签，切换标签后仍能正确操作 */
   const targetTabIdRef = useRef<number | null>(null);
 
@@ -499,30 +501,40 @@ const SidePanel = () => {
               break;
             case ExecutionState.TASK_OK:
               isMischiefModeRef.current = false; // 重置捣乱标记
-              setIsFollowUpMode(true);
-              setInputEnabled(true);
-              setShowStopButton(false);
-              setIsReplaying(false);
-              _hideSpotlight();
+              // 在工作流执行模式下，AI子任务完成不应改变UI状态
+              // UI状态由工作流自身的 WORKFLOW_OK/FAIL 事件控制
+              if (!isWorkflowModeRef.current) {
+                setIsFollowUpMode(true);
+                setInputEnabled(true);
+                setShowStopButton(false);
+                setIsReplaying(false);
+                _hideSpotlight();
+              }
               break;
             case ExecutionState.TASK_FAIL:
               isMischiefModeRef.current = false;
-              setIsFollowUpMode(true);
-              setInputEnabled(true);
-              setShowStopButton(false);
-              setIsReplaying(false);
-              setCurrentStep(null);
-              _hideSpotlight();
+              // 在工作流执行模式下，AI子任务失败不应改变UI状态
+              if (!isWorkflowModeRef.current) {
+                setIsFollowUpMode(true);
+                setInputEnabled(true);
+                setShowStopButton(false);
+                setIsReplaying(false);
+                setCurrentStep(null);
+                _hideSpotlight();
+              }
               skip = false;
               break;
             case ExecutionState.TASK_CANCEL:
               isMischiefModeRef.current = false;
-              setIsFollowUpMode(false);
-              setInputEnabled(true);
-              setShowStopButton(false);
-              setIsReplaying(false);
-              setCurrentStep(null);
-              _hideSpotlight(); // 取消时清理聚焦
+              // 在工作流执行模式下，取消不应改变UI状态
+              if (!isWorkflowModeRef.current) {
+                setIsFollowUpMode(false);
+                setInputEnabled(true);
+                setShowStopButton(false);
+                setIsReplaying(false);
+                setCurrentStep(null);
+                _hideSpotlight();
+              }
               skip = false;
               break;
             case ExecutionState.TASK_PAUSE:
@@ -638,6 +650,67 @@ const SidePanel = () => {
     [appendMessage, _hideSpotlight, _showSpotlight, _setSpotlightMode],
   );
 
+  // 处理 Workflow 执行事件
+  const handleWorkflowEvent = useCallback(
+    (event: {
+      type: string;
+      workflowId: string;
+      nodeId?: string;
+      nodeName?: string;
+      details?: string;
+      timestamp?: number;
+    }) => {
+      const { type, nodeName, details } = event;
+
+      // 根据事件类型生成显示内容
+      let displayContent = '';
+      switch (type) {
+        case 'WORKFLOW_START':
+          displayContent = `▶ 开始执行工作流`;
+          break;
+        case 'WORKFLOW_OK':
+          displayContent = `✅ 工作流执行完成`;
+          break;
+        case 'WORKFLOW_FAIL':
+          displayContent = `❌ 工作流执行失败: ${details || ''}`;
+          break;
+        case 'NODE_START':
+          displayContent = `⏳ 执行节点: ${nodeName || details || ''}`;
+          break;
+        case 'NODE_OK':
+          displayContent = `✓ 节点完成: ${nodeName || details || ''}`;
+          break;
+        case 'NODE_FAIL':
+          displayContent = `✗ 节点失败: ${nodeName || ''} - ${details || ''}`;
+          break;
+        case 'BRANCH_SELECT':
+          displayContent = `🔀 分支选择: ${details || ''}`;
+          break;
+        default:
+          displayContent = details || '';
+          break;
+      }
+
+      if (displayContent) {
+        appendMessage({
+          actor: Actors.SYSTEM,
+          content: displayContent,
+          timestamp: event.timestamp || Date.now(),
+        });
+      }
+
+      // 工作流完成时恢复输入 + 清除工作流模式标记
+      if (type === 'WORKFLOW_OK' || type === 'WORKFLOW_FAIL') {
+        isWorkflowModeRef.current = false;
+        setInputEnabled(true);
+        setShowStopButton(false);
+        setIsFollowUpMode(true);
+        _hideSpotlight();
+      }
+    },
+    [appendMessage, _hideSpotlight],
+  );
+
   // 停止心跳并关闭连接
   const stopConnection = useCallback(() => {
     if (heartbeatIntervalRef.current) {
@@ -666,6 +739,9 @@ const SidePanel = () => {
         // 检查消息类型
         if (message && message.type === EventType.EXECUTION) {
           handleTaskState(message);
+        } else if (message && message.type === 'workflow_event') {
+          // 处理 Workflow 执行事件（节点开始/完成/分支选择等）
+          handleWorkflowEvent(message.event);
         } else if (message && message.type === 'error') {
           // 处理来自服务工作者的错误消息
           appendMessage({
@@ -733,7 +809,7 @@ const SidePanel = () => {
       // 由于连接失败，清除任何引用
       portRef.current = null;
     }
-  }, [handleTaskState, appendMessage, stopConnection]);
+  }, [handleTaskState, handleWorkflowEvent, appendMessage, stopConnection]);
 
   // 添加消息发送的安全检查
   const sendMessage = useCallback(
@@ -1110,6 +1186,8 @@ const SidePanel = () => {
       setIsFollowUpMode(false);
       setInputEnabled(false);
       setShowStopButton(true);
+      // 标记进入工作流执行模式，AI子任务的终端事件不应改变UI状态
+      isWorkflowModeRef.current = true;
 
       // 发送执行 Workflow 消息到 background
       portRef.current.postMessage({

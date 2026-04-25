@@ -14,12 +14,21 @@ export interface NodePosition {
 }
 
 /**
+ * Condition branch definition - each branch has a name and ID that maps to an output port
+ */
+export interface ConditionBranch {
+  id: string;
+  name: string;
+}
+
+/**
  * Workflow node data - contains module-specific configuration
  */
 export interface NodeData {
   // Common properties
   type?: string; // Node type (ai, automation, condition, start, end)
   name?: string; // Node name
+  selected?: boolean; // Runtime UI state - node is selected
 
   // AI Module configuration (simplified - model handled by session)
   prompt?: string;
@@ -33,10 +42,11 @@ export interface NodeData {
   waitForStability?: boolean;
   delayAfter?: number;
 
-  // Condition Module configuration
-  conditionExpression?: string;
-  trueNodeId?: string;
-  falseNodeId?: string;
+  // Condition Module configuration - dynamic multi-branch with AI evaluation
+  branches?: ConditionBranch[];
+  conditionExpression?: string; // Deprecated - use prompt instead
+  trueNodeId?: string; // Deprecated - use branches + edge sourcePort instead
+  falseNodeId?: string; // Deprecated - use branches + edge sourcePort instead
   evaluateWithAI?: boolean;
 }
 
@@ -59,6 +69,7 @@ export interface WorkflowEdge {
   id: string;
   source: string;
   target: string;
+  sourcePort?: string; // Output port ID (branch ID for condition nodes)
   label?: string;
   condition?: string; // For conditional edges (true/false branches)
   marker?: 'block' | 'classic' | 'none'; // Arrow marker type
@@ -114,9 +125,15 @@ export const NodePositionSchema = z.object({
   y: z.number(),
 });
 
+export const ConditionBranchSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+});
+
 export const NodeDataSchema = z.object({
   type: z.string().optional(),
   name: z.string().optional(),
+  selected: z.boolean().optional(),
   prompt: z.string().optional(),
   outputVariable: z.string().optional(),
   contextVariables: z.array(z.string()).optional(),
@@ -125,6 +142,7 @@ export const NodeDataSchema = z.object({
   parameters: z.record(z.unknown()).optional(),
   waitForStability: z.boolean().optional(),
   delayAfter: z.number().optional(),
+  branches: z.array(ConditionBranchSchema).optional(),
   conditionExpression: z.string().optional(),
   trueNodeId: z.string().optional(),
   falseNodeId: z.string().optional(),
@@ -144,6 +162,7 @@ export const WorkflowEdgeSchema = z.object({
   id: z.string(),
   source: z.string(),
   target: z.string(),
+  sourcePort: z.string().optional(),
   label: z.string().optional(),
   condition: z.string().optional(),
 });
