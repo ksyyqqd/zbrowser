@@ -482,8 +482,20 @@ export default class Page {
     }
 
     try {
-      // First disable animations/transitions
+      // Hide overlays and highlight elements before screenshot
+      // Then disable animations/transitions
       await this._puppeteerPage.evaluate(() => {
+        // Hide AI takeover overlays (spotlight)
+        const spotlightOverlay = document.getElementById('nanobrowser-spotlight-overlay');
+        const spotlightCanvas = document.getElementById('nanobrowser-spotlight-canvas');
+        if (spotlightOverlay) spotlightOverlay.style.display = 'none';
+        if (spotlightCanvas) spotlightCanvas.style.display = 'none';
+
+        // Hide element highlight container
+        const highlightContainer = document.getElementById('playwright-highlight-container');
+        if (highlightContainer) highlightContainer.style.display = 'none';
+
+        // Disable animations/transitions
         const styleId = 'puppeteer-disable-animations';
         if (!document.getElementById(styleId)) {
           const style = document.createElement('style');
@@ -506,8 +518,19 @@ export default class Page {
         quality: 80, // Good balance between quality and file size
       });
 
-      // Clean up the style element
+      // Restore overlays and clean up
       await this._puppeteerPage.evaluate(() => {
+        // Restore AI takeover overlays
+        const spotlightOverlay = document.getElementById('nanobrowser-spotlight-overlay');
+        const spotlightCanvas = document.getElementById('nanobrowser-spotlight-canvas');
+        if (spotlightOverlay) spotlightOverlay.style.display = 'block';
+        if (spotlightCanvas) spotlightCanvas.style.display = 'block';
+
+        // Restore element highlight container
+        const highlightContainer = document.getElementById('playwright-highlight-container');
+        if (highlightContainer) highlightContainer.style.display = 'block';
+
+        // Remove the animation disable style
         const style = document.getElementById('puppeteer-disable-animations');
         if (style) {
           style.remove();
@@ -517,6 +540,19 @@ export default class Page {
       return screenshot as string;
     } catch (error) {
       logger.error('Failed to take screenshot:', error);
+      // Try to restore overlays even if screenshot failed
+      try {
+        await this._puppeteerPage.evaluate(() => {
+          const spotlightOverlay = document.getElementById('nanobrowser-spotlight-overlay');
+          const spotlightCanvas = document.getElementById('nanobrowser-spotlight-canvas');
+          if (spotlightOverlay) spotlightOverlay.style.display = 'block';
+          if (spotlightCanvas) spotlightCanvas.style.display = 'block';
+          const highlightContainer = document.getElementById('playwright-highlight-container');
+          if (highlightContainer) highlightContainer.style.display = 'block';
+        });
+      } catch {
+        // Ignore restoration errors
+      }
       throw error;
     }
   }

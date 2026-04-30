@@ -69,6 +69,7 @@
 
     // ---- 全屏遮罩 ----
     _overlay = document.createElement('div');
+    _overlay.id = 'nanobrowser-spotlight-overlay'; // 固定 ID，便于截图时隐藏
     Object.assign(_overlay.style, {
       position: 'fixed',
       top: '0',
@@ -84,6 +85,7 @@
 
     // ---- Canvas 层（所有科幻特效）----
     _canvas = document.createElement('canvas');
+    _canvas.id = 'nanobrowser-spotlight-canvas'; // 固定 ID，便于截图时隐藏
     _canvas.style.cssText =
       'position:fixed;top:0;left:0;width:100vw;height:100vh;' +
       'z-index:' +

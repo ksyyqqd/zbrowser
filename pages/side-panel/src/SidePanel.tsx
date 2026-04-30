@@ -1900,7 +1900,7 @@ ${trimmedText}`;
                     {t('welcome_openSettings')}
                   </button>
                   {/* 三步上手指南 */}
-                  <div className="mt-4 text-left" style={{ color: 'var(--text-muted)' }}>
+                  {/* <div className="mt-4 text-left" style={{ color: 'var(--text-muted)' }}>
                     <button
                       type="button"
                       onClick={() => setShowSteps(!showSteps)}
@@ -1958,7 +1958,7 @@ ${trimmedText}`;
                         ))}
                       </div>
                     )}
-                  </div>
+                  </div> */}
                 </div>
               </div>
             )}

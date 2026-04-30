@@ -19,6 +19,13 @@ async function analyzeScreenshotWithVisionModel(
 3. Any important visual elements like text, images, or notifications
 4. Current state of the page (loading, error, success, etc.)
 
+**IMPORTANT**: The screenshot contains numbered labels/markers on interactive elements. These numbers correspond to element indices that the automation agent can use to interact with elements. When describing interactive elements, you MUST include their number markers in your description.
+
+Format your description like this for each interactive element:
+- "Element [number]: [description]" (e.g., "Element [5]: Search input field", "Element [10]: Submit button")
+
+This numbering is critical for the automation agent to identify and interact with the correct elements. Always reference elements by their numbered markers when available.
+
 Keep the description brief and actionable for an automation agent. Focus on elements that can be interacted with.`;
 
     const response = await visionLLM.invoke([
@@ -57,6 +64,8 @@ async function analyzeUserImageWithVisionModel(
 3. Any actionable information or instructions visible
 4. If it's a screenshot, describe the page state and interactive elements
 5. Any other relevant details that would help an automation agent understand the user's intent
+
+**IMPORTANT**: If the image contains numbered labels/markers on interactive elements (like element indices), please include these number markers in your description. Format: "Element [number]: [description]"
 
 Keep the description comprehensive and actionable. File name: ${imageName}`;
 

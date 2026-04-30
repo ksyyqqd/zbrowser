@@ -5,14 +5,14 @@ import type { BaseStorage } from '../base/types';
 // Template data
 const defaultFavoritePrompts = [
   {
-    title: '🌾 农场主模式',
+    title: '人人租品牌形象调研',
     content:
-      '- 打开 DeepSeek (https://chat.deepseek.com)，在对话框输入问题获取回答\n- 记录关键信息后，打开通义千问 (https://qianwen.aliyun.com) 获取另一个视角\n- 继续访问 GLM智谱 (https://chatglm.cn) 和 Kimi (https://kimi.moonshot.cn)\n- 汇总各个AI的回答，形成综合对比报告\n- 注意：如果某个网站需要登录，提示用户登录后继续',
+      '- 打开 DeepSeek (https://chat.deepseek.com)，在对话框输入问题【人人租品牌形象调研】获取回答\n- 记录关键信息后，形成综合对比报告\n- 注意：如果某个网站需要登录，提示用户登录后继续',
   },
   {
     title: '🔥 今日 AI 热点',
     content:
-      '- 打开 https://36kr.com/AI 或 https://www.jiqizhixin.com，查看今天的前 3 条 AI 新闻。\n- 对每条新闻：\n  - 记录标题、链接和热度\n  - 用一句话总结核心内容\n- 最后汇总成一份今日 AI 热点简报，按热度排序',
+      '- 打开 https://www.aibase.cn/，查看今天的前 3 条 AI 新闻。\n- 对每条新闻：\n  - 记录标题、链接和热度\n  - 用一句话总结核心内容\n- 最后汇总成一份今日 AI 热点简报，按热度排序',
   },
   {
     title: '📖 帮我读懂这个网页',
