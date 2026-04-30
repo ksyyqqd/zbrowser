@@ -292,6 +292,12 @@
   "options_general_showSpotlight_desc": {
     "message": "Exibir uma sobreposição semi-transparente na página enquanto a IA está executando tarefas (desativar não afeta a funcionalidade)"
   },
+  "options_general_showWorkflowSpotlight": {
+    "message": "Mostrar Sobreposição de Workflow"
+  },
+  "options_general_showWorkflowSpotlight_desc": {
+    "message": "Exibir uma sobreposição semi-transparente na página durante a execução do workflow (desativado por padrão)"
+  },
   "options_general_viewportExpansion": {
     "message": "Expansão daViewport"
   },

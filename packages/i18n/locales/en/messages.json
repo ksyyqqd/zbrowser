@@ -292,6 +292,12 @@
   "options_general_showSpotlight_desc": {
     "message": "Display a semi-transparent overlay on the page while AI is executing tasks (disabling won't affect functionality)"
   },
+  "options_general_showWorkflowSpotlight": {
+    "message": "Show Workflow Overlay"
+  },
+  "options_general_showWorkflowSpotlight_desc": {
+    "message": "Display a semi-transparent overlay on the page while workflow is executing (disabled by default)"
+  },
   "options_general_viewportExpansion": {
     "message": "Viewport Expansion Range"
   },

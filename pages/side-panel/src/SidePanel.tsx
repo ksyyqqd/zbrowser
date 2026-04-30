@@ -126,6 +126,8 @@ const SidePanel = () => {
   const [replayEnabled, setReplayEnabled] = useState(true);
   // AI接管遮罩开关
   const [showSpotlightEnabled, setShowSpotlightEnabled] = useState(true);
+  // 工作流遮罩开关
+  const [showWorkflowSpotlightEnabled, setShowWorkflowSpotlightEnabled] = useState(false);
   // 图片生成功能开关
   const [showImageGeneration, setShowImageGeneration] = useState(false);
   // 会话ID引用
@@ -191,11 +193,13 @@ const SidePanel = () => {
     try {
       const settings = await generalSettingsStore.getSettings();
       setShowSpotlightEnabled(settings.showSpotlight);
+      setShowWorkflowSpotlightEnabled(settings.showWorkflowSpotlight ?? false);
       setShowImageGeneration(settings.showImageGeneration ?? false);
       setReplayEnabled(settings.replayHistoricalTasks ?? true);
     } catch (error) {
       console.error('加载遮罩设置时出错:', error);
       setShowSpotlightEnabled(true); // 默认开启
+      setShowWorkflowSpotlightEnabled(false); // 默认关闭
       setShowImageGeneration(false); // 默认关闭
     }
   }, []);
@@ -705,10 +709,13 @@ const SidePanel = () => {
         setInputEnabled(true);
         setShowStopButton(false);
         setIsFollowUpMode(true);
-        _hideSpotlight();
+        // 只有开启了工作流遮罩时才隐藏
+        if (showWorkflowSpotlightEnabled) {
+          _hideSpotlight();
+        }
       }
     },
-    [appendMessage, _hideSpotlight],
+    [appendMessage, _hideSpotlight, showWorkflowSpotlightEnabled],
   );
 
   // 停止心跳并关闭连接
@@ -1220,6 +1227,11 @@ const SidePanel = () => {
       // 标记进入工作流执行模式，AI子任务的终端事件不应改变UI状态
       isWorkflowModeRef.current = true;
 
+      // 根据设置决定是否显示工作流遮罩
+      if (showWorkflowSpotlightEnabled) {
+        _showSpotlight('planning');
+      }
+
       // 发送执行 Workflow 消息到 background
       portRef.current.postMessage({
         type: 'execute_workflow',
@@ -1227,6 +1239,7 @@ const SidePanel = () => {
         tabId,
         workflowId,
         params: {},
+        showOverlay: showWorkflowSpotlightEnabled, // 传递遮罩开关设置
       });
 
       console.log('[Workflow] 执行请求已发送:', workflowId);

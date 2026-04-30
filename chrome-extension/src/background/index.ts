@@ -219,15 +219,17 @@ async function handleExecuteWorkflow(message: {
   tabId?: number;
   taskId?: string;
   params?: Record<string, unknown>;
+  showOverlay?: boolean; // 是否显示工作流进度遮罩
 }): Promise<{ success: boolean; result?: WorkflowResult; error?: string }> {
   const workflowId = message.workflowId;
   const params = message.params || {};
+  const showOverlay = message.showOverlay ?? false; // 默认不显示
 
   if (!workflowId) {
     return { success: false, error: 'Workflow ID is required' };
   }
 
-  logger.info('execute_workflow request', workflowId);
+  logger.info('execute_workflow request', workflowId, 'showOverlay:', showOverlay);
 
   // Declare variables outside try block for catch access
   let workflow: Workflow | undefined;
@@ -371,8 +373,8 @@ async function handleExecuteWorkflow(message: {
       logger.warning('Content script not ready on target tab, workflow will execute without overlay');
     }
 
-    // Send start progress message to content script
-    if (contentScriptReady) {
+    // Send start progress message to content script (only if overlay is enabled)
+    if (contentScriptReady && showOverlay) {
       try {
         await chrome.tabs.sendMessage(targetTabId, {
           type: 'workflow_start',
@@ -394,8 +396,8 @@ async function handleExecuteWorkflow(message: {
     const actionExecutor = async (action: string, params: Record<string, unknown>) => {
       logger.info('Workflow action:', action, params);
 
-      // Send progress update to content script (only if ready)
-      if (contentScriptReady) {
+      // Send progress update to content script (only if overlay is enabled and ready)
+      if (contentScriptReady && showOverlay) {
         try {
           await chrome.tabs.sendMessage(targetTabId!, {
             type: 'workflow_progress',
@@ -642,8 +644,8 @@ async function handleExecuteWorkflow(message: {
 
     logger.info('execute_workflow result', targetPage.tabId, result);
 
-    // Send completion message to content script (only if ready)
-    if (contentScriptReady) {
+    // Send completion message to content script (only if overlay is enabled and ready)
+    if (contentScriptReady && showOverlay) {
       try {
         if (result.success) {
           await chrome.tabs.sendMessage(targetTabId!, {
@@ -677,8 +679,8 @@ async function handleExecuteWorkflow(message: {
   } catch (error) {
     logger.error('Execute workflow failed:', error);
 
-    // Send error message to content script if we have a valid tab
-    if (targetPage?.tabId) {
+    // Send error message to content script if we have a valid tab and overlay is enabled
+    if (targetPage?.tabId && showOverlay) {
       try {
         await chrome.tabs.sendMessage(targetPage.tabId, {
           type: 'workflow_error',

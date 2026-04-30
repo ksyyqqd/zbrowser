@@ -292,6 +292,12 @@
   "options_general_showSpotlight_desc": {
     "message": "AI执行任务时在页面显示半透明遮罩提示（关闭后不影响功能）"
   },
+  "options_general_showWorkflowSpotlight": {
+    "message": "工作流执行时显示遮罩"
+  },
+  "options_general_showWorkflowSpotlight_desc": {
+    "message": "工作流执行时在页面显示半透明遮罩提示（默认关闭）"
+  },
   "options_general_viewportExpansion": {
     "message": "视口扩展范围"
   },
@@ -368,7 +374,7 @@
     "message": "制定并调整策略以完成任务"
   },
   "options_models_agents_vision": {
-    "message": "分析截图和视觉内容（可选配置）"
+    "message": "分析截图和视觉内容（可选配置，如果开启了视觉能力，但未配置视觉模型，则图片会给到 planner进行分析）"
   },
   "options_models_labels_model": {
     "message": "模型"

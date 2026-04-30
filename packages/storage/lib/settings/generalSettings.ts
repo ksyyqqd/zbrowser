@@ -15,6 +15,8 @@ export interface GeneralSettingsConfig {
   replayHistoricalTasks: boolean;
   /** AI接管时是否显示遮罩（默认开启） */
   showSpotlight: boolean;
+  /** 工作流执行时是否显示遮罩（默认关闭） */
+  showWorkflowSpotlight: boolean;
   /**
    * 视口扩展范围（像素）
    * - 0: 只显示当前可视窗口内的元素
@@ -44,6 +46,7 @@ export const DEFAULT_GENERAL_SETTINGS: GeneralSettingsConfig = {
   minWaitPageLoad: 250,
   replayHistoricalTasks: true,
   showSpotlight: true,
+  showWorkflowSpotlight: false, // 默认关闭工作流遮罩
   viewportExpansion: 0, // 默认只显示可视窗口内的元素
   showImageGeneration: false, // 默认关闭图片生成功能
 };

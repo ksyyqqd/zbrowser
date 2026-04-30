@@ -292,6 +292,12 @@
   "options_general_showSpotlight_desc": {
     "message": "AI執行任務時在頁面顯示半透明遮罩提示（關閉後不影響功能）"
   },
+  "options_general_showWorkflowSpotlight": {
+    "message": "工作流程執行時顯示遮罩"
+  },
+  "options_general_showWorkflowSpotlight_desc": {
+    "message": "工作流程執行時在頁面顯示半透明遮罩提示（預設關閉）"
+  },
   "options_general_viewportExpansion": {
     "message": "視口擴展範圍"
   },
