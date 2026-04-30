@@ -18,7 +18,7 @@ export default function WorkflowQuickSelect({ onExecuteWorkflow, disabled = fals
   const [showDropdown, setShowDropdown] = useState(false);
   const [workflows, setWorkflows] = useState<UserWorkflowConfig[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
-  const [dropdownPosition, setDropdownPosition] = useState({ top: 0, left: 0 });
+  const [dropdownPosition, setDropdownPosition] = useState({ bottom: 0, right: 0 });
 
   const buttonRef = useRef<HTMLButtonElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -65,13 +65,17 @@ export default function WorkflowQuickSelect({ onExecuteWorkflow, disabled = fals
     }
   }, [showDropdown]);
 
-  // Calculate dropdown position when opening
+  // Calculate dropdown position when opening - position above the button
   const updateDropdownPosition = useCallback(() => {
     if (buttonRef.current) {
       const rect = buttonRef.current.getBoundingClientRect();
+      const viewportHeight = window.innerHeight;
+      // Calculate position: dropdown should appear above the button
+      // bottom of dropdown should align with top of button (with small gap)
+      const bottomPosition = viewportHeight - rect.top + 8; // 8px gap above button
       setDropdownPosition({
-        top: rect.top - 10,
-        left: rect.right,
+        bottom: bottomPosition,
+        right: 16, // Align with right side of panel
       });
     }
   }, []);
@@ -136,11 +140,10 @@ export default function WorkflowQuickSelect({ onExecuteWorkflow, disabled = fals
           className="skill-dropdown"
           style={{
             position: 'fixed',
-            top: dropdownPosition.top,
-            right: 16,
-            transform: 'translateY(-100%)',
+            bottom: dropdownPosition.bottom,
+            left: dropdownPosition.right,
             width: 280,
-            maxHeight: 228,
+            maxHeight: 215,
             borderRadius: 12,
             border: '1px solid var(--border-color)',
             background: 'var(--bg-card)',

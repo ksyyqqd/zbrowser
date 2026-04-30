@@ -279,7 +279,12 @@ register({
         },
       },
       out: {
-        position: 'right',
+        position: {
+          name: 'right',
+          args: {
+            dy: 0, // Will be overridden per port
+          },
+        },
         attrs: {
           circle: {
             r: 6,
@@ -294,7 +299,21 @@ register({
         },
       },
     },
-    items: [{ id: 'in', group: 'in' }],
+    items: [
+      { id: 'in', group: 'in' },
+      {
+        id: 'branch-yes',
+        group: 'out',
+        args: { dy: 25 - 40 },
+        attrs: { text: { text: '是', ref: 'circle', refX: 10, textAnchor: 'start' } },
+      },
+      {
+        id: 'branch-no',
+        group: 'out',
+        args: { dy: 55 - 40 },
+        attrs: { text: { text: '否', ref: 'circle', refX: 10, textAnchor: 'start' } },
+      },
+    ],
   },
 });
 
@@ -458,26 +477,76 @@ function getDefaultNodeData(type: WorkflowNodeType): NodeData {
 
 /**
  * Update condition node's output ports based on its branches
+ * Also adjusts node height dynamically based on branch count
  */
 function syncConditionPorts(graph: X6Graph, nodeId: string, branches: Array<{ id: string; name: string }>) {
   const cell = graph.getCellById(nodeId);
   if (!cell || !cell.isNode()) return;
 
-  // Remove all existing out ports
-  const existingPorts = cell.getPorts().filter(p => p.group !== 'in' && p.id);
-  for (const port of existingPorts) {
+  // Get existing ports
+  const existingPorts = cell.getPorts();
+  const existingPortIds = new Set(existingPorts.map(p => p.id));
+
+  // For default 2-branch condition (branch-yes, branch-no), skip sync if ports already exist
+  const isDefaultBranches =
+    branches.length === 2 && branches.some(b => b.id === 'branch-yes') && branches.some(b => b.id === 'branch-no');
+
+  if (isDefaultBranches && existingPortIds.has('branch-yes') && existingPortIds.has('branch-no')) {
+    // Ports already exist, no need to sync
+    return;
+  }
+
+  // Remove all existing out ports (not in ports)
+  const portsToRemove = existingPorts.filter(p => p.group !== 'in' && p.id && !branches.some(b => b.id === p.id));
+  for (const port of portsToRemove) {
     cell.removePort(port.id!);
   }
 
-  // Add ports for each branch
+  // Add missing ports for branches that don't exist yet
   for (const branch of branches) {
-    cell.addPort({
-      id: branch.id,
-      group: 'out',
-      attrs: {
-        text: { text: branch.name },
-      },
-    });
+    if (!existingPortIds.has(branch.id)) {
+      // Calculate dynamic height based on branch count
+      const branchCount = branches.length || 2;
+      const baseHeight = 80;
+      const heightPerBranch = 20;
+      const minHeight = baseHeight;
+      const dynamicHeight = Math.max(minHeight, baseHeight + (branchCount - 2) * heightPerBranch);
+      cell.setSize(cell.getSize().width || 180, dynamicHeight);
+
+      // Calculate vertical spacing for multiple branches
+      const nodeHeight = dynamicHeight;
+      const totalBranches = branches.length;
+      // Distribute ports evenly along the right edge
+      const startY = 25; // Start from a bit below top
+      const endY = nodeHeight - 25; // End a bit above bottom
+      const spacing = totalBranches > 1 ? (endY - startY) / (totalBranches - 1) : 0;
+      const centerY = startY + (endY - startY) / 2;
+
+      // Find the index of this branch to calculate position
+      const branchIndex = branches.findIndex(b => b.id === branch.id);
+      const yOffset = totalBranches > 1 ? startY + spacing * branchIndex : centerY;
+
+      cell.addPort({
+        id: branch.id,
+        group: 'out',
+        args: {
+          dy: yOffset - nodeHeight / 2, // Offset from center
+        },
+        attrs: {
+          circle: {
+            r: 6,
+            magnet: true,
+            stroke: '#f97316',
+            strokeWidth: 2,
+            fill: '#fff',
+            style: {
+              visibility: 'hidden',
+            },
+          },
+          text: { text: branch.name, ref: 'circle', refX: 10, textAnchor: 'start' },
+        },
+      });
+    }
   }
 }
 
@@ -510,6 +579,7 @@ export default function WorkflowEditor({
   const containerRef = useRef<HTMLDivElement>(null);
   const graphRef = useRef<X6Graph | null>(null);
   const dndRef = useRef<Dnd | null>(null);
+  const isConnectingRef = useRef<boolean>(false); // Track if user is connecting
 
   const [workflowId] = useState(initialWorkflow?.id || `workflow-${Date.now()}`);
   const [workflowName, setWorkflowName] = useState(initialWorkflow?.name || t('workflow_newWorkflow_defaultName'));
@@ -653,6 +723,18 @@ export default function WorkflowEditor({
           radius: 20,
         },
         createEdge() {
+          // Set connecting state
+          isConnectingRef.current = true;
+          // Show all ports on all nodes when starting to create an edge
+          graph.getNodes().forEach(node => {
+            const ports = node.getPorts();
+            ports.forEach(port => {
+              if (port.id) {
+                node.setPortProp(port.id, 'attrs/circle/style/visibility', 'visible');
+                node.setPortProp(port.id, 'attrs/circle/r', 8);
+              }
+            });
+          });
           return new Shape.Edge({
             attrs: {
               line: {
@@ -784,6 +866,8 @@ export default function WorkflowEditor({
 
     // Hide ports on node mouseleave (except when connecting)
     graph.on('node:mouseleave', ({ node }) => {
+      // Don't hide ports while connecting
+      if (isConnectingRef.current) return;
       const ports = node.getPorts();
       ports.forEach(port => {
         if (port.id) {
@@ -798,6 +882,52 @@ export default function WorkflowEditor({
       if (portId) {
         node.setPortProp(portId, 'attrs/circle/style/visibility', 'visible');
         node.setPortProp(portId, 'attrs/circle/r', 8);
+      }
+    });
+
+    // Show all ports when starting to draw an edge (mousedown on port)
+    graph.on('node:port:mousedown', () => {
+      // Show all ports on all nodes while connecting
+      graph.getNodes().forEach(node => {
+        const ports = node.getPorts();
+        ports.forEach(port => {
+          if (port.id) {
+            node.setPortProp(port.id, 'attrs/circle/style/visibility', 'visible');
+            node.setPortProp(port.id, 'attrs/circle/r', 8);
+          }
+        });
+      });
+    });
+
+    // Hide ports when edge is connected
+    graph.on('edge:connected', () => {
+      isConnectingRef.current = false;
+      // Hide all ports after connecting
+      graph.getNodes().forEach(node => {
+        const ports = node.getPorts();
+        ports.forEach(port => {
+          if (port.id) {
+            node.setPortProp(port.id, 'attrs/circle/style/visibility', 'hidden');
+            node.setPortProp(port.id, 'attrs/circle/r', 6);
+          }
+        });
+      });
+    });
+
+    // Hide ports when edge creation is cancelled
+    // Listen to blank:mouseup to catch cancellation
+    graph.on('blank:mouseup', () => {
+      if (isConnectingRef.current) {
+        isConnectingRef.current = false;
+        graph.getNodes().forEach(node => {
+          const ports = node.getPorts();
+          ports.forEach(port => {
+            if (port.id) {
+              node.setPortProp(port.id, 'attrs/circle/style/visibility', 'hidden');
+              node.setPortProp(port.id, 'attrs/circle/r', 6);
+            }
+          });
+        });
       }
     });
 
@@ -1320,6 +1450,29 @@ function NodeEditorPanel({ node, onSave, isDarkMode }: NodeEditorPanelProps) {
         return [
           { key: 'tabIndex', label: t('workflow_param_tabIndex'), type: 'number', placeholder: 'Tab index (0-based)' },
         ];
+      case 'generate_image':
+        return [
+          {
+            key: 'prompt',
+            label: t('workflow_param_prompt'),
+            type: 'textarea',
+            placeholder: 'Describe the image to generate...',
+          },
+          { key: 'model', label: t('workflow_param_model'), type: 'text', placeholder: 'gpt-image-2 (optional)' },
+          { key: 'size', label: t('workflow_param_size'), type: 'text', placeholder: '1024x1024 (optional)' },
+          {
+            key: 'quality',
+            label: t('workflow_param_quality'),
+            type: 'text',
+            placeholder: 'standard/high/low (optional)',
+          },
+          {
+            key: 'outputVariable',
+            label: t('workflow_param_outputVariable'),
+            type: 'text',
+            placeholder: 'Variable name to store image',
+          },
+        ];
       default:
         return [];
     }
@@ -1496,6 +1649,7 @@ function NodeEditorPanel({ node, onSave, isDarkMode }: NodeEditorPanelProps) {
               <option value="select_dropdown_option">{t('workflow_action_selectDropdown')}</option>
               <option value="get_dropdown_options">{t('workflow_action_getDropdownOptions')}</option>
               <option value="cache_content">{t('workflow_action_cacheContent')}</option>
+              <option value="generate_image">{t('workflow_action_generateImage')}</option>
             </select>
           </div>
           {/* Dynamic action-specific parameters */}

@@ -144,7 +144,9 @@ export const SkillSchema = z.object({
   name: z.string().min(1),
   description: z.string().min(1),
   version: z.string().default('1.0.0'),
-  category: z.enum(['navigation', 'data-extraction', 'form-interaction', 'analysis', 'automation', 'custom']),
+  category: z
+    .enum(['navigation', 'data-extraction', 'form-interaction', 'analysis', 'automation', 'custom'])
+    .default('custom'),
   author: z.string().default('unknown'),
   tags: z.array(z.string()).default([]),
   parameters: z.array(SkillParameterSchema).default([]),

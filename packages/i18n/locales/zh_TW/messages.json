@@ -82,6 +82,9 @@
   "chat_buttons_send": {
     "message": "傳送"
   },
+  "chat_download": {
+    "message": "下載"
+  },
   "chat_input_placeholder": {
     "message": "有什麼需要協助的嗎？"
   },
@@ -143,7 +146,7 @@
     "message": "重播功能已在一般設定中停用。請在擴充功能的設定中啟用 \"重播歷史任務\" 以使用此功能。"
   },
   "chat_replay_noHistory": {
-    "message": "找不到工作階段 \"$SESSION_ID$...\" 的操作歷史紀錄。此工作階段可能未包含可重播的操作。\n\n這可能是因為它本身就是一個重播工作階段 (重播工作階段無法再次重播)，或是在此功能推出之前所建立的。",
+    "message": "找不到工作階段 \"$SESSION_ID$...\" 的操作歷史紀錄。\n\n可能原因：\n1. \"儲存操作歷史\" 設定未啟用（請在設定中開啟）\n2. 此會話是重播會話（重播會話無法再次重播）\n3. 此會話在此功能推出之前建立",
     "placeholders": {
       "session_id": {
         "content": "$1",
@@ -223,6 +226,9 @@
   "options_tabs_models": {
     "message": "模型"
   },
+  "options_tabs_images": {
+    "message": "圖片"
+  },
   "options_tabs_firewall": {
     "message": "防火牆"
   },
@@ -297,6 +303,12 @@
   },
   "options_general_viewportExpansion_option_all": {
     "message": "顯示整頁所有元素"
+  },
+  "options_general_showImageGeneration": {
+    "message": "顯示圖片生成"
+  },
+  "options_general_showImageGeneration_desc": {
+    "message": "在對話框中顯示圖片生成按鈕（需要配置圖片提供者）"
   },
   "options_models_providers_header": {
     "message": "LLM 提供者"
@@ -1651,6 +1663,9 @@
   "workflow_action_cacheContent": {
     "message": "緩存內容"
   },
+  "workflow_action_generateImage": {
+    "message": "生成圖片"
+  },
   "workflow_intent": {
     "message": "意图"
   },
@@ -1689,6 +1704,21 @@
   },
   "workflow_param_tabIndex": {
     "message": "標籤頁索引"
+  },
+  "workflow_param_prompt": {
+    "message": "提示詞"
+  },
+  "workflow_param_model": {
+    "message": "模型"
+  },
+  "workflow_param_size": {
+    "message": "尺寸"
+  },
+  "workflow_param_quality": {
+    "message": "品質"
+  },
+  "workflow_param_outputVariable": {
+    "message": "輸出變數"
   },
   "workflow_editEdge": {
     "message": "編輯連線"
@@ -1788,5 +1818,89 @@
   },
   "workflow_branchNamePlaceholder": {
     "message": "分支名稱"
+  },
+  "image_generation_title": {
+    "message": "圖片生成"
+  },
+  "image_generation_providers": {
+    "message": "圖片服務提供商"
+  },
+  "image_generation_addProvider": {
+    "message": "添加圖片提供商"
+  },
+  "image_generation_removeProvider": {
+    "message": "刪除提供商"
+  },
+  "image_generation_activeProvider": {
+    "message": "目前使用的提供商"
+  },
+  "image_generation_providerName": {
+    "message": "提供商名稱"
+  },
+  "image_generation_apiKey": {
+    "message": "API 金鑰"
+  },
+  "image_generation_baseUrl": {
+    "message": "API 地址"
+  },
+  "image_generation_baseUrl_placeholder": {
+    "message": "例如: https://www.packyapi.com/v1"
+  },
+  "image_generation_models": {
+    "message": "可用模型"
+  },
+  "image_generation_defaultModel": {
+    "message": "預設模型"
+  },
+  "image_generation_defaultSize": {
+    "message": "預設尺寸"
+  },
+  "image_generation_quality": {
+    "message": "圖片品質"
+  },
+  "image_generation_prompt_placeholder": {
+    "message": "輸入圖片生成提示詞..."
+  },
+  "image_generation_generate": {
+    "message": "生成圖片"
+  },
+  "image_generation_generating": {
+    "message": "正在生成圖片..."
+  },
+  "image_generation_result": {
+    "message": "圖片生成成功"
+  },
+  "image_generation_error": {
+    "message": "圖片生成失敗"
+  },
+  "image_generation_noProvider": {
+    "message": "未配置圖片服務提供商"
+  },
+  "image_generation_testConnection": {
+    "message": "測試連線"
+  },
+  "image_generation_testSuccess": {
+    "message": "連線成功"
+  },
+  "image_generation_testFailed": {
+    "message": "連線失敗"
+  },
+  "image_generation_saveProvider": {
+    "message": "儲存提供商"
+  },
+  "image_generation_providerSaved": {
+    "message": "提供商儲存成功"
+  },
+  "image_generation_providerRemoved": {
+    "message": "提供商刪除成功"
+  },
+  "image_generation_setActive": {
+    "message": "設為目前使用"
+  },
+  "image_generation_customProvider": {
+    "message": "自訂提供商"
+  },
+  "image_generation_openaiProvider": {
+    "message": "OpenAI (DALL-E)"
   }
 }

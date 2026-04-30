@@ -22,6 +22,8 @@ export interface GeneralSettingsConfig {
    * - >0: 扩展视口边界（如100表示上下左右各扩展100px）
    */
   viewportExpansion: number;
+  /** 是否显示图片生成功能按钮（默认关闭） */
+  showImageGeneration: boolean;
 }
 
 export type GeneralSettingsStorage = BaseStorage<GeneralSettingsConfig> & {
@@ -40,9 +42,10 @@ export const DEFAULT_GENERAL_SETTINGS: GeneralSettingsConfig = {
   planningInterval: 3,
   displayHighlights: true,
   minWaitPageLoad: 250,
-  replayHistoricalTasks: false,
+  replayHistoricalTasks: true,
   showSpotlight: true,
   viewportExpansion: 0, // 默认只显示可视窗口内的元素
+  showImageGeneration: false, // 默认关闭图片生成功能
 };
 
 const storage = createStorage<GeneralSettingsConfig>('general-settings', DEFAULT_GENERAL_SETTINGS, {

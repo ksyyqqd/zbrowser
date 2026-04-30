@@ -82,6 +82,9 @@
   "chat_buttons_send": {
     "message": "Enviar"
   },
+  "chat_download": {
+    "message": "Baixar"
+  },
   "chat_input_placeholder": {
     "message": "Como posso ajudar?"
   },
@@ -143,7 +146,7 @@
     "message": "A reprodução está desativada nas configurações gerais. Por favor, ative \"Reproduzir Tarefas Históricas\" nas configurações da extensão para usar este recurso."
   },
   "chat_replay_noHistory": {
-    "message": "Nenhum histórico de ação encontrado para a sessão \"$SESSION_ID$\".\n\nÉ uma sessão de reprodução (sessões de reprodução não podem ser reproduzidas novamente), ou foi criada antes do recurso de reprodução estar disponível.",
+    "message": "Nenhum histórico de ação encontrado para a sessão \"$SESSION_ID$\".\n\nPossíveis motivos:\n1. \"Armazenar histórico de ações\" está desativado (ative nas configurações)\n2. Esta é uma sessão de reprodução (sessões de reprodução não podem ser reproduzidas novamente)\n3. Esta sessão foi criada antes do recurso de reprodução estar disponível",
     "placeholders": {
       "session_id": {
         "content": "$1",
@@ -223,6 +226,9 @@
   "options_tabs_models": {
     "message": "Modelos"
   },
+  "options_tabs_images": {
+    "message": "Imagens"
+  },
   "options_tabs_firewall": {
     "message": "Firewall"
   },
@@ -297,6 +303,12 @@
   },
   "options_general_viewportExpansion_option_all": {
     "message": "Todos os elementos da página"
+  },
+  "options_general_showImageGeneration": {
+    "message": "Mostrar Geração de Imagens"
+  },
+  "options_general_showImageGeneration_desc": {
+    "message": "Mostrar botão de geração de imagens no chat (requer configuração de provedor de imagens)"
   },
   "options_models_providers_header": {
     "message": "Provedores de LLM"
@@ -1636,6 +1648,9 @@
   "workflow_action_cacheContent": {
     "message": "Cachear Conteúdo"
   },
+  "workflow_action_generateImage": {
+    "message": "Gerar Imagem"
+  },
   "workflow_intent": {
     "message": "Intenção"
   },
@@ -1674,6 +1689,21 @@
   },
   "workflow_param_tabIndex": {
     "message": "Índice da Aba"
+  },
+  "workflow_param_prompt": {
+    "message": "Prompt"
+  },
+  "workflow_param_model": {
+    "message": "Modelo"
+  },
+  "workflow_param_size": {
+    "message": "Tamanho"
+  },
+  "workflow_param_quality": {
+    "message": "Qualidade"
+  },
+  "workflow_param_outputVariable": {
+    "message": "Variável de Saída"
   },
   "workflow_editEdge": {
     "message": "Editar Conexão"
@@ -1773,5 +1803,89 @@
   },
   "workflow_branchNamePlaceholder": {
     "message": "Nome da ramificação"
+  },
+  "image_generation_title": {
+    "message": "Geração de Imagem"
+  },
+  "image_generation_providers": {
+    "message": "Provedores de Imagem"
+  },
+  "image_generation_addProvider": {
+    "message": "Adicionar Provedor de Imagem"
+  },
+  "image_generation_removeProvider": {
+    "message": "Remover Provedor"
+  },
+  "image_generation_activeProvider": {
+    "message": "Provedor Ativo"
+  },
+  "image_generation_providerName": {
+    "message": "Nome do Provedor"
+  },
+  "image_generation_apiKey": {
+    "message": "Chave API"
+  },
+  "image_generation_baseUrl": {
+    "message": "URL Base"
+  },
+  "image_generation_baseUrl_placeholder": {
+    "message": "ex: https://www.packyapi.com/v1"
+  },
+  "image_generation_models": {
+    "message": "Modelos Disponíveis"
+  },
+  "image_generation_defaultModel": {
+    "message": "Modelo padrão"
+  },
+  "image_generation_defaultSize": {
+    "message": "Tamanho padrão"
+  },
+  "image_generation_quality": {
+    "message": "Qualidade"
+  },
+  "image_generation_prompt_placeholder": {
+    "message": "Digite o prompt para gerar imagem..."
+  },
+  "image_generation_generate": {
+    "message": "Gerar Imagem"
+  },
+  "image_generation_generating": {
+    "message": "Gerando imagem..."
+  },
+  "image_generation_result": {
+    "message": "Imagem gerada com sucesso"
+  },
+  "image_generation_error": {
+    "message": "Falha na geração de imagem"
+  },
+  "image_generation_noProvider": {
+    "message": "Nenhum provedor de imagem configurado"
+  },
+  "image_generation_testConnection": {
+    "message": "Testar Conexão"
+  },
+  "image_generation_testSuccess": {
+    "message": "Conexão successful"
+  },
+  "image_generation_testFailed": {
+    "message": "Falha na conexão"
+  },
+  "image_generation_saveProvider": {
+    "message": "Salvar Provedor"
+  },
+  "image_generation_providerSaved": {
+    "message": "Provedor saved successfully"
+  },
+  "image_generation_providerRemoved": {
+    "message": "Provedor removido com sucesso"
+  },
+  "image_generation_setActive": {
+    "message": "Definir como Ativo"
+  },
+  "image_generation_customProvider": {
+    "message": "Provedor Personalizado"
+  },
+  "image_generation_openaiProvider": {
+    "message": "OpenAI (DALL-E)"
   }
 }

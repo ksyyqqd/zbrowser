@@ -3,8 +3,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 // 导入UI图标组件
 import { FiSettings, FiBookmark, FiSun, FiMoon } from 'react-icons/fi';
-// 导入录制控制组件
-import RecordingControl from './components/RecordingControl';
 // 导入器灵遮罩注入脚本 URL（用于 files 注入）
 /* 注入脚本通过 chrome.scripting.executeScript({ files: ['spiritOverlayInject.js'] }) 加载，
  * 不使用 ?raw import 或 eval，以兼容目标页面的 CSP 策略 */
@@ -24,6 +22,9 @@ import ChatInput from './components/ChatInput';
 import ChatHistoryList from './components/ChatHistoryList';
 import BookmarkList from './components/BookmarkList';
 import SpiritDoll from './components/SpiritDoll';
+import ImageGenerationModal, { type ImageGenerationParams } from './components/ImageGenerationModal';
+// 导入录制控制组件
+import RecordingControl from './components/RecordingControl';
 // 导入事件类型和执行状态
 import { EventType, type AgentEvent, ExecutionState } from './types/event';
 // 导入样式表
@@ -113,18 +114,20 @@ const SidePanel = () => {
   };
   // 是否已配置模型（null=加载中，false=无模型，true=有模型）
   const [hasConfiguredModels, setHasConfiguredModels] = useState<boolean | null>(null);
-  // 是否正在录音
-  const [isRecording, setIsRecording] = useState(false);
-  // 是否正在处理语音
-  const [isProcessingSpeech, setIsProcessingSpeech] = useState(false);
+  // 图片生成模态框状态
+  const [isImageModalOpen, setIsImageModalOpen] = useState(false);
+  const [isGeneratingImage, setIsGeneratingImage] = useState(false);
+  const [generatedImageBase64, setGeneratedImageBase64] = useState<string | undefined>();
   // 是否正在重播
   const [isReplaying, setIsReplaying] = useState(false);
   // 快速入门步骤展开状态
   const [showSteps, setShowSteps] = useState(false);
-  // 重播功能始终开启
-  const replayEnabled = true;
+  // 重播功能开关（从设置获取）
+  const [replayEnabled, setReplayEnabled] = useState(true);
   // AI接管遮罩开关
   const [showSpotlightEnabled, setShowSpotlightEnabled] = useState(true);
+  // 图片生成功能开关
+  const [showImageGeneration, setShowImageGeneration] = useState(false);
   // 会话ID引用
   const sessionIdRef = useRef<string | null>(null);
   // 重播状态引用
@@ -139,12 +142,6 @@ const SidePanel = () => {
   const setInputTextRef = useRef<((text: string) => void) | null>(null);
   // 当前球球模式引用（用于在发送任务时包装内容）
   const spiritModeRef = useRef<'auto' | 'mischief' | 'sleepy' | 'curious' | 'farmer'>('auto');
-  // 媒体录制器引用
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  // 音频片段引用
-  const audioChunksRef = useRef<Blob[]>([]);
-  // 录音计时器引用
-  const recordingTimerRef = useRef<number | null>(null);
 
   // 检查暗色模式偏好（从 localStorage 恢复，默认跟随系统）
   useEffect(() => {
@@ -194,9 +191,12 @@ const SidePanel = () => {
     try {
       const settings = await generalSettingsStore.getSettings();
       setShowSpotlightEnabled(settings.showSpotlight);
+      setShowImageGeneration(settings.showImageGeneration ?? false);
+      setReplayEnabled(settings.replayHistoricalTasks ?? true);
     } catch (error) {
       console.error('加载遮罩设置时出错:', error);
       setShowSpotlightEnabled(true); // 默认开启
+      setShowImageGeneration(false); // 默认关闭
     }
   }, []);
 
@@ -751,20 +751,25 @@ const SidePanel = () => {
           });
           setInputEnabled(true);
           setShowStopButton(false);
-        } else if (message && message.type === 'speech_to_text_result') {
-          // 处理语音转文字结果
-          if (message.text && setInputTextRef.current) {
-            setInputTextRef.current(message.text);
+        } else if (message && message.type === 'image_generation_result') {
+          // 处理图片生成结果
+          setIsGeneratingImage(false);
+          if (message.result && message.result.success && message.result.images?.[0]?.b64_json) {
+            const imageData = message.result.images[0].b64_json;
+            setGeneratedImageBase64(imageData);
+            appendMessage({
+              actor: Actors.SYSTEM,
+              content: `🎨 图片生成成功！`,
+              timestamp: Date.now(),
+              images: [{ base64: imageData, name: `generated-${Date.now()}.png` }],
+            });
+          } else {
+            appendMessage({
+              actor: Actors.SYSTEM,
+              content: `图片生成失败: ${message.result?.error || message.error || '未知错误'}`,
+              timestamp: Date.now(),
+            });
           }
-          setIsProcessingSpeech(false);
-        } else if (message && message.type === 'speech_to_text_error') {
-          // 处理语音转文字错误
-          appendMessage({
-            actor: Actors.SYSTEM,
-            content: message.error || t('chat_stt_recognitionFailed'),
-            timestamp: Date.now(),
-          });
-          setIsProcessingSpeech(false);
         } else if (message && message.type === 'heartbeat_ack') {
           console.log('心跳已确认');
         }
@@ -1036,13 +1041,26 @@ const SidePanel = () => {
         return;
       }
 
-      // 确保 port 连接
+      // 确保 port 连接有效
       if (!portRef.current) {
         setupConnection();
         await new Promise(resolve => setTimeout(resolve, 100));
-        if (!portRef.current) {
-          throw new Error('连接建立失败');
+      }
+
+      // 验证端口是否仍然有效（通过发送心跳测试）
+      if (portRef.current) {
+        try {
+          portRef.current.postMessage({ type: 'heartbeat' });
+        } catch (e) {
+          console.warn('[Skill] Port appears disconnected, reconnecting...');
+          portRef.current = null;
+          setupConnection();
+          await new Promise(resolve => setTimeout(resolve, 150));
         }
+      }
+
+      if (!portRef.current) {
+        throw new Error('连接建立失败，请刷新扩展');
       }
 
       // 获取活动标签页
@@ -1136,13 +1154,26 @@ const SidePanel = () => {
         return;
       }
 
-      // 确保 port 连接
+      // 确保 port 连接有效
       if (!portRef.current) {
         setupConnection();
         await new Promise(resolve => setTimeout(resolve, 100));
-        if (!portRef.current) {
-          throw new Error('连接建立失败');
+      }
+
+      // 验证端口是否仍然有效（通过发送心跳测试）
+      if (portRef.current) {
+        try {
+          portRef.current.postMessage({ type: 'heartbeat' });
+        } catch (e) {
+          console.warn('[Workflow] Port appears disconnected, reconnecting...');
+          portRef.current = null;
+          setupConnection();
+          await new Promise(resolve => setTimeout(resolve, 150));
         }
+      }
+
+      if (!portRef.current) {
+        throw new Error('连接建立失败，请刷新扩展');
       }
 
       // 获取活动标签页
@@ -1208,6 +1239,61 @@ const SidePanel = () => {
       });
       setInputEnabled(true);
       setShowStopButton(false);
+    }
+  };
+
+  // 打开图片生成模态框
+  const handleOpenImageModal = () => {
+    setIsImageModalOpen(true);
+    setGeneratedImageBase64(undefined);
+  };
+
+  // 处理图片生成请求
+  const handleGenerateImage = async (params: ImageGenerationParams) => {
+    setIsGeneratingImage(true);
+
+    try {
+      // 确保端口连接
+      if (!portRef.current) {
+        setupConnection();
+        await new Promise(resolve => setTimeout(resolve, 100));
+        if (!portRef.current) {
+          throw new Error('连接建立失败');
+        }
+      }
+
+      // 添加用户消息显示正在生成图片
+      appendMessage({
+        actor: Actors.USER,
+        content: `🎨 生成图片: ${params.prompt.slice(0, 50)}${params.prompt.length > 50 ? '...' : ''}`,
+        timestamp: Date.now(),
+      });
+
+      appendMessage({
+        actor: Actors.SYSTEM,
+        content: t('image_generation_generating'),
+        timestamp: Date.now(),
+      });
+
+      // 发送生成图片请求
+      portRef.current.postMessage({
+        type: 'generate_image',
+        prompt: params.prompt,
+        size: params.size,
+        quality: params.quality,
+        n: 1,
+        responseFormat: 'b64_json',
+      });
+
+      // 等待响应通过port.onMessage处理
+    } catch (error) {
+      console.error('[Image] 生成失败:', error);
+      appendMessage({
+        actor: Actors.SYSTEM,
+        content: `图片生成失败: ${error instanceof Error ? error.message : '未知错误'}`,
+        timestamp: Date.now(),
+      });
+      setIsGeneratingImage(false);
     }
   };
 
@@ -1626,15 +1712,6 @@ ${trimmedText}`;
   // 清理卸载时
   useEffect(() => {
     return () => {
-      // 如果正在录音则停止
-      if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
-        mediaRecorderRef.current.stop();
-      }
-      // 清除录音计时器
-      if (recordingTimerRef.current) {
-        clearTimeout(recordingTimerRef.current);
-        recordingTimerRef.current = null;
-      }
       stopConnection();
     };
   }, [stopConnection]);
@@ -1644,171 +1721,6 @@ ${trimmedText}`;
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
-
-  // 处理麦克风点击
-  const handleMicClick = async () => {
-    if (isRecording) {
-      // 停止录音
-      if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
-        mediaRecorderRef.current.stop();
-      }
-      // 清除计时器
-      if (recordingTimerRef.current) {
-        clearTimeout(recordingTimerRef.current);
-        recordingTimerRef.current = null;
-      }
-      setIsRecording(false);
-      return;
-    }
-
-    try {
-      // 首先检查权限是否已授予
-      const permissionStatus = await navigator.permissions.query({ name: 'microphone' as PermissionName });
-
-      if (permissionStatus.state === 'denied') {
-        appendMessage({
-          actor: Actors.SYSTEM,
-          content: t('chat_stt_microphone_permissionDenied'),
-          timestamp: Date.now(),
-        });
-        return;
-      }
-
-      // 如果权限未授予，则打开权限页面
-      if (permissionStatus.state !== 'granted') {
-        const permissionUrl = chrome.runtime.getURL('permission/index.html');
-
-        // 在新窗口中打开权限页面
-        chrome.windows.create(
-          {
-            url: permissionUrl,
-            type: 'popup',
-            width: 500,
-            height: 600,
-          },
-          createdWindow => {
-            if (createdWindow?.id) {
-              // 监听窗口关闭以检查权限状态
-              chrome.windows.onRemoved.addListener(function onWindowClose(windowId) {
-                if (windowId === createdWindow.id) {
-                  chrome.windows.onRemoved.removeListener(onWindowClose);
-                  // 窗口关闭后检查权限状态
-                  setTimeout(async () => {
-                    try {
-                      const newPermissionStatus = await navigator.permissions.query({
-                        name: 'microphone' as PermissionName,
-                      });
-                      // 仅在权限被授予时重试
-                      if (newPermissionStatus.state === 'granted') {
-                        handleMicClick();
-                      }
-                      // 如果被拒绝或提示，则让用户手动重试
-                    } catch (error) {
-                      console.error('检查权限状态失败:', error);
-                    }
-                  }, 500);
-                }
-              });
-            }
-          },
-        );
-        return;
-      }
-
-      // 权限已授予 - 继续录音
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-
-      // 清除之前的音频片段
-      audioChunksRef.current = [];
-
-      // 创建MediaRecorder
-      const mediaRecorder = new MediaRecorder(stream);
-      mediaRecorderRef.current = mediaRecorder;
-
-      // 处理数据可用事件
-      mediaRecorder.ondataavailable = event => {
-        if (event.data.size > 0) {
-          audioChunksRef.current.push(event.data);
-        }
-      };
-
-      // 处理停止事件
-      mediaRecorder.onstop = async () => {
-        // 停止所有轨道以释放麦克风
-        stream.getTracks().forEach(track => track.stop());
-
-        if (audioChunksRef.current.length > 0) {
-          // 创建音频Blob
-          const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
-
-          // 将Blob转换为base64
-          const reader = new FileReader();
-          reader.onloadend = () => {
-            const base64Audio = reader.result as string;
-
-            // 如果不存在则设置连接
-            if (!portRef.current) {
-              setupConnection();
-            }
-
-            // 发送音频到后端进行语音转文字转换
-            try {
-              setIsProcessingSpeech(true);
-              portRef.current?.postMessage({
-                type: 'speech_to_text',
-                audio: base64Audio,
-              });
-            } catch (error) {
-              console.error('发送音频进行语音转文字失败:', error);
-              appendMessage({
-                actor: Actors.SYSTEM,
-                content: t('chat_stt_processingFailed'),
-                timestamp: Date.now(),
-              });
-              setIsRecording(false);
-              setIsProcessingSpeech(false);
-            }
-          };
-          reader.readAsDataURL(audioBlob);
-        }
-      };
-
-      // 设置2分钟时长限制
-      const maxDuration = 2 * 60 * 1000;
-      recordingTimerRef.current = window.setTimeout(() => {
-        if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
-          mediaRecorderRef.current.stop();
-        }
-        setIsRecording(false);
-        setIsProcessingSpeech(true);
-        recordingTimerRef.current = null;
-      }, maxDuration);
-
-      // 开始录音
-      mediaRecorder.start();
-      setIsRecording(true);
-    } catch (error) {
-      console.error('访问麦克风失败:', error);
-
-      let errorMessage = t('chat_stt_microphone_accessFailed');
-      if (error instanceof Error) {
-        if (error.name === 'NotAllowedError') {
-          errorMessage += t('chat_stt_microphone_grantPermission');
-        } else if (error.name === 'NotFoundError') {
-          errorMessage += t('chat_stt_microphone_notFound');
-        } else {
-          errorMessage += error.message;
-        }
-      }
-
-      appendMessage({
-        actor: Actors.SYSTEM,
-        content: errorMessage,
-        timestamp: Date.now(),
-      });
-      setIsRecording(false);
-    }
-  };
 
   return (
     <div className={isDarkMode ? 'dark' : ''}>
@@ -1879,7 +1791,6 @@ ${trimmedText}`;
                   tabIndex={0}>
                   <GrHistory size={17} />
                 </button>
-
                 {/* Recording Control */}
                 <RecordingControl isDarkMode={isDarkMode} port={portRef.current} />
               </>
@@ -2188,9 +2099,7 @@ ${trimmedText}`;
                         <ChatInput
                           onSendMessage={handleSendMessage}
                           onStopTask={handleStopTask}
-                          onMicClick={handleMicClick}
-                          isRecording={isRecording}
-                          isProcessingSpeech={isProcessingSpeech}
+                          onGenerateImage={showImageGeneration ? handleOpenImageModal : undefined}
                           disabled={!inputEnabled || isHistoricalSession}
                           showStopButton={showStopButton}
                           setContent={setter => {
@@ -2225,9 +2134,7 @@ ${trimmedText}`;
                         <ChatInput
                           onSendMessage={handleSendMessage}
                           onStopTask={handleStopTask}
-                          onMicClick={handleMicClick}
-                          isRecording={isRecording}
-                          isProcessingSpeech={isProcessingSpeech}
+                          onGenerateImage={showImageGeneration ? handleOpenImageModal : undefined}
                           disabled={!inputEnabled || isHistoricalSession}
                           showStopButton={showStopButton}
                           setContent={setter => {
@@ -2248,6 +2155,16 @@ ${trimmedText}`;
           </>
         )}
       </div>
+
+      {/* 图片生成模态框 */}
+      <ImageGenerationModal
+        isOpen={isImageModalOpen}
+        onClose={() => setIsImageModalOpen(false)}
+        onGenerate={handleGenerateImage}
+        isGenerating={isGeneratingImage}
+        generatedImage={generatedImageBase64}
+        isDarkMode={isDarkMode}
+      />
     </div>
   );
 };

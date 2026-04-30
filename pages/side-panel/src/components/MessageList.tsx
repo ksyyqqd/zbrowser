@@ -1,7 +1,7 @@
 import type { Message } from '@extension/storage';
 import { ACTOR_PROFILES } from '../types/message';
 import { memo, useState } from 'react';
-import { FiCopy, FiCheck, FiChevronDown, FiChevronRight } from 'react-icons/fi';
+import { FiCopy, FiCheck, FiChevronDown, FiChevronRight, FiDownload, FiX, FiZoomIn } from 'react-icons/fi';
 import { t } from '@extension/i18n';
 import { MarkdownRenderer, MessageExportButton, MessageContentExportButton } from '@extension/ui';
 
@@ -24,6 +24,7 @@ function isExecutionStepMessage(msg: Message): boolean {
 
 export default memo(function MessageList({ messages, isDarkMode = false }: MessageListProps) {
   const [showSteps, setShowSteps] = useState(false);
+  const [previewImage, setPreviewImage] = useState<{ base64: string; name?: string } | null>(null);
 
   // 分离关键消息和执行步骤
   const keyMessages = messages.filter(m => !isExecutionStepMessage(m));
@@ -56,7 +57,9 @@ export default memo(function MessageList({ messages, isDarkMode = false }: Messa
       )}
 
       {/* 折叠状态下显示最新一条消息 */}
-      {!showSteps && latestStepMsg && <LatestStepPreview message={latestStepMsg} isDarkMode={isDarkMode} />}
+      {!showSteps && latestStepMsg && (
+        <LatestStepPreview message={latestStepMsg} isDarkMode={isDarkMode} onImagePreview={setPreviewImage} />
+      )}
 
       {displayMessages.map((message, index) => (
         <MessageBlock
@@ -65,8 +68,14 @@ export default memo(function MessageList({ messages, isDarkMode = false }: Messa
           isSameActor={index > 0 && displayMessages[index - 1].actor === message.actor}
           isDarkMode={isDarkMode}
           isStep={isExecutionStepMessage(message)}
+          onImagePreview={setPreviewImage}
         />
       ))}
+
+      {/* Image Preview Modal */}
+      {previewImage && (
+        <ImagePreviewModal image={previewImage} isDarkMode={isDarkMode} onClose={() => setPreviewImage(null)} />
+      )}
     </div>
   );
 });
@@ -76,10 +85,19 @@ interface MessageBlockProps {
   isSameActor: boolean;
   isDarkMode?: boolean;
   isStep?: boolean;
+  onImagePreview?: (img: { base64: string; name?: string }) => void;
 }
 
 // 折叠状态下的最新消息预览 — 显示完整内容
-function LatestStepPreview({ message, isDarkMode = false }: { message: Message; isDarkMode?: boolean }) {
+function LatestStepPreview({
+  message,
+  isDarkMode = false,
+  onImagePreview,
+}: {
+  message: Message;
+  isDarkMode?: boolean;
+  onImagePreview?: (img: { base64: string; name?: string }) => void;
+}) {
   const actor = ACTOR_PROFILES[message.actor as keyof typeof ACTOR_PROFILES];
   const [copied, setCopied] = useState(false);
 
@@ -137,6 +155,25 @@ function LatestStepPreview({ message, isDarkMode = false }: { message: Message; 
             </button>
           </div>
         </div>
+        {/* Render images if present */}
+        {message.images && message.images.length > 0 && (
+          <div className="flex flex-wrap gap-1 mt-1">
+            {message.images.map((img, idx) => (
+              <div
+                key={`${message.timestamp}-${idx}`}
+                className="relative group/img cursor-pointer"
+                onDoubleClick={() => onImagePreview?.(img)}>
+                <img
+                  src={`data:image/png;base64,${img.base64}`}
+                  alt={img.name || `Image ${idx + 1}`}
+                  className="max-w-[120px] max-h-[80px] object-cover rounded hover:opacity-90 transition-opacity"
+                  loading="lazy"
+                />
+                <FiZoomIn className="absolute inset-0 m-auto h-4 w-4 opacity-0 group-hover/img:opacity-100 transition-opacity text-white drop-shadow-lg" />
+              </div>
+            ))}
+          </div>
+        )}
         {/* 完整显示消息内容，自动换行，不截断 */}
         <MarkdownRenderer content={message.content} isDarkMode={isDarkMode} className="leading-relaxed" />
       </div>
@@ -144,7 +181,7 @@ function LatestStepPreview({ message, isDarkMode = false }: { message: Message; 
   );
 }
 
-function MessageBlock({ message, isSameActor, isDarkMode = false, isStep = false }: MessageBlockProps) {
+function MessageBlock({ message, isSameActor, isDarkMode = false, isStep = false, onImagePreview }: MessageBlockProps) {
   const [copied, setCopied] = useState(false);
   if (!message.actor) {
     console.error('No actor found');
@@ -209,6 +246,46 @@ function MessageBlock({ message, isSameActor, isDarkMode = false, isStep = false
         )}
 
         <div className="space-y-1">
+          {/* Render images if present */}
+          {message.images && message.images.length > 0 && (
+            <div className="flex flex-wrap gap-2 mb-2">
+              {message.images.map((img, idx) => (
+                <div
+                  key={`${message.timestamp}-${idx}`}
+                  className={`relative group/img rounded-lg overflow-hidden cursor-pointer ${
+                    isDarkMode ? 'bg-slate-800' : 'bg-gray-100'
+                  }`}
+                  onDoubleClick={() => onImagePreview?.(img)}>
+                  <img
+                    src={`data:image/png;base64,${img.base64}`}
+                    alt={img.name || `Image ${idx + 1}`}
+                    className="max-w-full max-h-[300px] object-contain rounded-lg hover:opacity-90 transition-opacity"
+                    loading="lazy"
+                  />
+                  {/* Zoom icon overlay */}
+                  <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover/img:opacity-100 transition-opacity">
+                    <FiZoomIn className="h-6 w-6 text-white drop-shadow-lg" />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const link = document.createElement('a');
+                      link.href = `data:image/png;base64,${img.base64}`;
+                      link.download = img.name || `image-${Date.now()}.png`;
+                      link.click();
+                    }}
+                    className={`absolute top-2 right-2 p-1.5 rounded-md opacity-0 group-hover/img:opacity-100 transition-opacity ${
+                      isDarkMode
+                        ? 'bg-slate-600 hover:bg-slate-500 text-gray-300'
+                        : 'bg-white hover:bg-gray-100 text-gray-700'
+                    }`}
+                    title={t('chat_download')}>
+                    <FiDownload className="h-4 w-4" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
           <div className="relative">
             {isProgress ? (
               <div className="message-scroll text-sm">
@@ -267,4 +344,69 @@ function formatTimestamp(timestamp: number): string {
   if (isYesterday) return `Yesterday, ${timeStr}`;
   if (isThisYear) return `${date.toLocaleDateString([], { month: 'short', day: 'numeric' })}, ${timeStr}`;
   return `${date.toLocaleDateString([], { year: 'numeric', month: 'short', day: 'numeric' })}, ${timeStr}`;
+}
+
+/**
+ * Image Preview Modal - full size image display
+ */
+function ImagePreviewModal({
+  image,
+  isDarkMode,
+  onClose,
+}: {
+  image: { base64: string; name?: string };
+  isDarkMode?: boolean;
+  onClose: () => void;
+}) {
+  const handleDownload = () => {
+    const link = document.createElement('a');
+    link.href = `data:image/png;base64,${image.base64}`;
+    link.download = image.name || `image-${Date.now()}.png`;
+    link.click();
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-[10000] flex items-center justify-center"
+      onClick={onClose}
+      onKeyDown={e => e.key === 'Escape' && onClose()}>
+      {/* Backdrop */}
+      <div
+        className={`absolute inset-0 ${isDarkMode ? 'bg-black/80' : 'bg-black/60'} backdrop-blur-sm`}
+        aria-hidden="true"
+      />
+
+      {/* Modal content */}
+      <div className="relative max-w-[90vw] max-h-[90vh] flex flex-col" onClick={e => e.stopPropagation()}>
+        {/* Close button */}
+        <button
+          type="button"
+          onClick={onClose}
+          className={`absolute -top-10 right-0 p-2 rounded-lg transition-colors ${
+            isDarkMode ? 'bg-slate-700 hover:bg-slate-600 text-gray-300' : 'bg-white hover:bg-gray-100 text-gray-700'
+          }`}
+          title={t('options_models_providers_btnCancel')}>
+          <FiX className="h-5 w-5" />
+        </button>
+
+        {/* Image */}
+        <img
+          src={`data:image/png;base64,${image.base64}`}
+          alt={image.name || 'Preview'}
+          className="max-w-full max-h-[85vh] object-contain rounded-lg shadow-2xl"
+        />
+
+        {/* Download button */}
+        <button
+          type="button"
+          onClick={handleDownload}
+          className={`absolute bottom-2 right-2 p-2 rounded-lg transition-colors ${
+            isDarkMode ? 'bg-slate-700 hover:bg-slate-600 text-gray-300' : 'bg-white hover:bg-gray-100 text-gray-700'
+          }`}
+          title={t('chat_download')}>
+          <FiDownload className="h-5 w-5" />
+        </button>
+      </div>
+    </div>
+  );
 }

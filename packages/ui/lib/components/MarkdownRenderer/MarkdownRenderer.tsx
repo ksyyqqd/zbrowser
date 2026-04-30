@@ -162,6 +162,17 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, isD
 
       // Horizontal rule
       hr: ({ ...props }) => <hr className="markdown-hr" {...props} />,
+
+      // Image rendering - support base64 and regular URLs
+      img: ({ src, alt, ...props }) => (
+        <img
+          src={src}
+          alt={alt || 'Image'}
+          className="markdown-image max-w-full rounded-lg shadow-md my-2"
+          loading="lazy"
+          {...props}
+        />
+      ),
     }),
     [getNextTable, isDarkMode],
   );

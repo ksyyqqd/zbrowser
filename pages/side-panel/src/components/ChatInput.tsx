@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
-import { FaMicrophone, FaImage } from 'react-icons/fa';
-import { AiOutlineLoading3Quarters } from 'react-icons/ai';
+import { FaImage } from 'react-icons/fa';
+import { FiStar } from 'react-icons/fi';
 import { t } from '@extension/i18n';
 import SkillQuickSelect, { SkillTag } from './SkillQuickSelect';
 import WorkflowQuickSelect from './WorkflowQuickSelect';
@@ -14,9 +14,7 @@ interface ChatInputProps {
     skill?: Skill | null,
   ) => void;
   onStopTask: () => void;
-  onMicClick?: () => void;
-  isRecording?: boolean;
-  isProcessingSpeech?: boolean;
+  onGenerateImage?: () => void;
   disabled: boolean;
   showStopButton: boolean;
   setContent?: (setter: (text: string) => void) => void;
@@ -47,9 +45,7 @@ const generateId = () => Math.random().toString(36).substring(2, 9);
 export default function ChatInput({
   onSendMessage,
   onStopTask,
-  onMicClick,
-  isRecording = false,
-  isProcessingSpeech = false,
+  onGenerateImage,
   disabled,
   showStopButton,
   setContent,
@@ -499,27 +495,18 @@ export default function ChatInput({
             {onExecuteWorkflow && (
               <WorkflowQuickSelect isDarkMode={isDarkMode} onExecuteWorkflow={onExecuteWorkflow} disabled={disabled} />
             )}
-            {/* 语音按钮 */}
-            {onMicClick && (
+            {/* 图片生成按钮 */}
+            {onGenerateImage && (
               <button
                 type="button"
-                onClick={onMicClick}
-                disabled={disabled || isProcessingSpeech}
-                aria-label={
-                  isProcessingSpeech
-                    ? t('chat_stt_processing')
-                    : isRecording
-                      ? t('chat_stt_recording_stop')
-                      : t('chat_stt_input_start')
-                }
-                className={`icon-btn rounded-md ${disabled || isProcessingSpeech ? '!opacity-35 cursor-not-allowed' : ''} ${
-                  isRecording ? '!text-cinnabar-primary animate-pulse hover:!bg-cinnabar-glow/30' : ''
+                onClick={onGenerateImage}
+                disabled={disabled}
+                aria-label={t('image_generation_title')}
+                title={t('image_generation_title')}
+                className={`icon-btn rounded-md ${disabled ? '!opacity-35 cursor-not-allowed' : ''} ${
+                  isDarkMode ? 'hover:bg-purple-500/20' : 'hover:bg-purple-100'
                 }`}>
-                {isProcessingSpeech ? (
-                  <AiOutlineLoading3Quarters className="size-4 animate-spin" />
-                ) : (
-                  <FaMicrophone className={`size-4 ${isRecording ? 'animate-pulse' : ''}`} />
-                )}
+                <FiStar className={`size-4 ${isDarkMode ? 'text-purple-400' : 'text-purple-500'}`} />
               </button>
             )}
           </div>

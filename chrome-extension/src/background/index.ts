@@ -6,6 +6,7 @@ import {
   generalSettingsStore,
   llmProviderStore,
   analyticsSettingsStore,
+  imageProviderStore,
 } from '@extension/storage';
 import { t } from '@extension/i18n';
 import BrowserContext from './browser/context';
@@ -16,7 +17,6 @@ import { ExecutionState } from './agent/event/types';
 import { createChatModel } from './agent/helper';
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models';
 import { DEFAULT_AGENT_OPTIONS } from './agent/types';
-import { SpeechToTextService } from './services/speechToText';
 import { injectBuildDomTreeScripts } from './browser/dom/service';
 import { analytics } from './services/analytics';
 import { MCPService } from './services/mcp';
@@ -24,6 +24,7 @@ import { SkillsService } from './services/skills';
 import { WorkflowService } from './services/workflow';
 import type { WorkflowResult, Workflow, WorkflowEvent } from '@extension/workflow';
 import { recorderState, selectorGenerator, generateSkillFromRecording } from './recorder';
+import { ImageGenerationService } from './services/imageGeneration/ImageGenerationService';
 
 const logger = createLogger('background');
 
@@ -36,6 +37,7 @@ const SIDE_PANEL_URL = chrome.runtime.getURL('side-panel/index.html');
 const mcpService = new MCPService();
 const skillsService = new SkillsService();
 const workflowService = new WorkflowService();
+const imageGenerationService = new ImageGenerationService();
 
 // Setup side panel behavior
 chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(error => console.error(error));
@@ -116,6 +118,23 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       .then(result => sendResponse(result))
       .catch(error =>
         sendResponse({ success: false, error: error instanceof Error ? error.message : 'Execution failed' }),
+      );
+    return true; // Keep the message channel open for async response
+  }
+
+  // Handle image provider test connection from options page
+  if (message.type === 'test_image_provider') {
+    imageGenerationService
+      .testProviderConnection(message.providerId)
+      .then(result =>
+        sendResponse({ type: 'test_image_provider_result', success: result.success, error: result.error }),
+      )
+      .catch(error =>
+        sendResponse({
+          type: 'test_image_provider_result',
+          success: false,
+          error: error instanceof Error ? error.message : 'Test failed',
+        }),
       );
     return true; // Keep the message channel open for async response
   }
@@ -498,6 +517,35 @@ async function handleExecuteWorkflow(message: {
             return { success: result, error: result ? undefined : 'Select failed' };
           }
 
+          case 'generate_image': {
+            // Use the image generation service
+            const prompt = params.prompt as string;
+            if (!prompt) return { success: false, error: 'Prompt is required for image generation' };
+
+            const imageResult = await imageGenerationService.generateImage({
+              prompt,
+              model: params.model as string,
+              size: params.size as string,
+              quality: params.quality as string,
+              n: (params.n as number) || 1,
+              outputFormat: params.outputFormat as string,
+              responseFormat: (params.responseFormat as string) || 'b64_json',
+            });
+
+            if (imageResult.success && imageResult.images?.[0]?.b64_json) {
+              // Store the generated image in workflow variable if outputVariable is specified
+              return {
+                success: true,
+                extractedContent: imageResult.images[0].b64_json,
+              };
+            }
+            return {
+              success: imageResult.success,
+              error: imageResult.error || 'Image generation failed',
+              extractedContent: imageResult.images?.[0]?.url,
+            };
+          }
+
           default:
             return { success: false, error: `Unknown action: ${action}` };
         }
@@ -615,6 +663,16 @@ async function handleExecuteWorkflow(message: {
       }
     }
 
+    // Cleanup: detach page to release debugger connection
+    try {
+      if (targetPage?.tabId) {
+        await browserContext.detachPage(targetPage.tabId);
+        logger.info('Workflow execution complete, detached page:', targetPage.tabId);
+      }
+    } catch (e) {
+      logger.warning('Failed to detach page after workflow:', e);
+    }
+
     return { success: result.success, result };
   } catch (error) {
     logger.error('Execute workflow failed:', error);
@@ -630,6 +688,16 @@ async function handleExecuteWorkflow(message: {
       } catch {
         // Ignore messaging errors
       }
+    }
+
+    // Cleanup: detach page to release debugger connection
+    try {
+      if (targetPage?.tabId) {
+        await browserContext.detachPage(targetPage.tabId);
+        logger.info('Workflow execution failed, detached page:', targetPage.tabId);
+      }
+    } catch (e) {
+      logger.warning('Failed to detach page after workflow error:', e);
     }
 
     return {
@@ -777,46 +845,6 @@ chrome.runtime.onConnect.addListener(port => {
             const page = await browserContext.getCurrentPage();
             await page.removeHighlight();
             return port.postMessage({ type: 'success', msg: t('bg_cmd_nohighlight_ok') });
-          }
-
-          case 'speech_to_text': {
-            try {
-              if (!message.audio) {
-                return port.postMessage({
-                  type: 'speech_to_text_error',
-                  error: t('bg_cmd_stt_noAudioData'),
-                });
-              }
-
-              logger.info('Processing speech-to-text request...');
-
-              // Get all providers for speech-to-text service
-              const providers = await llmProviderStore.getAllProviders();
-
-              // Create speech-to-text service with all providers
-              const speechToTextService = await SpeechToTextService.create(providers);
-
-              // Extract base64 audio data (remove data URL prefix if present)
-              let base64Audio = message.audio;
-              if (base64Audio.startsWith('data:')) {
-                base64Audio = base64Audio.split(',')[1];
-              }
-
-              // Transcribe audio
-              const transcribedText = await speechToTextService.transcribeAudio(base64Audio);
-
-              logger.info('Speech-to-text completed successfully');
-              return port.postMessage({
-                type: 'speech_to_text_result',
-                text: transcribedText,
-              });
-            } catch (error) {
-              logger.error('Speech-to-text failed:', error);
-              return port.postMessage({
-                type: 'speech_to_text_error',
-                error: error instanceof Error ? error.message : t('bg_cmd_stt_failed'),
-              });
-            }
           }
 
           case 'replay': {
@@ -1166,6 +1194,115 @@ ${stepsDescription}
               return port.postMessage({
                 type: 'error',
                 error: error instanceof Error ? error.message : 'Failed to execute workflow',
+              });
+            }
+            break;
+          }
+
+          case 'generate_image': {
+            logger.info('generate_image request', message.prompt?.slice(0, 50));
+
+            try {
+              const result = await imageGenerationService.generateImage({
+                prompt: message.prompt,
+                model: message.model,
+                size: message.size,
+                quality: message.quality,
+                n: message.n || 1,
+                outputFormat: message.outputFormat,
+                responseFormat: message.responseFormat || 'b64_json',
+              });
+
+              // Always send image_generation_result type for both success and failure
+              port.postMessage({ type: 'image_generation_result', result });
+            } catch (error) {
+              logger.error('Image generation failed:', error);
+              // Send as image_generation_result with success: false
+              port.postMessage({
+                type: 'image_generation_result',
+                result: {
+                  success: false,
+                  error: error instanceof Error ? error.message : 'Failed to generate image',
+                },
+              });
+            }
+            break;
+          }
+
+          case 'test_image_provider': {
+            logger.info('test_image_provider', message.providerId);
+
+            try {
+              const result = await imageGenerationService.testProviderConnection(message.providerId);
+              port.postMessage({ type: 'test_image_provider_result', success: result.success, error: result.error });
+            } catch (error) {
+              logger.error('Test image provider failed:', error);
+              return port.postMessage({
+                type: 'error',
+                error: error instanceof Error ? error.message : 'Failed to test provider',
+              });
+            }
+            break;
+          }
+
+          case 'get_image_providers': {
+            try {
+              const providers = await imageProviderStore.getAllProviders();
+              const activeProvider = await imageProviderStore.getActiveProvider();
+              port.postMessage({ type: 'image_providers_list', providers, activeProvider });
+            } catch (error) {
+              logger.error('Get image providers failed:', error);
+              return port.postMessage({
+                type: 'error',
+                error: error instanceof Error ? error.message : 'Failed to get providers',
+              });
+            }
+            break;
+          }
+
+          case 'set_image_provider': {
+            logger.info('set_image_provider', message.providerId, message.config);
+
+            try {
+              await imageProviderStore.setProvider(message.providerId, message.config);
+              port.postMessage({ type: 'success', message: 'Provider saved successfully' });
+            } catch (error) {
+              logger.error('Set image provider failed:', error);
+              return port.postMessage({
+                type: 'error',
+                error: error instanceof Error ? error.message : 'Failed to set provider',
+              });
+            }
+            break;
+          }
+
+          case 'remove_image_provider': {
+            logger.info('remove_image_provider', message.providerId);
+
+            try {
+              await imageProviderStore.removeProvider(message.providerId);
+              port.postMessage({ type: 'success', message: 'Provider removed successfully' });
+            } catch (error) {
+              logger.error('Remove image provider failed:', error);
+              return port.postMessage({
+                type: 'error',
+                error: error instanceof Error ? error.message : 'Failed to remove provider',
+              });
+            }
+            break;
+          }
+
+          case 'set_active_image_provider': {
+            logger.info('set_active_image_provider', message.providerId);
+
+            try {
+              await imageProviderStore.setActiveProvider(message.providerId);
+              port.postMessage({ type: 'success', message: 'Active provider set successfully' });
+            } catch (error) {
+              logger.error('Set active image provider failed:', error);
+              return port.postMessage({
+                type: 'error',
+                error: error instanceof Error ? error.message : 'Failed to set active provider',
               });
             }
             break;

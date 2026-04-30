@@ -10,6 +10,8 @@ export interface Message {
   actor: Actors;
   content: string;
   timestamp: number; // Unix timestamp in milliseconds
+  /** Attached images with base64 data */
+  images?: Array<{ base64: string; name?: string }>;
 }
 
 export interface ChatMessage extends Message {

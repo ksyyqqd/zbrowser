@@ -23,6 +23,12 @@ export enum ProviderTypeEnum {
   CustomOpenAI = 'custom_openai',
 }
 
+// Image generation provider type
+export enum ImageProviderTypeEnum {
+  OpenAI = 'openai', // OpenAI DALL-E
+  CustomOpenAI = 'custom_openai', // OpenAI-compatible image API (like packyapi.com)
+}
+
 // Default supported models for each built-in provider
 export const llmProviderModelNames = {
   [ProviderTypeEnum.OpenAI]: [
@@ -196,3 +202,18 @@ export const llmProviderParameters = {
     },
   },
 };
+
+// Default supported models for each built-in image provider
+export const imageProviderModelNames = {
+  [ImageProviderTypeEnum.OpenAI]: ['dall-e-3', 'gpt-image-1'],
+  [ImageProviderTypeEnum.CustomOpenAI]: ['gpt-image-2', 'dall-e-3'],
+};
+
+// Default sizes for image generation
+export const imageProviderSizes = {
+  [ImageProviderTypeEnum.OpenAI]: ['1024x1024', '1792x1024', '1024x1792'],
+  [ImageProviderTypeEnum.CustomOpenAI]: ['1024x1024', '1920x1080', '3840x2160', '1080x1920', '2160x3840'],
+};
+
+// Default qualities for image generation
+export const imageProviderQualities = ['standard', 'high', 'low'];

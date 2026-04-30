@@ -82,6 +82,9 @@
   "chat_buttons_send": {
     "message": "Send"
   },
+  "chat_download": {
+    "message": "Download"
+  },
   "chat_input_placeholder": {
     "message": "What can I help you with?"
   },
@@ -143,7 +146,7 @@
     "message": "Replay is disabled in general settings. Please enable \"Replay Historical Tasks\" in the extension settings to use this feature."
   },
   "chat_replay_noHistory": {
-    "message": "No action history found for session \"$SESSION_ID$...\". This session may not contain replayable actions.\n\nIt's a replay session itself (replay sessions cannot be replayed again), or it was created before the replay feature was available.",
+    "message": "No action history found for session \"$SESSION_ID$...\".\n\nPossible reasons:\n1. \"Store action history\" setting is disabled (enable it in settings)\n2. This is a replay session (replay sessions cannot be replayed again)\n3. This session was created before the replay feature was available",
     "placeholders": {
       "session_id": {
         "content": "$1",
@@ -223,6 +226,9 @@
   "options_tabs_models": {
     "message": "Models"
   },
+  "options_tabs_images": {
+    "message": "Images"
+  },
   "options_tabs_firewall": {
     "message": "Firewall"
   },
@@ -297,6 +303,12 @@
   },
   "options_general_viewportExpansion_option_all": {
     "message": "All page elements"
+  },
+  "options_general_showImageGeneration": {
+    "message": "Show Image Generation"
+  },
+  "options_general_showImageGeneration_desc": {
+    "message": "Show image generation button in chat input (requires image provider configuration)"
   },
   "options_models_providers_header": {
     "message": "LLM Providers"
@@ -1657,6 +1669,9 @@
   "workflow_action_cacheContent": {
     "message": "Cache Content"
   },
+  "workflow_action_generateImage": {
+    "message": "Generate Image"
+  },
   "workflow_intent": {
     "message": "Intent"
   },
@@ -1695,6 +1710,21 @@
   },
   "workflow_param_tabIndex": {
     "message": "Tab Index"
+  },
+  "workflow_param_prompt": {
+    "message": "Prompt"
+  },
+  "workflow_param_model": {
+    "message": "Model"
+  },
+  "workflow_param_size": {
+    "message": "Size"
+  },
+  "workflow_param_quality": {
+    "message": "Quality"
+  },
+  "workflow_param_outputVariable": {
+    "message": "Output Variable"
   },
   "workflow_editEdge": {
     "message": "Edit Edge"
@@ -1794,5 +1824,89 @@
   },
   "workflow_branchNamePlaceholder": {
     "message": "Branch name"
+  },
+  "image_generation_title": {
+    "message": "Image Generation"
+  },
+  "image_generation_providers": {
+    "message": "Image Providers"
+  },
+  "image_generation_addProvider": {
+    "message": "Add Image Provider"
+  },
+  "image_generation_removeProvider": {
+    "message": "Remove Provider"
+  },
+  "image_generation_activeProvider": {
+    "message": "Active Provider"
+  },
+  "image_generation_providerName": {
+    "message": "Provider Name"
+  },
+  "image_generation_apiKey": {
+    "message": "API Key"
+  },
+  "image_generation_baseUrl": {
+    "message": "Base URL"
+  },
+  "image_generation_baseUrl_placeholder": {
+    "message": "e.g., https://www.packyapi.com/v1"
+  },
+  "image_generation_models": {
+    "message": "Available Models"
+  },
+  "image_generation_defaultModel": {
+    "message": "Default Model"
+  },
+  "image_generation_defaultSize": {
+    "message": "Default Size"
+  },
+  "image_generation_quality": {
+    "message": "Quality"
+  },
+  "image_generation_prompt_placeholder": {
+    "message": "Enter prompt for image generation..."
+  },
+  "image_generation_generate": {
+    "message": "Generate Image"
+  },
+  "image_generation_generating": {
+    "message": "Generating image..."
+  },
+  "image_generation_result": {
+    "message": "Image generated successfully"
+  },
+  "image_generation_error": {
+    "message": "Image generation failed"
+  },
+  "image_generation_noProvider": {
+    "message": "No image provider configured"
+  },
+  "image_generation_testConnection": {
+    "message": "Test Connection"
+  },
+  "image_generation_testSuccess": {
+    "message": "Connection successful"
+  },
+  "image_generation_testFailed": {
+    "message": "Connection failed"
+  },
+  "image_generation_saveProvider": {
+    "message": "Save Provider"
+  },
+  "image_generation_providerSaved": {
+    "message": "Provider saved successfully"
+  },
+  "image_generation_providerRemoved": {
+    "message": "Provider removed successfully"
+  },
+  "image_generation_setActive": {
+    "message": "Set as Active"
+  },
+  "image_generation_customProvider": {
+    "message": "Custom Provider"
+  },
+  "image_generation_openaiProvider": {
+    "message": "OpenAI (DALL-E)"
   }
 }
