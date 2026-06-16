@@ -31,3 +31,9 @@ chrome-extension/public/manifest.json
 *.py
 
 .gitnexus
+
+.codex
+
+.claude
+.github
+dist.*

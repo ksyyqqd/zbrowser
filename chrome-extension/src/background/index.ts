@@ -32,6 +32,9 @@ const browserContext = new BrowserContext({});
 let currentExecutor: Executor | null = null;
 let currentPort: chrome.runtime.Port | null = null;
 const SIDE_PANEL_URL = chrome.runtime.getURL('side-panel/index.html');
+const OPTIONS_URL = chrome.runtime.getURL('options/index.html');
+// Long-lived ports from Options pages (multiple instances allowed)
+const optionsPorts = new Set<chrome.runtime.Port>();
 
 // Initialize MCP and Skills services
 const mcpService = new MCPService();
@@ -620,14 +623,22 @@ async function handleExecuteWorkflow(message: {
       }
     };
 
-    // Create workflow event emitter to forward events to side panel
+    // Create workflow event emitter to forward events to side panel and options pages
     const workflowEventEmitter = async (event: WorkflowEvent) => {
+      const message = { type: 'workflow_event', event };
       if (currentPort) {
         try {
-          // Send workflow events with a special type so side panel can distinguish them
-          currentPort.postMessage({ type: 'workflow_event', event });
+          currentPort.postMessage(message);
         } catch (e) {
           logger.warning('Failed to forward workflow event to side panel:', e);
+        }
+      }
+      // Broadcast to all connected Options pages
+      for (const p of optionsPorts) {
+        try {
+          p.postMessage(message);
+        } catch {
+          // port may be closed; cleanup on disconnect listener will remove it
         }
       }
     };
@@ -740,8 +751,22 @@ async function handleSkillsList(category?: string): Promise<{ skills: unknown[] 
   }
 }
 
-// Setup connection listener for long-lived connections (e.g., side panel)
+// Setup connection listener for long-lived connections (e.g., side panel, options pages)
 chrome.runtime.onConnect.addListener(port => {
+  if (port.name === 'options-connection') {
+    const senderUrl = port.sender?.url;
+    const senderId = port.sender?.id;
+    if (!senderUrl || senderId !== chrome.runtime.id || !senderUrl.startsWith(OPTIONS_URL)) {
+      logger.warning('Blocked unauthorized options-connection', senderId, senderUrl);
+      port.disconnect();
+      return;
+    }
+    optionsPorts.add(port);
+    port.onDisconnect.addListener(() => {
+      optionsPorts.delete(port);
+    });
+    return;
+  }
   if (port.name === 'side-panel-connection') {
     const senderUrl = port.sender?.url;
     const senderId = port.sender?.id;

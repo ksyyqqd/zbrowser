@@ -19,11 +19,6 @@
     "type-check": "tsc --noEmit"
   },
   "dependencies": {
-    "@antv/graphlib": "^2.0.4",
-    "@antv/layout": "1.2.14-beta.8",
-    "@antv/x6": "^2.18.0",
-    "@antv/x6-plugin-dnd": "^2.1.1",
-    "@antv/x6-react-shape": "^2.2.0",
     "@extension/i18n": "workspace:*",
     "@extension/mcp-client": "workspace:*",
     "@extension/shared": "workspace:*",
@@ -31,13 +26,17 @@
     "@extension/storage": "workspace:*",
     "@extension/ui": "workspace:*",
     "@extension/workflow": "workspace:*",
+    "@xyflow/react": "^12.4.0",
+    "dagre": "^0.8.5",
     "jszip": "^3.10.1",
+    "nanoid": "3.3.11",
     "react-icons": "^5.0.0"
   },
   "devDependencies": {
     "@extension/tailwindcss-config": "workspace:*",
     "@extension/tsconfig": "workspace:*",
     "@extension/vite-config": "workspace:*",
+    "@types/dagre": "^0.7.52",
     "cross-env": "^7.0.3",
     "postcss-load-config": "^6.0.1"
   },

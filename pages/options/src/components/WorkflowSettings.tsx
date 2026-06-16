@@ -3,7 +3,7 @@
  * Manages workflows in the Options page - list, create, edit, import, export, execute
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, lazy, Suspense } from 'react';
 import { FiPlus, FiEdit2, FiTrash2, FiDownload, FiUpload, FiPlay, FiShare2, FiCode } from 'react-icons/fi';
 import { t } from '@extension/i18n';
 import { userWorkflowsStore, type UserWorkflowConfig } from '@extension/storage';
@@ -17,7 +17,10 @@ import {
 } from '@extension/workflow';
 import type { Workflow } from '@extension/workflow';
 import type { Skill } from '@extension/skills';
-import WorkflowEditor from './WorkflowEditor';
+import { useWorkflowExecution } from '../hooks/useWorkflowExecution';
+
+// Lazy-load the heavy WorkflowEditor (React Flow + dagre); only fetched when the editor is opened
+const WorkflowEditor = lazy(() => import('./WorkflowEditor'));
 
 interface WorkflowSettingsProps {
   isDarkMode?: boolean;
@@ -31,6 +34,7 @@ export default function WorkflowSettings({ isDarkMode = false }: WorkflowSetting
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const [isConvertModalOpen, setIsConvertModalOpen] = useState(false);
+  const { state: executionState, reset: resetExecution } = useWorkflowExecution();
   const [importContent, setImportContent] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
 
@@ -303,6 +307,8 @@ export default function WorkflowSettings({ isDarkMode = false }: WorkflowSetting
   // Execute workflow - sends message to background service
   const handleExecuteWorkflow = async (workflow: UserWorkflowConfig) => {
     try {
+      // Reset execution visualization state before starting a new run
+      resetExecution();
       // Get the current active tab
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
       if (!tab?.id) {
@@ -469,27 +475,38 @@ export default function WorkflowSettings({ isDarkMode = false }: WorkflowSetting
               isDarkMode ? 'border-slate-600 bg-slate-800' : 'border-gray-200 bg-white'
             }`}
             style={{ height: 'calc(100vh - 64px)' }}>
-            <WorkflowEditor
-              workflow={
-                selectedWorkflow
-                  ? {
-                      id: selectedWorkflow.id,
-                      name: selectedWorkflow.name,
-                      description: selectedWorkflow.description,
-                      version: selectedWorkflow.version,
-                      nodes: selectedWorkflow.nodes,
-                      edges: selectedWorkflow.edges,
-                      variables: selectedWorkflow.variables,
-                      executionConfig: selectedWorkflow.executionConfig,
-                      createdAt: selectedWorkflow.createdAt,
-                      updatedAt: selectedWorkflow.updatedAt,
-                    }
-                  : undefined
-              }
-              onSave={handleSaveWorkflow}
-              onCancel={() => setIsEditorOpen(false)}
-              isDarkMode={isDarkMode}
-            />
+            <Suspense
+              fallback={
+                <div
+                  className={`flex h-full items-center justify-center text-sm ${
+                    isDarkMode ? 'text-gray-400' : 'text-gray-500'
+                  }`}>
+                  Loading editor...
+                </div>
+              }>
+              <WorkflowEditor
+                workflow={
+                  selectedWorkflow
+                    ? {
+                        id: selectedWorkflow.id,
+                        name: selectedWorkflow.name,
+                        description: selectedWorkflow.description,
+                        version: selectedWorkflow.version,
+                        nodes: selectedWorkflow.nodes,
+                        edges: selectedWorkflow.edges,
+                        variables: selectedWorkflow.variables,
+                        executionConfig: selectedWorkflow.executionConfig,
+                        createdAt: selectedWorkflow.createdAt,
+                        updatedAt: selectedWorkflow.updatedAt,
+                      }
+                    : undefined
+                }
+                onSave={handleSaveWorkflow}
+                onCancel={() => setIsEditorOpen(false)}
+                isDarkMode={isDarkMode}
+                executionState={executionState}
+              />
+            </Suspense>
           </div>
         </div>
       )}

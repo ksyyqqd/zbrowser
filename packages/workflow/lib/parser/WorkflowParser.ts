@@ -70,15 +70,27 @@ export function validateWorkflowStructure(workflow: Workflow): { valid: boolean;
   // Check condition nodes have valid branch targets
   for (const node of workflow.nodes) {
     if (node.type === 'condition') {
-      if (!node.data.trueNodeId) {
-        errors.push(`Condition node '${node.id}' missing trueNodeId`);
-      } else if (!nodeIds.has(node.data.trueNodeId)) {
-        errors.push(`Condition node '${node.id}' trueNodeId '${node.data.trueNodeId}' does not exist`);
-      }
-      if (!node.data.falseNodeId) {
-        errors.push(`Condition node '${node.id}' missing falseNodeId`);
-      } else if (!nodeIds.has(node.data.falseNodeId)) {
-        errors.push(`Condition node '${node.id}' falseNodeId '${node.data.falseNodeId}' does not exist`);
+      // New branch format: branches + edges with sourcePort
+      if (node.data.branches && node.data.branches.length > 0) {
+        // Verify each branch has at least one outgoing edge
+        for (const branch of node.data.branches) {
+          const hasEdge = workflow.edges.some(e => e.source === node.id && e.sourcePort === branch.id);
+          if (!hasEdge) {
+            errors.push(`Condition node '${node.id}' branch '${branch.name}' has no outgoing edge`);
+          }
+        }
+      } else {
+        // Legacy format: trueNodeId/falseNodeId
+        if (!node.data.trueNodeId) {
+          errors.push(`Condition node '${node.id}' missing trueNodeId`);
+        } else if (!nodeIds.has(node.data.trueNodeId)) {
+          errors.push(`Condition node '${node.id}' trueNodeId '${node.data.trueNodeId}' does not exist`);
+        }
+        if (!node.data.falseNodeId) {
+          errors.push(`Condition node '${node.id}' missing falseNodeId`);
+        } else if (!nodeIds.has(node.data.falseNodeId)) {
+          errors.push(`Condition node '${node.id}' falseNodeId '${node.data.falseNodeId}' does not exist`);
+        }
       }
     }
   }

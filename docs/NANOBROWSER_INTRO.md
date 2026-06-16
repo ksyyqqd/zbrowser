@@ -72,7 +72,7 @@
 项目采用 **pnpm workspaces + Turbo** 进行构建管理：
 
 ```
-nanobrowser/
+zbrowser/
 ├── chrome-extension/          # 核心 Chrome 扩展
 │   └────── src/background/    # Service Worker 核心
 │       ├── agent/             # 多代理系统
