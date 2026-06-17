@@ -4,6 +4,7 @@
  */
 
 import { useState, useEffect, lazy, Suspense } from 'react';
+import { createPortal } from 'react-dom';
 import { FiPlus, FiEdit2, FiTrash2, FiDownload, FiUpload, FiPlay, FiShare2, FiCode } from 'react-icons/fi';
 import { t } from '@extension/i18n';
 import { userWorkflowsStore, type UserWorkflowConfig } from '@extension/storage';
@@ -92,14 +93,16 @@ export default function WorkflowSettings({ isDarkMode = false }: WorkflowSetting
     }
   };
 
-  // Filter workflows
-  const filteredWorkflows = workflows.filter(w => {
-    const matchesSearch =
-      !searchQuery ||
-      w.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      w.description.toLowerCase().includes(searchQuery.toLowerCase());
-    return matchesSearch;
-  });
+  // Filter and sort workflows (most recently edited first)
+  const filteredWorkflows = workflows
+    .filter(w => {
+      const matchesSearch =
+        !searchQuery ||
+        w.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        w.description.toLowerCase().includes(searchQuery.toLowerCase());
+      return matchesSearch;
+    })
+    .sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0));
 
   // Create new workflow
   const handleCreateWorkflow = () => {
@@ -477,112 +480,129 @@ export default function WorkflowSettings({ isDarkMode = false }: WorkflowSetting
             </p>
           </div>
         ) : (
-          filteredWorkflows.map(workflow => (
-            <div
-              key={workflow.id}
-              className={`rounded-lg border p-4 ${
-                isDarkMode ? 'border-slate-700 bg-slate-800' : 'border-gray-200 bg-white'
-              }`}>
-              <div className="flex items-center justify-between">
-                <div className="flex-1">
-                  <h3 className={`font-medium ${isDarkMode ? 'text-gray-200' : 'text-gray-800'}`}>{workflow.name}</h3>
-                  <p className={`text-sm mt-1 ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
-                    {workflow.description}
-                  </p>
-                  <div className="flex items-center gap-2 mt-2">
-                    <span className={`text-xs ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>
-                      {workflow.nodes.length} nodes
-                    </span>
-                  </div>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {filteredWorkflows.map(workflow => (
+              <div
+                key={workflow.id}
+                className={`group flex flex-col rounded-xl border p-4 transition-shadow hover:shadow-md ${
+                  isDarkMode
+                    ? 'border-slate-700 bg-slate-800 hover:border-slate-600'
+                    : 'border-gray-200 bg-white hover:border-gray-300'
+                }`}>
+                <div className="mb-2 flex items-start justify-between">
+                  <h3
+                    className={`line-clamp-1 font-medium ${isDarkMode ? 'text-gray-200' : 'text-gray-800'}`}
+                    title={workflow.name}>
+                    {workflow.name}
+                  </h3>
+                  <button
+                    type="button"
+                    onClick={() => handleDeleteWorkflow(workflow)}
+                    className="shrink-0 rounded p-1 opacity-0 transition-opacity hover:bg-red-500/20 group-hover:opacity-100"
+                    title={t('workflow_delete')}>
+                    <FiTrash2 className="size-3.5 text-red-500" />
+                  </button>
                 </div>
-                <div className="flex items-center gap-1">
+                <p
+                  className={`mb-3 h-10 text-sm line-clamp-2 ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}
+                  title={workflow.description}>
+                  {workflow.description || '暂无描述'}
+                </p>
+                <div
+                  className="flex items-center gap-1 border-t pt-3"
+                  style={{ borderColor: isDarkMode ? '#334155' : '#e5e7eb' }}>
+                  <span className={`mr-auto text-xs ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>
+                    {workflow.nodes.length} 节点
+                  </span>
                   <button
                     type="button"
                     onClick={() => handleExecuteWorkflow(workflow)}
-                    className="p-2 rounded-md hover:bg-green-500/20"
+                    className="rounded-md p-1.5 hover:bg-green-500/20"
                     title={t('workflow_execute')}>
-                    <FiPlay className="size-4 text-green-500" />
+                    <FiPlay className="size-3.5 text-green-500" />
                   </button>
                   <button
                     type="button"
                     onClick={() => handleEditWorkflow(workflow)}
-                    className={`p-2 rounded-md ${isDarkMode ? 'hover:bg-slate-700' : 'hover:bg-gray-100'}`}
+                    className={`rounded-md p-1.5 ${isDarkMode ? 'hover:bg-slate-700' : 'hover:bg-gray-100'}`}
                     title={t('workflow_edit')}>
-                    <FiEdit2 className={`size-4 ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`} />
+                    <FiEdit2 className={`size-3.5 ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`} />
                   </button>
                   <button
                     type="button"
                     onClick={() => handleExportWorkflows([workflow.id])}
-                    className={`p-2 rounded-md ${isDarkMode ? 'hover:bg-slate-700' : 'hover:bg-gray-100'}`}
+                    className={`rounded-md p-1.5 ${isDarkMode ? 'hover:bg-slate-700' : 'hover:bg-gray-100'}`}
                     title="导出为 JSON">
-                    <FiDownload className={`size-4 ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`} />
+                    <FiDownload className={`size-3.5 ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`} />
                   </button>
                   <button
                     type="button"
                     onClick={() => handleConvertWorkflowToSkill(workflow)}
-                    className={`p-2 rounded-md ${isDarkMode ? 'hover:bg-slate-700' : 'hover:bg-gray-100'}`}
+                    className={`rounded-md p-1.5 ${isDarkMode ? 'hover:bg-slate-700' : 'hover:bg-gray-100'}`}
                     title={t('workflow_convertToSkill')}>
-                    <FiCode className={`size-4 ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`} />
+                    <FiCode className={`size-3.5 ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`} />
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => handleDeleteWorkflow(workflow)}
-                    className="p-2 rounded-md hover:bg-red-500/20"
-                    title={t('workflow_delete')}>
-                    <FiTrash2 className="size-4 text-red-500" />
-                  </button>
+                  <span className={`ml-auto text-xs ${isDarkMode ? 'text-gray-600' : 'text-gray-400'}`}>
+                    {workflow.updatedAt
+                      ? new Date(workflow.updatedAt).toLocaleString('zh-CN', {
+                          year: 'numeric',
+                          month: '2-digit',
+                          day: '2-digit',
+                          hour: '2-digit',
+                          minute: '2-digit',
+                        })
+                      : ''}
+                  </span>
                 </div>
               </div>
-            </div>
-          ))
+            ))}
+          </div>
         )}
       </div>
 
-      {/* Workflow Editor Modal */}
-      {isEditorOpen && (
-        <div className="fixed inset-0 z-50">
-          <div className="absolute inset-0 bg-black/50" onClick={() => setIsEditorOpen(false)} />
-          <div
-            className={`relative rounded-lg border shadow-xl w-full max-w-4xl mx-4 my-8 ${
-              isDarkMode ? 'border-slate-600 bg-slate-800' : 'border-gray-200 bg-white'
-            }`}
-            style={{ height: 'calc(100vh - 64px)' }}>
-            <Suspense
-              fallback={
-                <div
-                  className={`flex h-full items-center justify-center text-sm ${
-                    isDarkMode ? 'text-gray-400' : 'text-gray-500'
-                  }`}>
-                  Loading editor...
-                </div>
-              }>
-              <WorkflowEditor
-                workflow={
-                  selectedWorkflow
-                    ? {
-                        id: selectedWorkflow.id,
-                        name: selectedWorkflow.name,
-                        description: selectedWorkflow.description,
-                        version: selectedWorkflow.version,
-                        nodes: selectedWorkflow.nodes,
-                        edges: selectedWorkflow.edges,
-                        variables: selectedWorkflow.variables,
-                        executionConfig: selectedWorkflow.executionConfig,
-                        createdAt: selectedWorkflow.createdAt,
-                        updatedAt: selectedWorkflow.updatedAt,
-                      }
-                    : undefined
-                }
-                onSave={handleSaveWorkflow}
-                onCancel={() => setIsEditorOpen(false)}
-                isDarkMode={isDarkMode}
-                executionState={executionState}
-                onExecute={handleExecuteFromEditor}
-              />
-            </Suspense>
-          </div>
-        </div>
-      )}
+      {/* Workflow Editor Modal — portaled to document.body to escape Options page layout constraints */}
+      {isEditorOpen &&
+        createPortal(
+          <div className="fixed inset-0 z-50 flex items-center justify-center">
+            <div className="absolute inset-0 bg-black/50" onClick={() => setIsEditorOpen(false)} />
+            <div className={`relative size-full overflow-hidden ${isDarkMode ? 'bg-slate-800' : 'bg-white'}`}>
+              <Suspense
+                fallback={
+                  <div
+                    className={`flex h-full items-center justify-center text-sm ${
+                      isDarkMode ? 'text-gray-400' : 'text-gray-500'
+                    }`}>
+                    Loading editor...
+                  </div>
+                }>
+                <WorkflowEditor
+                  workflow={
+                    selectedWorkflow
+                      ? {
+                          id: selectedWorkflow.id,
+                          name: selectedWorkflow.name,
+                          description: selectedWorkflow.description,
+                          version: selectedWorkflow.version,
+                          nodes: selectedWorkflow.nodes,
+                          edges: selectedWorkflow.edges,
+                          variables: selectedWorkflow.variables,
+                          executionConfig: selectedWorkflow.executionConfig,
+                          createdAt: selectedWorkflow.createdAt,
+                          updatedAt: selectedWorkflow.updatedAt,
+                        }
+                      : undefined
+                  }
+                  onSave={handleSaveWorkflow}
+                  onCancel={() => setIsEditorOpen(false)}
+                  isDarkMode={isDarkMode}
+                  executionState={executionState}
+                  onExecute={handleExecuteFromEditor}
+                />
+              </Suspense>
+            </div>
+          </div>,
+          document.body,
+        )}
 
       {/* Import Modal */}
       {isImportModalOpen && (

@@ -79,30 +79,43 @@ export function useWorkflowExecution(): UseWorkflowExecutionResult {
     // Some test/preview environments don't have chrome.runtime
     if (typeof chrome === 'undefined' || !chrome.runtime?.connect) return;
 
-    let port: chrome.runtime.Port;
-    try {
-      port = chrome.runtime.connect({ name: 'options-connection' });
-    } catch (e) {
-      // Extension context may not be ready
-      return;
-    }
-    portRef.current = port;
+    let cancelled = false;
+    let reconnectTimer: number | null = null;
 
     const onMessage = (msg: { type?: string; event?: WorkflowEvent }) => {
       if (msg?.type !== 'workflow_event' || !msg.event) return;
       setState(s => applyEvent(s, msg.event!));
     };
 
-    const onDisconnect = () => {
-      portRef.current = null;
+    const connect = () => {
+      if (cancelled) return;
+      try {
+        const port = chrome.runtime.connect({ name: 'options-connection' });
+        portRef.current = port;
+        port.onMessage.addListener(onMessage);
+        port.onDisconnect.addListener(() => {
+          portRef.current = null;
+          // Auto-reconnect after service worker restart, etc.
+          if (!cancelled) {
+            reconnectTimer = window.setTimeout(connect, 500);
+          }
+        });
+        console.log('[useWorkflowExecution] Connected to background');
+      } catch (e) {
+        console.warn('[useWorkflowExecution] Connect failed, retrying:', e);
+        if (!cancelled) {
+          reconnectTimer = window.setTimeout(connect, 1000);
+        }
+      }
     };
 
-    port.onMessage.addListener(onMessage);
-    port.onDisconnect.addListener(onDisconnect);
+    connect();
 
     return () => {
+      cancelled = true;
+      if (reconnectTimer !== null) window.clearTimeout(reconnectTimer);
       try {
-        port.disconnect();
+        portRef.current?.disconnect();
       } catch {
         /* already disconnected */
       }

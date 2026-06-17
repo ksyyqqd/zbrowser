@@ -53,9 +53,19 @@ export class WorkflowExecutor {
           break;
         }
 
-        // Execute any output-node side branches connected to the current node.
-        // Output nodes are side collectors — they don't affect main flow.
-        const outputBranches = this.findOutputBranches(workflow, currentNode.id);
+        // Determine which output-node side branches to fire.
+        // For condition nodes: only outputs reached via the selected branch's sourcePort.
+        // For other nodes: all directly connected outputs.
+        let outputBranches: WorkflowNode[];
+        if (currentNode.type === 'condition' && nodeResult.selectedBranchId) {
+          outputBranches = this.findOutputBranches(workflow, currentNode.id, nodeResult.selectedBranchId);
+        } else if (currentNode.type === 'condition') {
+          // Condition with no selected branch — no outputs to fire (defensive)
+          outputBranches = [];
+        } else {
+          outputBranches = this.findOutputBranches(workflow, currentNode.id);
+        }
+
         for (const outputNode of outputBranches) {
           const outResult = await this.executeNode(outputNode, workflow, context);
           results.push(outResult);
@@ -201,12 +211,13 @@ export class WorkflowExecutor {
   /**
    * Handle AI Module execution
    *
-   * Supports two output modes:
-   *  1) Single variable mode: writes the entire AI response to `outputVariable` (legacy)
-   *  2) Structured multi-variable mode: prompt may contain `${name}` placeholders that
-   *     designate target variables. The executor injects a JSON-output instruction so
-   *     the LLM returns `{name1: "...", name2: "..."}`, which is parsed and each field
-   *     is written to the corresponding variable.
+   * Output mechanism:
+   *  - Prompt may contain `${name}` placeholders that designate target variables.
+   *    The executor injects a JSON-output instruction so the LLM returns
+   *    `{name1: "...", name2: "..."}`, which is parsed and each field is written
+   *    to the corresponding variable.
+   *  - If no placeholders are present, the response is only stored on the node
+   *    result for display; downstream consumption requires explicit `${var}` markers.
    */
   private async handleAIModule(node: WorkflowNode, context: WorkflowExecutionContext): Promise<NodeResult> {
     const startTime = Date.now();
@@ -237,11 +248,8 @@ export class WorkflowExecutor {
 
     const aiResult = await context.invokeAI(finalPrompt, contextData);
 
-    // Single-variable legacy mode
+    // No write targets — just return the response (no variable assignment)
     if (writeTargets.length === 0) {
-      if (node.data.outputVariable && aiResult.response) {
-        context.setVariable(node.data.outputVariable, aiResult.response);
-      }
       return {
         nodeId: node.id,
         nodeType: 'ai',
@@ -264,14 +272,12 @@ export class WorkflowExecutor {
         }
       }
     } else {
-      // Final fallback: even if JSON parse failed, try regex extraction for each target
-      // then write raw response to first target if nothing else works
+      // Fallback: regex extraction for each target, then raw response to first if all fail
       let extracted = false;
       for (const name of writeTargets) {
         const regex = new RegExp(`"${name}"\\s*:\\s*"((?:[^"\\\\]|\\\\.)*)"`, 's');
         const match = regex.exec(aiResult.response || '');
         if (match) {
-          // Unescape JSON string escapes
           const val = match[1].replace(/\\n/g, '\n').replace(/\\"/g, '"').replace(/\\\\/g, '\\');
           context.setVariable(name, val);
           summary += `${name}: ${val}\n\n`;
@@ -282,10 +288,6 @@ export class WorkflowExecutor {
         context.setVariable(writeTargets[0], aiResult.response);
         summary = aiResult.response;
       }
-    }
-    // Also honor legacy outputVariable if set (e.g. for downstream conditions reading the raw response)
-    if (node.data.outputVariable && aiResult.response) {
-      context.setVariable(node.data.outputVariable, aiResult.response);
     }
 
     return {
@@ -416,11 +418,12 @@ ${fields}
     context: WorkflowExecutionContext,
   ): Promise<NodeResult> {
     const startTime = Date.now();
-    const evaluateWithAI = node.data.evaluateWithAI ?? true;
 
     // Check for new branch format
     const branches = node.data.branches;
-    const prompt = node.data.prompt || node.data.conditionExpression || '';
+    const rawPrompt = node.data.prompt || node.data.conditionExpression || '';
+    // Resolve {{variableName}} template substitutions before sending to AI
+    const prompt = this.resolveTemplate(rawPrompt, context);
 
     // Legacy format: trueNodeId/falseNodeId
     const trueNodeId = node.data.trueNodeId || '';
@@ -430,24 +433,34 @@ ${fields}
     let nextNodeId: string;
 
     if (branches && branches.length > 0) {
-      // New multi-branch format: use AI to select branch
-      const branchNames = branches.map(b => b.name).join(', ');
-      const aiPrompt = `${prompt}\n\nAvailable branches: ${branchNames}\n\nSelect the most appropriate branch name. Return only the branch name, nothing else.`;
+      // Multi-branch format: AI returns branch index (0-based) for precise matching
+      const branchList = branches.map((b, i) => `${i}: ${b.name}`).join('\n');
+      const aiPrompt = `${prompt}\n\nAvailable branches:\n${branchList}\n\nReturn ONLY the number (0, 1, 2, ...) of the most appropriate branch. Do not return anything else.`;
 
-      const aiResult = await context.invokeAI(aiPrompt);
-      const selectedBranchName = aiResult.response?.trim() || '';
+      // Prefer the lightweight invocation (no page context / no skills / no agent identity);
+      // fall back to the full pipeline if the host did not provide it.
+      const aiResult = context.invokeAILight ? await context.invokeAILight(aiPrompt) : await context.invokeAI(aiPrompt);
+      const responseText = (aiResult.response || '').trim();
 
-      // Find the matching branch
-      const selectedBranch =
-        branches.find(b => b.name.toLowerCase() === selectedBranchName.toLowerCase() || b.id === selectedBranchName) ||
-        branches[0]; // Default to first branch if no match
+      // Extract the first integer from the response
+      const indexMatch = responseText.match(/(\d+)/);
+      const selectedIndex = indexMatch ? parseInt(indexMatch[1], 10) : 0;
 
-      // Find the edge for this branch using sourcePort
-      const branchEdge = workflow.edges.find(
+      // Clamp to valid range
+      const safeIndex = Math.min(Math.max(0, selectedIndex), branches.length - 1);
+      const selectedBranch = branches[safeIndex];
+
+      // Find main-flow next node for this branch (non-output target).
+      // Output targets are handled separately as side branches by the main loop.
+      const branchEdges = workflow.edges.filter(
         e => e.source === node.id && (e.sourcePort === selectedBranch.id || e.condition === selectedBranch.id),
       );
-
-      nextNodeId = branchEdge?.target || '';
+      const mainFlowEdge = branchEdges.find(e => {
+        const target = workflow.nodes.find(n => n.id === e.target);
+        return target?.type !== 'output';
+      });
+      // If no main-flow edge, fall back to the first edge (so workflow doesn't dead-end silently)
+      nextNodeId = mainFlowEdge?.target || branchEdges[0]?.target || '';
 
       // Emit branch selection event
       await this.emitEvent(context, {
@@ -464,19 +477,14 @@ ${fields}
         success: true,
         output: selectedBranch.name,
         nextNodeId,
+        selectedBranchId: selectedBranch.id,
         duration: Date.now() - startTime,
       };
     } else if (trueNodeId || falseNodeId) {
-      // Legacy format: binary true/false branches
-      let conditionResult: boolean;
-
-      if (evaluateWithAI) {
-        const aiPrompt = `Evaluate the following condition and return 'true' or 'false'. Condition: ${prompt}`;
-        const aiResult = await context.invokeAI(aiPrompt);
-        conditionResult = aiResult.response?.toLowerCase().includes('true') ?? false;
-      } else {
-        conditionResult = this.evaluateSimpleExpression(prompt, context);
-      }
+      // Legacy format: binary true/false branches — always uses AI evaluation now.
+      const aiPrompt = `Evaluate the following condition and return 'true' or 'false'. Condition: ${prompt}`;
+      const aiResult = context.invokeAILight ? await context.invokeAILight(aiPrompt) : await context.invokeAI(aiPrompt);
+      const conditionResult = aiResult.response?.toLowerCase().includes('true') ?? false;
 
       nextNodeId = conditionResult ? trueNodeId : falseNodeId;
 
@@ -524,82 +532,6 @@ ${fields}
       output: resolved,
       duration: Date.now() - startTime,
     };
-  }
-
-  /**
-   * Evaluate simple expression (without AI)
-   */
-  private evaluateSimpleExpression(expression: string, context: WorkflowExecutionContext): boolean {
-    // Parse expression like "{{result.success}} === true"
-    const templateRegex = /\{\{([^}]+)\}\}/g;
-    let resolvedExpression = expression;
-
-    // Replace template variables
-    resolvedExpression = resolvedExpression.replace(templateRegex, (_, varPath) => {
-      const value = context.getVariable(varPath.trim());
-      if (typeof value === 'string') {
-        return `'${value}'`;
-      }
-      if (typeof value === 'boolean' || typeof value === 'number') {
-        return String(value);
-      }
-      return 'null';
-    });
-
-    // Safely evaluate simple expressions
-    try {
-      // Only allow safe comparison operators
-      const safeOperators = ['===', '!==', '>', '<', '>=', '<=', 'includes', 'startsWith', 'endsWith'];
-      let hasSafeOperator = false;
-      for (const op of safeOperators) {
-        if (resolvedExpression.includes(op)) {
-          hasSafeOperator = true;
-          break;
-        }
-      }
-
-      if (!hasSafeOperator) {
-        // Default to truthiness check
-        const value = resolvedExpression.trim();
-        return value === 'true' || (value !== 'false' && value !== 'null' && value !== '0');
-      }
-
-      // Handle .includes(), .startsWith(), .endsWith()
-      if (resolvedExpression.includes('.includes(')) {
-        const match = resolvedExpression.match(/'([^']*)'\.includes\('([^']*)'\)/);
-        if (match) {
-          return match[1].includes(match[2]);
-        }
-      }
-
-      // Handle basic comparisons using Function (limited scope)
-      // This is a simplified implementation - consider using a proper expression parser
-      const parts = resolvedExpression.split(/===|!==|>=|<=|>|</);
-      if (parts.length === 2) {
-        const left = parts[0].trim().replace(/^'|'$/, '');
-        const right = parts[1].trim().replace(/^'|'$/, '');
-        const operator = resolvedExpression.match(/===|!==|>=|<=|>|</)?.[0] || '===';
-
-        switch (operator) {
-          case '===':
-            return left === right;
-          case '!==':
-            return left !== right;
-          case '>':
-            return Number(left) > Number(right);
-          case '<':
-            return Number(left) < Number(right);
-          case '>=':
-            return Number(left) >= Number(right);
-          case '<=':
-            return Number(left) <= Number(right);
-        }
-      }
-
-      return false;
-    } catch {
-      return false;
-    }
   }
 
   /**
@@ -652,9 +584,14 @@ ${fields}
   /**
    * Find all output nodes that are directly connected from a given source node.
    */
-  private findOutputBranches(workflow: Workflow, sourceNodeId: string): WorkflowNode[] {
+  private findOutputBranches(workflow: Workflow, sourceNodeId: string, sourcePort?: string): WorkflowNode[] {
     return workflow.edges
-      .filter(e => e.source === sourceNodeId)
+      .filter(e => {
+        if (e.source !== sourceNodeId) return false;
+        // If sourcePort filter is specified (condition node), only match edges from that branch
+        if (sourcePort && e.sourcePort !== sourcePort) return false;
+        return true;
+      })
       .map(e => workflow.nodes.find(n => n.id === e.target))
       .filter((n): n is WorkflowNode => n?.type === 'output');
   }

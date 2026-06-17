@@ -24,7 +24,7 @@ import BookmarkList from './components/BookmarkList';
 import SpiritDoll from './components/SpiritDoll';
 import ImageGenerationModal, { type ImageGenerationParams } from './components/ImageGenerationModal';
 // 导入录制控制组件
-import RecordingControl from './components/RecordingControl';
+import RecordingPill from './components/RecordingPill';
 // 导入事件类型和执行状态
 import { EventType, type AgentEvent, ExecutionState } from './types/event';
 // 导入样式表
@@ -77,6 +77,10 @@ const SidePanel = () => {
   const [messages, setMessages] = useState<Message[]>([]);
   // 输入启用状态：控制输入框是否可用
   const [inputEnabled, setInputEnabled] = useState(true);
+  // 录制进行中标记 — 录制时禁用聊天输入
+  const [isRecordingActive, setIsRecordingActive] = useState(false);
+  // Port state mirror — keeps RecordingPill in sync as the long-lived port is established/reconnected
+  const [portInstance, setPortInstance] = useState<chrome.runtime.Port | null>(null);
   // 是否显示停止按钮
   const [showStopButton, setShowStopButton] = useState(false);
   // 当前执行步骤（传递给器灵显示）
@@ -764,6 +768,7 @@ const SidePanel = () => {
     try {
       // 建立与后台脚本的连接
       portRef.current = chrome.runtime.connect({ name: 'side-panel-connection' });
+      setPortInstance(portRef.current);
 
       // 监听来自后台的消息
       portRef.current.onMessage.addListener((message: any) => {
@@ -1829,7 +1834,12 @@ ${trimmedText}`;
                   <GrHistory size={17} />
                 </button>
                 {/* Recording Control */}
-                <RecordingControl isDarkMode={isDarkMode} port={portRef.current} />
+                <RecordingPill
+                  isDarkMode={isDarkMode}
+                  port={portInstance}
+                  getPort={() => portRef.current}
+                  onRecordingChange={setIsRecordingActive}
+                />
               </>
             )}
             <button
@@ -2137,7 +2147,7 @@ ${trimmedText}`;
                           onSendMessage={handleSendMessage}
                           onStopTask={handleStopTask}
                           onGenerateImage={showImageGeneration ? handleOpenImageModal : undefined}
-                          disabled={!inputEnabled || isHistoricalSession}
+                          disabled={!inputEnabled || isHistoricalSession || isRecordingActive}
                           showStopButton={showStopButton}
                           setContent={setter => {
                             setInputTextRef.current = setter;
@@ -2172,7 +2182,7 @@ ${trimmedText}`;
                           onSendMessage={handleSendMessage}
                           onStopTask={handleStopTask}
                           onGenerateImage={showImageGeneration ? handleOpenImageModal : undefined}
-                          disabled={!inputEnabled || isHistoricalSession}
+                          disabled={!inputEnabled || isHistoricalSession || isRecordingActive}
                           showStopButton={showStopButton}
                           setContent={setter => {
                             setInputTextRef.current = setter;

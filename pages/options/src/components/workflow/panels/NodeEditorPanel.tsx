@@ -247,33 +247,6 @@ export function NodeEditorPanel({ node, onSave, isDarkMode, variables = [] }: No
               </div>
             )}
           </div>
-          <div>
-            <label className={labelClass}>{t('workflow_outputVariable')}</label>
-            {variables.length > 0 ? (
-              <div className="flex gap-1">
-                <input
-                  type="text"
-                  list="ai-output-vars"
-                  value={editedNode.data.outputVariable || ''}
-                  onChange={e => handleFieldChange('outputVariable', e.target.value)}
-                  className={inputClass}
-                  placeholder="select or type a variable name"
-                />
-                <datalist id="ai-output-vars">
-                  {variables.map(v => (
-                    <option key={v.name} value={v.name} />
-                  ))}
-                </datalist>
-              </div>
-            ) : (
-              <input
-                type="text"
-                value={editedNode.data.outputVariable || ''}
-                onChange={e => handleFieldChange('outputVariable', e.target.value)}
-                className={inputClass}
-              />
-            )}
-          </div>
         </div>
       )}
 
@@ -401,17 +374,6 @@ export function NodeEditorPanel({ node, onSave, isDarkMode, variables = [] }: No
               </button>
             </div>
           </div>
-          <div className="flex items-center gap-2">
-            <input
-              type="checkbox"
-              checked={editedNode.data.evaluateWithAI ?? true}
-              onChange={e => handleFieldChange('evaluateWithAI', e.target.checked)}
-              className="rounded"
-            />
-            <label className={`text-xs ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
-              {t('workflow_evaluateWithAI')}
-            </label>
-          </div>
           <p className={`text-xs ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>
             {t('workflow_conditionPortsHint')}
           </p>
@@ -480,7 +442,7 @@ export function NodeEditorPanel({ node, onSave, isDarkMode, variables = [] }: No
             )}
             {variables.length === 0 && (
               <p className={`mt-1 text-xs ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>
-                提示：先在「变量管理」面板定义变量，并在 AI 节点的 outputVariable 字段写入变量名。
+                提示：先在「变量管理」面板定义变量，并在 AI 节点的 prompt 中使用 $&#123;变量名&#125; 让 AI 写入。
               </p>
             )}
           </div>

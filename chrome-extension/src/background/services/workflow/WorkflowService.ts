@@ -23,6 +23,7 @@ class WorkflowExecutionContextImpl implements WorkflowExecutionContext {
   private variables: Record<string, unknown> = {};
   private actionExecutor?: (action: string, params: Record<string, unknown>) => Promise<ActionResult>;
   private aiInvoker?: (prompt: string, context?: Record<string, unknown>) => Promise<AIResult>;
+  private aiLightInvoker?: (prompt: string) => Promise<AIResult>;
   private eventEmitter?: (event: WorkflowEvent) => Promise<void>;
 
   // Execution state tracking
@@ -34,10 +35,12 @@ class WorkflowExecutionContextImpl implements WorkflowExecutionContext {
     actionExecutor?: (action: string, params: Record<string, unknown>) => Promise<ActionResult>,
     aiInvoker?: (prompt: string, context?: Record<string, unknown>) => Promise<AIResult>,
     eventEmitter?: (event: WorkflowEvent) => Promise<void>,
+    aiLightInvoker?: (prompt: string) => Promise<AIResult>,
   ) {
     this.tabId = tabId;
     this.actionExecutor = actionExecutor;
     this.aiInvoker = aiInvoker;
+    this.aiLightInvoker = aiLightInvoker;
     this.eventEmitter = eventEmitter;
   }
 
@@ -59,6 +62,14 @@ class WorkflowExecutionContextImpl implements WorkflowExecutionContext {
       };
     }
     return this.aiInvoker(prompt, context);
+  }
+
+  async invokeAILight(prompt: string): Promise<AIResult> {
+    // If a dedicated lightweight invoker is provided, use it; otherwise fall back to full invokeAI
+    if (this.aiLightInvoker) {
+      return this.aiLightInvoker(prompt);
+    }
+    return this.invokeAI(prompt);
   }
 
   getVariable(name: string): unknown {
@@ -160,6 +171,7 @@ export class WorkflowService {
     actionExecutor?: (action: string, params: Record<string, unknown>) => Promise<ActionResult>,
     aiInvoker?: (prompt: string, context?: Record<string, unknown>) => Promise<AIResult>,
     eventEmitter?: (event: WorkflowEvent) => Promise<void>,
+    aiLightInvoker?: (prompt: string) => Promise<AIResult>,
   ): Promise<WorkflowResult> {
     // Always fetch latest workflow from storage to ensure we have the most recent version
     const latestWorkflow = await userWorkflowsStore.getWorkflow(workflowId);
@@ -177,7 +189,7 @@ export class WorkflowService {
     this.registry.registerWorkflow(latestWorkflow as Workflow);
 
     // Create execution context with event emitter for UI forwarding
-    const context = new WorkflowExecutionContextImpl(tabId, actionExecutor, aiInvoker, eventEmitter);
+    const context = new WorkflowExecutionContextImpl(tabId, actionExecutor, aiInvoker, eventEmitter, aiLightInvoker);
 
     // Set initial variables from params
     for (const [key, value] of Object.entries(params)) {

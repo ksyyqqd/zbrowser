@@ -119,7 +119,6 @@ export function getDefaultNodeData(type: WorkflowNodeType): NodeData {
       { id: 'branch-yes', name: '是' },
       { id: 'branch-no', name: '否' },
     ];
-    data.evaluateWithAI = true;
   } else if (type === 'output') {
     data.label = '输出';
     data.content = '{{}}';

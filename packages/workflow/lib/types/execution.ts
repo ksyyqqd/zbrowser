@@ -8,8 +8,16 @@ import type { WorkflowNode } from './workflow';
 export interface WorkflowExecutionContext {
   // Execute browser automation action
   executeAction: (actionName: string, params: Record<string, unknown>) => Promise<ActionResult>;
-  // Invoke AI agent with prompt
+  // Invoke AI agent with prompt (full Planner/Navigator pipeline — has page context, skills, etc.)
   invokeAI: (prompt: string, context?: Record<string, unknown>) => Promise<AIResult>;
+  /**
+   * Lightweight LLM invocation — pure text in / text out.
+   * No page DOM context, no skill catalog, no agent identity prompts.
+   * Use this for purely textual tasks like condition evaluation, summarization
+   * over already-fetched variables, classification, etc.
+   * Falls back to `invokeAI` if not provided by the host environment.
+   */
+  invokeAILight?: (prompt: string) => Promise<AIResult>;
   // Get/set workflow variables
   getVariable: (name: string) => unknown;
   setVariable: (name: string, value: unknown) => void;
@@ -52,6 +60,7 @@ export interface NodeResult {
   error?: string;
   duration: number; // Execution time in ms
   nextNodeId?: string; // For condition nodes, the next node to execute
+  selectedBranchId?: string; // For condition nodes, the chosen branch port id (used to gate side outputs)
 }
 
 /**
@@ -130,6 +139,7 @@ export const NodeResultSchema = z.object({
   error: z.string().optional(),
   duration: z.number(),
   nextNodeId: z.string().optional(),
+  selectedBranchId: z.string().optional(),
 });
 
 export const WorkflowResultSchema = z.object({

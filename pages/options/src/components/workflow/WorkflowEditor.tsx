@@ -404,7 +404,12 @@ function WorkflowEditorInner({
 
   // ============ Render ============
   return (
-    <div className={`workflow-editor flex h-full flex-col ${isFullscreen ? 'fixed inset-0 z-[100]' : ''}`}>
+    <div
+      className={`workflow-editor flex flex-col ${
+        isFullscreen
+          ? `fixed inset-0 z-[100] h-screen w-screen overflow-hidden ${isDarkMode ? 'bg-slate-900' : 'bg-white'}`
+          : 'h-full'
+      }`}>
       {/* Header */}
       <div
         className={`flex items-center justify-between border-b px-4 py-2.5 shadow-sm ${isDarkMode ? 'border-slate-700 bg-slate-800' : 'border-gray-200 bg-white'}`}>
@@ -544,11 +549,11 @@ function WorkflowEditorInner({
       </div>
 
       {/* Canvas Area */}
-      <div className="flex min-h-0 flex-1">
+      <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
         {/* Palette */}
         <div
-          className={`flex w-56 flex-col border-r ${isDarkMode ? 'border-slate-700 bg-slate-800/80' : 'border-gray-200 bg-gray-50/80'}`}
-          style={{ overflow: 'auto' }}>
+          className={`flex shrink-0 flex-col overflow-y-auto overflow-x-hidden border-r ${isDarkMode ? 'border-slate-700 bg-slate-800/80' : 'border-gray-200 bg-gray-50/80'}`}
+          style={{ width: 224, minWidth: 224, maxWidth: 224, boxSizing: 'border-box' }}>
           <div className="px-3 pb-1 pt-3">
             <h3
               className={`mb-2 text-xs font-semibold uppercase tracking-wider ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>

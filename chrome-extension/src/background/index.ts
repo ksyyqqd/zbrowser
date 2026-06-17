@@ -663,6 +663,34 @@ async function handleExecuteWorkflow(message: {
     };
 
     // Execute workflow
+    /**
+     * Lightweight AI invoker for purely textual tasks (e.g. condition evaluation).
+     * Calls the LLM directly without the Planner/Navigator agent pipeline:
+     * no page DOM context, no skill catalog, no agent identity prompts.
+     */
+    const aiLightInvoker = async (prompt: string) => {
+      try {
+        const providers = await llmProviderStore.getAllProviders();
+        if (Object.keys(providers).length === 0) {
+          return { success: false, error: 'No LLM provider configured' };
+        }
+        const agentModels = await agentModelStore.getAllAgentModels();
+        const navigatorModel = agentModels[AgentNameEnum.Navigator];
+        if (!navigatorModel) {
+          return { success: false, error: 'No Navigator model configured' };
+        }
+        const providerConfig = providers[navigatorModel.provider];
+        const llm = createChatModel(providerConfig, navigatorModel);
+        const response = await llm.invoke(prompt);
+        const content = response.content;
+        const text = typeof content === 'string' ? content : JSON.stringify(content);
+        return { success: true, response: text };
+      } catch (error) {
+        logger.error('aiLightInvoker failed:', error);
+        return { success: false, error: error instanceof Error ? error.message : 'AI light invoke failed' };
+      }
+    };
+
     const result = await workflowService.executeWorkflow(
       workflowId,
       targetPage.tabId,
@@ -670,6 +698,7 @@ async function handleExecuteWorkflow(message: {
       actionExecutor,
       aiInvoker,
       workflowEventEmitter,
+      aiLightInvoker,
     );
 
     logger.info('execute_workflow result', targetPage.tabId, result);
