@@ -318,6 +318,10 @@ export default function RecordingControl({ isDarkMode = false, port }: Recording
     }
 
     setError(null);
+    // Clear previous session state so a fresh recording can begin
+    setSession(null);
+    setEditedSkill(null);
+    setSaved(false);
 
     // Get active tab
     try {
@@ -335,10 +339,35 @@ export default function RecordingControl({ isDarkMode = false, port }: Recording
 
       console.log('[RecordingControl] Starting recording on tab:', activeTab.id, activeTab.url);
 
-      internalPortRef.current.postMessage({
-        type: 'start_recording',
-        tabId: activeTab.id,
-      });
+      // Reconnect port if it was disconnected (e.g. after extension reload)
+      try {
+        internalPortRef.current.postMessage({
+          type: 'start_recording',
+          tabId: activeTab.id,
+        });
+        // Optimistically mark recording as started so UI shows immediately
+        setIsRecording(true);
+      } catch (portErr) {
+        // Port disconnected — reconnect and retry
+        console.warn('[RecordingControl] Port disconnected, reconnecting...', portErr);
+        try {
+          const newPort = chrome.runtime.connect({ name: 'side-panel-connection' });
+          internalPortRef.current = newPort;
+          // Re-attach message listener to new port
+          if (messageListenerRef.current) {
+            newPort.onMessage.addListener(messageListenerRef.current);
+          }
+          newPort.postMessage({
+            type: 'start_recording',
+            tabId: activeTab.id,
+          });
+          setIsRecording(true);
+        } catch (retryErr) {
+          setError('连接断开，请刷新聊天面板');
+          console.error('[RecordingControl] Reconnection failed:', retryErr);
+          return;
+        }
+      }
     } catch (e) {
       setError('启动录制失败');
       console.error('[RecordingControl] Failed to start recording:', e);
@@ -524,6 +553,90 @@ export default function RecordingControl({ isDarkMode = false, port }: Recording
 
     setTimeout(() => setSaving(false), 3000);
   }, [session, skillName, skillDescription]);
+
+  /**
+   * Save the current recording as a Workflow and open the workflow editor in the Options page.
+   * Bridges Recording → Skill → SkillToWorkflow conversion → workflow store → openOptionsPage.
+   */
+  const handleSaveAsWorkflow = useCallback(async () => {
+    if (!session || !skillName.trim()) return;
+    setSaving(true);
+    setError(null);
+    try {
+      const { userWorkflowsStore } = await import('@extension/storage');
+      const { convertSkillToWorkflow } = await import('@extension/workflow');
+
+      // Build a Skill object from the current session/edited steps
+      const sourceSteps =
+        editedSkill?.steps && editedSkill.steps.length > 0
+          ? editedSkill.steps
+          : session.actions.map((a, idx) => {
+              const action = convertActionToSkillAction(a.type);
+              const params = convertActionParameters(a);
+              return {
+                id: `step-${idx}`,
+                action,
+                description: a.element?.textContent ? `${action}: ${a.element.textContent.slice(0, 30)}` : action,
+                parameters: params,
+                onError: 'stop' as const,
+              };
+            });
+
+      const skill = {
+        id: `skill-${Date.now()}`,
+        name: skillName.trim(),
+        description: skillDescription.trim() || `录制的自动化: ${skillName}`,
+        version: '1.0.0',
+        category: 'recorded',
+        author: 'recorder',
+        tags: [] as string[],
+        parameters: [] as Array<{
+          name: string;
+          type: 'string' | 'number' | 'boolean' | 'array' | 'object';
+          description?: string;
+          required?: boolean;
+          default?: unknown;
+        }>,
+        steps: sourceSteps,
+        executionMode: 'expanded' as const,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      };
+
+      // Convert Skill to Workflow
+      const workflow = convertSkillToWorkflow(skill as unknown as Parameters<typeof convertSkillToWorkflow>[0]);
+      const workflowId = `recorded-${Date.now()}`;
+      const config = {
+        id: workflowId,
+        name: workflow.name,
+        description: workflow.description,
+        version: workflow.version,
+        nodes: workflow.nodes,
+        edges: workflow.edges,
+        variables: workflow.variables,
+        executionConfig: workflow.executionConfig,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      };
+      await userWorkflowsStore.addWorkflow(config);
+      console.log('[RecordingControl] Workflow saved:', workflowId, 'with', config.nodes.length, 'nodes');
+
+      // Close modals and recording state, then open Options at workflows tab
+      setSession(null);
+      setIsRecording(false);
+      setShowSaveModal(false);
+      setShowEditModal(false);
+      setEditedSkill(null);
+      setSaving(false);
+      // Navigate to options page with workflows tab and auto-open param
+      const optionsUrl = chrome.runtime.getURL(`options/index.html?tab=workflows&editWorkflow=${workflowId}`);
+      chrome.tabs.create({ url: optionsUrl });
+    } catch (e) {
+      console.error('[RecordingControl] Save as workflow failed:', e);
+      setError(e instanceof Error ? e.message : '保存为工作流失败');
+      setSaving(false);
+    }
+  }, [session, skillName, skillDescription, editedSkill]);
 
   // Clear recorded session
   const handleClearSession = useCallback(() => {
@@ -881,7 +994,7 @@ export default function RecordingControl({ isDarkMode = false, port }: Recording
                 color: '#fff',
               }}>
               <FiSave size={12} />
-              保存为 Skill
+              保存
             </button>
           </div>
         </div>
@@ -977,11 +1090,24 @@ export default function RecordingControl({ isDarkMode = false, port }: Recording
                 disabled={!skillName.trim() || saving}
                 className="px-4 py-1.5 rounded-lg text-xs font-medium"
                 style={{
+                  background: 'var(--bg-secondary)',
+                  color: 'var(--text-primary)',
+                  border: '1px solid var(--border-color)',
+                  opacity: !skillName.trim() || saving ? 0.5 : 1,
+                }}>
+                {saving ? '保存中...' : '保存为 Skill'}
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveAsWorkflow}
+                disabled={!skillName.trim() || saving}
+                className="px-4 py-1.5 rounded-lg text-xs font-medium"
+                style={{
                   background: 'var(--accent-color)',
                   color: '#fff',
                   opacity: !skillName.trim() || saving ? 0.5 : 1,
                 }}>
-                {saving ? '保存中...' : '保存'}
+                {saving ? '保存中...' : '保存为工作流'}
               </button>
             </div>
           </div>

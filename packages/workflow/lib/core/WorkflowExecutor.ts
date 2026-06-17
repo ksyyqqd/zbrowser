@@ -53,7 +53,15 @@ export class WorkflowExecutor {
           break;
         }
 
-        // Find next node (for condition nodes, use the branch decision)
+        // Execute any output-node side branches connected to the current node.
+        // Output nodes are side collectors — they don't affect main flow.
+        const outputBranches = this.findOutputBranches(workflow, currentNode.id);
+        for (const outputNode of outputBranches) {
+          const outResult = await this.executeNode(outputNode, workflow, context);
+          results.push(outResult);
+        }
+
+        // Find next main-flow node (for condition nodes, use the branch decision)
         if (currentNode.type === 'condition' && nodeResult.nextNodeId) {
           currentNode = workflow.nodes.find(n => n.id === nodeResult.nextNodeId);
         } else {
@@ -115,6 +123,7 @@ export class WorkflowExecutor {
       workflowId: workflow.id,
       nodeId: node.id,
       nodeName: node.name,
+      nodeType: node.type,
       details: `Executing node: ${node.name}`,
     });
 
@@ -136,6 +145,9 @@ export class WorkflowExecutor {
         case 'condition':
           result = await this.handleConditionModule(node, workflow, context);
           break;
+        case 'output':
+          result = this.handleOutputModule(node, context, startTime);
+          break;
         default:
           result = {
             nodeId: node.id,
@@ -146,12 +158,19 @@ export class WorkflowExecutor {
       }
 
       // Emit node complete event
+      // For output nodes, include the full resolved content; otherwise truncate to 500 chars
+      const detailsText = result.output
+        ? node.type === 'output'
+          ? String(result.output)
+          : String(result.output).slice(0, 500)
+        : `Node completed: ${node.name}`;
       await this.emitEvent(context, {
         type: 'NODE_OK',
         workflowId: workflow.id,
         nodeId: node.id,
         nodeName: node.name,
-        details: `Node completed: ${node.name}`,
+        nodeType: node.type,
+        details: detailsText,
       });
 
       return result;
@@ -165,6 +184,7 @@ export class WorkflowExecutor {
         workflowId: workflow.id,
         nodeId: node.id,
         nodeName: node.name,
+        nodeType: node.type,
         details: errorMessage,
       });
 
@@ -180,12 +200,18 @@ export class WorkflowExecutor {
 
   /**
    * Handle AI Module execution
+   *
+   * Supports two output modes:
+   *  1) Single variable mode: writes the entire AI response to `outputVariable` (legacy)
+   *  2) Structured multi-variable mode: prompt may contain `${name}` placeholders that
+   *     designate target variables. The executor injects a JSON-output instruction so
+   *     the LLM returns `{name1: "...", name2: "..."}`, which is parsed and each field
+   *     is written to the corresponding variable.
    */
   private async handleAIModule(node: WorkflowNode, context: WorkflowExecutionContext): Promise<NodeResult> {
     const startTime = Date.now();
     const prompt = node.data.prompt || '';
 
-    // Check if prompt is empty
     if (!prompt.trim()) {
       return {
         nodeId: node.id,
@@ -196,17 +222,68 @@ export class WorkflowExecutor {
       };
     }
 
-    // Build context variables
+    // Build context variables (existing values to inject)
     const contextData: Record<string, unknown> = {};
     const contextVars = node.data.contextVariables || [];
     for (const varName of contextVars) {
       contextData[varName] = context.getVariable(varName);
     }
 
-    // Invoke AI
-    const aiResult = await context.invokeAI(prompt, contextData);
+    // Detect ${varName} placeholders that designate write targets
+    const writeTargets = this.extractWriteTargets(prompt);
 
-    // Store output in variable if specified
+    // Compose the actual prompt sent to the LLM
+    const finalPrompt = writeTargets.length > 0 ? this.buildStructuredPrompt(prompt, writeTargets) : prompt;
+
+    const aiResult = await context.invokeAI(finalPrompt, contextData);
+
+    // Single-variable legacy mode
+    if (writeTargets.length === 0) {
+      if (node.data.outputVariable && aiResult.response) {
+        context.setVariable(node.data.outputVariable, aiResult.response);
+      }
+      return {
+        nodeId: node.id,
+        nodeType: 'ai',
+        success: aiResult.success,
+        output: aiResult.response,
+        error: aiResult.error,
+        duration: Date.now() - startTime,
+      };
+    }
+
+    // Structured mode: parse JSON and assign each field
+    const parsed = this.tryParseStructuredResponse(aiResult.response || '', writeTargets);
+    let summary = '';
+    if (parsed) {
+      for (const name of writeTargets) {
+        const val = parsed[name];
+        if (val !== undefined) {
+          context.setVariable(name, val);
+          summary += `${name}: ${typeof val === 'string' ? val : JSON.stringify(val)}\n\n`;
+        }
+      }
+    } else {
+      // Final fallback: even if JSON parse failed, try regex extraction for each target
+      // then write raw response to first target if nothing else works
+      let extracted = false;
+      for (const name of writeTargets) {
+        const regex = new RegExp(`"${name}"\\s*:\\s*"((?:[^"\\\\]|\\\\.)*)"`, 's');
+        const match = regex.exec(aiResult.response || '');
+        if (match) {
+          // Unescape JSON string escapes
+          const val = match[1].replace(/\\n/g, '\n').replace(/\\"/g, '"').replace(/\\\\/g, '\\');
+          context.setVariable(name, val);
+          summary += `${name}: ${val}\n\n`;
+          extracted = true;
+        }
+      }
+      if (!extracted && aiResult.response) {
+        context.setVariable(writeTargets[0], aiResult.response);
+        summary = aiResult.response;
+      }
+    }
+    // Also honor legacy outputVariable if set (e.g. for downstream conditions reading the raw response)
     if (node.data.outputVariable && aiResult.response) {
       context.setVariable(node.data.outputVariable, aiResult.response);
     }
@@ -215,10 +292,89 @@ export class WorkflowExecutor {
       nodeId: node.id,
       nodeType: 'ai',
       success: aiResult.success,
-      output: aiResult.response,
+      output: summary.trim() || aiResult.response,
       error: aiResult.error,
       duration: Date.now() - startTime,
     };
+  }
+
+  /**
+   * Extract `${varName}` placeholders from a prompt.
+   * Returns deduplicated list in order of first appearance.
+   */
+  private extractWriteTargets(prompt: string): string[] {
+    const re = /\$\{([a-zA-Z_][\w]*)\}/g;
+    const seen = new Set<string>();
+    const out: string[] = [];
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(prompt)) !== null) {
+      const name = m[1];
+      if (!seen.has(name)) {
+        seen.add(name);
+        out.push(name);
+      }
+    }
+    return out;
+  }
+
+  /**
+   * Wrap the user's prompt with a structured-output instruction so the LLM
+   * responds with strict JSON containing the requested fields.
+   */
+  private buildStructuredPrompt(userPrompt: string, targets: string[]): string {
+    const fields = targets.map(t => `  "${t}": "<对应内容>"`).join(',\n');
+    return `${userPrompt}
+
+---
+请严格按以下 JSON 格式返回（不要包裹代码块、不要任何解释、不要额外字符）：
+{
+${fields}
+}`;
+  }
+
+  /**
+   * Best-effort JSON parsing of an LLM response.
+   * Tolerates leading/trailing prose and code-block fences.
+   *
+   * Some agent runtimes (e.g. PlannerAgent) wrap user prompts in their own
+   * schema and place the user-facing payload as a JSON-string under
+   * `final_answer` / `content` / `result`. We unwrap one nesting level when
+   * none of the requested target fields are present at the top level.
+   */
+  private tryParseStructuredResponse(response: string, targets: string[]): Record<string, unknown> | null {
+    if (!response) return null;
+    // Strip code fences
+    const cleaned = response.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '');
+    // Find the first {...} block
+    const start = cleaned.indexOf('{');
+    const end = cleaned.lastIndexOf('}');
+    if (start < 0 || end < 0 || end <= start) return null;
+    const slice = cleaned.slice(start, end + 1);
+    let obj: unknown;
+    try {
+      obj = JSON.parse(slice);
+    } catch {
+      return null;
+    }
+    if (!obj || typeof obj !== 'object') return null;
+    const record = obj as Record<string, unknown>;
+    const hasAnyTarget = targets.some(t => Object.prototype.hasOwnProperty.call(record, t));
+    if (hasAnyTarget) return record;
+
+    // Unwrap one level: try common wrapper keys whose value is a JSON string
+    const wrapperKeys = ['final_answer', 'content', 'result', 'answer', 'output', 'data'];
+    for (const wk of wrapperKeys) {
+      const wv = record[wk];
+      if (typeof wv === 'string') {
+        const inner = this.tryParseStructuredResponse(wv, targets);
+        if (inner) return inner;
+      } else if (wv && typeof wv === 'object') {
+        const innerRec = wv as Record<string, unknown>;
+        const innerHas = targets.some(t => Object.prototype.hasOwnProperty.call(innerRec, t));
+        if (innerHas) return innerRec;
+      }
+    }
+    return null;
   }
 
   /**
@@ -354,6 +510,23 @@ export class WorkflowExecutor {
   }
 
   /**
+   * Handle Output Module execution
+   * Resolves the content template (supports {{variableName}}) and returns it as output.
+   * The result is rendered as a final-output card on the execution log panel.
+   */
+  private handleOutputModule(node: WorkflowNode, context: WorkflowExecutionContext, startTime: number): NodeResult {
+    const template = node.data.content || '';
+    const resolved = template ? this.resolveTemplate(template, context) : '';
+    return {
+      nodeId: node.id,
+      nodeType: 'output',
+      success: true,
+      output: resolved,
+      duration: Date.now() - startTime,
+    };
+  }
+
+  /**
    * Evaluate simple expression (without AI)
    */
   private evaluateSimpleExpression(expression: string, context: WorkflowExecutionContext): boolean {
@@ -463,12 +636,27 @@ export class WorkflowExecutor {
   }
 
   /**
-   * Find next node after given node ID
+   * Find next main-flow node after given node ID.
+   * Skips edges that target output nodes (they are handled as side branches).
    */
   private findNextNode(workflow: Workflow, nodeId: string): WorkflowNode | undefined {
-    const edge = workflow.edges.find(e => e.source === nodeId);
+    const edge = workflow.edges.find(e => {
+      if (e.source !== nodeId) return false;
+      const target = workflow.nodes.find(n => n.id === e.target);
+      return target?.type !== 'output';
+    });
     if (!edge) return undefined;
     return workflow.nodes.find(n => n.id === edge.target);
+  }
+
+  /**
+   * Find all output nodes that are directly connected from a given source node.
+   */
+  private findOutputBranches(workflow: Workflow, sourceNodeId: string): WorkflowNode[] {
+    return workflow.edges
+      .filter(e => e.source === sourceNodeId)
+      .map(e => workflow.nodes.find(n => n.id === e.target))
+      .filter((n): n is WorkflowNode => n?.type === 'output');
   }
 
   /**

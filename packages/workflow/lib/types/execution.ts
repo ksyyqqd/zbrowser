@@ -87,6 +87,7 @@ export interface WorkflowEvent {
   workflowId: string;
   nodeId?: string;
   nodeName?: string;
+  nodeType?: string;
   details?: string;
   timestamp?: number;
 }
@@ -156,6 +157,7 @@ export const WorkflowEventSchema = z.object({
   workflowId: z.string(),
   nodeId: z.string().optional(),
   nodeName: z.string().optional(),
+  nodeType: z.string().optional(),
   details: z.string().optional(),
   timestamp: z.number().optional(),
 });

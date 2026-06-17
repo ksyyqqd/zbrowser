@@ -378,6 +378,11 @@ function handleCut(event: ClipboardEvent) {
  * Start recording
  */
 function startRecording(id: string) {
+  // Defensively clean up any residual listeners from a previous session
+  // (e.g. on tabs where the content script persists across multiple recordings).
+  if (isRecording) {
+    stopRecording();
+  }
   isRecording = true;
   sessionId = id;
 

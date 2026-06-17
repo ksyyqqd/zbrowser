@@ -1,17 +1,19 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { FiTrash2 } from 'react-icons/fi';
 import { t } from '@extension/i18n';
-import type { WorkflowNode } from '@extension/workflow';
+import type { WorkflowNode, WorkflowVariable } from '@extension/workflow';
 import { newBranchId } from '../utils/ids';
 
 interface NodeEditorPanelProps {
   node: WorkflowNode;
   onSave: (node: WorkflowNode) => void;
   isDarkMode: boolean;
+  variables?: WorkflowVariable[];
 }
 
-export function NodeEditorPanel({ node, onSave, isDarkMode }: NodeEditorPanelProps) {
+export function NodeEditorPanel({ node, onSave, isDarkMode, variables = [] }: NodeEditorPanelProps) {
   const [editedNode, setEditedNode] = useState(node);
+  const promptRef = useRef<HTMLTextAreaElement | null>(null);
 
   useEffect(() => {
     setEditedNode(node);
@@ -141,13 +143,17 @@ export function NodeEditorPanel({ node, onSave, isDarkMode }: NodeEditorPanelPro
               ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400'
               : editedNode.type === 'automation'
                 ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400'
-                : 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400'
+                : editedNode.type === 'output'
+                  ? 'bg-teal-100 text-teal-700 dark:bg-teal-900/30 dark:text-teal-400'
+                  : 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400'
           }`}>
           {editedNode.type === 'ai'
             ? t('workflow_nodeType_ai')
             : editedNode.type === 'automation'
               ? t('workflow_nodeType_automation')
-              : t('workflow_nodeType_condition')}
+              : editedNode.type === 'output'
+                ? '输出'
+                : t('workflow_nodeType_condition')}
         </span>
       </div>
 
@@ -157,20 +163,116 @@ export function NodeEditorPanel({ node, onSave, isDarkMode }: NodeEditorPanelPro
           <div>
             <label className={labelClass}>{t('workflow_aiPrompt')}</label>
             <textarea
+              ref={promptRef}
               value={editedNode.data.prompt || ''}
               onChange={e => handleFieldChange('prompt', e.target.value)}
               className={inputClass}
               rows={4}
             />
+            {variables.length > 0 && (
+              <div className="mt-1.5 space-y-1">
+                <div className="flex flex-wrap items-center gap-1">
+                  <span className={`text-[10px] uppercase ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>
+                    读取 {'{{ }}'}:
+                  </span>
+                  {variables.map(v => (
+                    <button
+                      key={`read-${v.name}`}
+                      type="button"
+                      onClick={() => {
+                        const token = `{{${v.name}}}`;
+                        const ta = promptRef.current;
+                        if (ta) {
+                          const start = ta.selectionStart ?? editedNode.data.prompt?.length ?? 0;
+                          const end = ta.selectionEnd ?? start;
+                          const cur = editedNode.data.prompt || '';
+                          const next = cur.slice(0, start) + token + cur.slice(end);
+                          handleFieldChange('prompt', next);
+                          requestAnimationFrame(() => {
+                            ta.focus();
+                            ta.selectionStart = ta.selectionEnd = start + token.length;
+                          });
+                        } else {
+                          handleFieldChange('prompt', (editedNode.data.prompt || '') + token);
+                        }
+                      }}
+                      title={v.description || `Insert {{${v.name}}} (read value)`}
+                      className={`rounded px-1.5 py-0.5 font-mono text-[10px] transition-colors ${
+                        isDarkMode
+                          ? 'bg-blue-900/30 text-blue-300 hover:bg-blue-900/60'
+                          : 'bg-blue-100 text-blue-700 hover:bg-blue-200'
+                      }`}>
+                      {`{{${v.name}}}`}
+                    </button>
+                  ))}
+                </div>
+                <div className="flex flex-wrap items-center gap-1">
+                  <span className={`text-[10px] uppercase ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>
+                    写入 ${'{ }'}:
+                  </span>
+                  {variables.map(v => (
+                    <button
+                      key={`write-${v.name}`}
+                      type="button"
+                      onClick={() => {
+                        const token = `\${${v.name}}`;
+                        const ta = promptRef.current;
+                        if (ta) {
+                          const start = ta.selectionStart ?? editedNode.data.prompt?.length ?? 0;
+                          const end = ta.selectionEnd ?? start;
+                          const cur = editedNode.data.prompt || '';
+                          const next = cur.slice(0, start) + token + cur.slice(end);
+                          handleFieldChange('prompt', next);
+                          requestAnimationFrame(() => {
+                            ta.focus();
+                            ta.selectionStart = ta.selectionEnd = start + token.length;
+                          });
+                        } else {
+                          handleFieldChange('prompt', (editedNode.data.prompt || '') + token);
+                        }
+                      }}
+                      title={`AI will write its corresponding output to variable "${v.name}"`}
+                      className={`rounded px-1.5 py-0.5 font-mono text-[10px] transition-colors ${
+                        isDarkMode
+                          ? 'bg-emerald-900/30 text-emerald-300 hover:bg-emerald-900/60'
+                          : 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200'
+                      }`}>
+                      {`\${${v.name}}`}
+                    </button>
+                  ))}
+                </div>
+                <p className={`text-[10px] leading-tight ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>
+                  例：将今天天气写入 ${'{content1}'}，明天的写入 ${'{content2}'} → AI 会以 JSON 返回并自动赋值
+                </p>
+              </div>
+            )}
           </div>
           <div>
             <label className={labelClass}>{t('workflow_outputVariable')}</label>
-            <input
-              type="text"
-              value={editedNode.data.outputVariable || ''}
-              onChange={e => handleFieldChange('outputVariable', e.target.value)}
-              className={inputClass}
-            />
+            {variables.length > 0 ? (
+              <div className="flex gap-1">
+                <input
+                  type="text"
+                  list="ai-output-vars"
+                  value={editedNode.data.outputVariable || ''}
+                  onChange={e => handleFieldChange('outputVariable', e.target.value)}
+                  className={inputClass}
+                  placeholder="select or type a variable name"
+                />
+                <datalist id="ai-output-vars">
+                  {variables.map(v => (
+                    <option key={v.name} value={v.name} />
+                  ))}
+                </datalist>
+              </div>
+            ) : (
+              <input
+                type="text"
+                value={editedNode.data.outputVariable || ''}
+                onChange={e => handleFieldChange('outputVariable', e.target.value)}
+                className={inputClass}
+              />
+            )}
           </div>
         </div>
       )}
@@ -313,6 +415,75 @@ export function NodeEditorPanel({ node, onSave, isDarkMode }: NodeEditorPanelPro
           <p className={`text-xs ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>
             {t('workflow_conditionPortsHint')}
           </p>
+        </div>
+      )}
+
+      {/* Output Fields */}
+      {editedNode.type === 'output' && (
+        <div className="space-y-3">
+          <div>
+            <label className={labelClass}>显示标签</label>
+            <input
+              type="text"
+              value={(editedNode.data.label as string) || ''}
+              onChange={e => handleFieldChange('label', e.target.value)}
+              placeholder="如：调研报告、汇总结论"
+              className={inputClass}
+            />
+          </div>
+          <div>
+            <label className={labelClass}>输出内容</label>
+            <textarea
+              ref={promptRef}
+              value={(editedNode.data.content as string) || ''}
+              onChange={e => handleFieldChange('content', e.target.value)}
+              className={inputClass}
+              rows={6}
+              placeholder="支持 {{变量名}} 模板插值"
+            />
+            {variables.length > 0 && (
+              <div className="mt-1.5 flex flex-wrap gap-1">
+                <span className={`text-[10px] uppercase ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>
+                  插入变量:
+                </span>
+                {variables.map(v => (
+                  <button
+                    key={v.name}
+                    type="button"
+                    onClick={() => {
+                      const token = `{{${v.name}}}`;
+                      const ta = promptRef.current;
+                      if (ta) {
+                        const start = ta.selectionStart ?? 0;
+                        const end = ta.selectionEnd ?? start;
+                        const cur = (editedNode.data.content as string) || '';
+                        const next = cur.slice(0, start) + token + cur.slice(end);
+                        handleFieldChange('content', next);
+                        requestAnimationFrame(() => {
+                          ta.focus();
+                          ta.selectionStart = ta.selectionEnd = start + token.length;
+                        });
+                      } else {
+                        handleFieldChange('content', ((editedNode.data.content as string) || '') + token);
+                      }
+                    }}
+                    title={v.description || `Insert {{${v.name}}}`}
+                    className={`rounded px-1.5 py-0.5 font-mono text-[10px] transition-colors ${
+                      isDarkMode
+                        ? 'bg-blue-900/30 text-blue-300 hover:bg-blue-900/60'
+                        : 'bg-blue-100 text-blue-700 hover:bg-blue-200'
+                    }`}>
+                    {`{{${v.name}}}`}
+                  </button>
+                ))}
+              </div>
+            )}
+            {variables.length === 0 && (
+              <p className={`mt-1 text-xs ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>
+                提示：先在「变量管理」面板定义变量，并在 AI 节点的 outputVariable 字段写入变量名。
+              </p>
+            )}
+          </div>
         </div>
       )}
     </div>

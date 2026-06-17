@@ -11,14 +11,20 @@ interface MessageListProps {
 }
 
 // 判断消息是否为"执行步骤"类消息（默认隐藏）
-// Navigator / Planner / Validator / User / System 的消息全部隐藏，只保留关键回复
+// Navigator / Planner / Validator / User 的消息全部隐藏，只保留关键回复
+// System 消息：只有带流程前缀（⏳✓✗▶❌✅🔀）的折叠，其他独立展示（如 output 节点输出）
 function isExecutionStepMessage(msg: Message): boolean {
   // 进度消息
   if (msg.content === 'Showing progress...') return true;
   // Navigator / Planner / Validator 的所有消息全部隐藏
   if (msg.actor === 'navigator' || msg.actor === 'planner' || msg.actor === 'validator') return true;
-  // 用户发言和系统提示也默认折叠
-  if (msg.actor === 'user' || msg.actor === 'system') return true;
+  // 用户发言默认折叠
+  if (msg.actor === 'user') return true;
+  // System 消息：带执行流程前缀的折叠，其余保留（如 output 节点的最终输出）
+  if (msg.actor === 'system') {
+    const prefixes = ['⏳', '✓', '✗', '▶', '❌', '✅', '🔀'];
+    return prefixes.some(p => msg.content.startsWith(p));
+  }
   return false;
 }
 

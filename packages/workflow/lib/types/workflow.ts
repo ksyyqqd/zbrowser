@@ -3,7 +3,7 @@ import { z } from 'zod';
 /**
  * Workflow node type
  */
-export type WorkflowNodeType = 'ai' | 'automation' | 'condition' | 'start' | 'end';
+export type WorkflowNodeType = 'ai' | 'automation' | 'condition' | 'output' | 'start' | 'end';
 
 /**
  * Workflow node position for visual editor
@@ -48,6 +48,10 @@ export interface NodeData {
   trueNodeId?: string; // Deprecated - use branches + edge sourcePort instead
   falseNodeId?: string; // Deprecated - use branches + edge sourcePort instead
   evaluateWithAI?: boolean;
+
+  // Output Module configuration
+  content?: string; // Output content template, supports {{variableName}} interpolation
+  label?: string; // Display label for this output (e.g. "Final Report", "Summary")
 }
 
 /**
@@ -147,11 +151,13 @@ export const NodeDataSchema = z.object({
   trueNodeId: z.string().optional(),
   falseNodeId: z.string().optional(),
   evaluateWithAI: z.boolean().optional(),
+  content: z.string().optional(),
+  label: z.string().optional(),
 });
 
 export const WorkflowNodeSchema = z.object({
   id: z.string(),
-  type: z.enum(['ai', 'automation', 'condition', 'start', 'end']),
+  type: z.enum(['ai', 'automation', 'condition', 'output', 'start', 'end']),
   name: z.string(),
   description: z.string().optional(),
   position: NodePositionSchema,

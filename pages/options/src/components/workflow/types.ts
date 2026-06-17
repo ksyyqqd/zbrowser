@@ -1,5 +1,5 @@
 import type { Node as RFNode, Edge as RFEdge } from '@xyflow/react';
-import type { NodeData, WorkflowNodeType, Workflow } from '@extension/workflow';
+import type { NodeData, WorkflowNodeType, Workflow, WorkflowEvent } from '@extension/workflow';
 
 /**
  * React Flow v12 requires node data to satisfy Record<string, unknown>.
@@ -25,6 +25,8 @@ export interface ExecutionState {
   currentNodeId: string | null;
   nodeStatus: Record<string, NodeStatus>;
   status: 'idle' | 'running' | 'completed' | 'failed';
+  /** Chronological event log from the current execution run */
+  events: WorkflowEvent[];
 }
 
 export interface WorkflowEditorProps {
@@ -34,4 +36,7 @@ export interface WorkflowEditorProps {
   isDarkMode?: boolean;
   /** Optional execution state used to highlight node progress on the canvas */
   executionState?: ExecutionState;
+  /** Optional callback to execute the current workflow from inside the editor.
+   *  Implementation should save the workflow first, then trigger background execution. */
+  onExecute?: (workflow: Workflow) => void;
 }

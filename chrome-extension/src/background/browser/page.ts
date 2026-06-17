@@ -1479,8 +1479,18 @@ export default class Page {
         }, selector);
         element = handle.asElement() as ElementHandle<Element> | null;
       } else {
-        // CSS selector
-        element = await this._puppeteerPage.$(selector);
+        // CSS selector — if multiple elements match, refuse to click to avoid
+        // hitting the wrong one (caller should fall back to a more precise selector like XPath)
+        const matches = await this._puppeteerPage.$$(selector);
+        if (matches.length > 1) {
+          logger.warning(
+            `CSS selector "${selector}" matched ${matches.length} elements; skipping to let caller fall back to XPath.`,
+          );
+          // Release handles
+          await Promise.all(matches.map(m => m.dispose().catch(() => {})));
+          return false;
+        }
+        element = matches[0] || null;
       }
 
       if (!element) {
@@ -1516,7 +1526,17 @@ export default class Page {
         }, selector);
         element = handle.asElement() as ElementHandle<Element> | null;
       } else {
-        element = await this._puppeteerPage.$(selector);
+        // CSS selector — if multiple elements match, refuse to input to avoid
+        // typing into the wrong one (caller should fall back to XPath)
+        const matches = await this._puppeteerPage.$$(selector);
+        if (matches.length > 1) {
+          logger.warning(
+            `CSS selector "${selector}" matched ${matches.length} elements; skipping input to let caller fall back to XPath.`,
+          );
+          await Promise.all(matches.map(m => m.dispose().catch(() => {})));
+          return false;
+        }
+        element = matches[0] || null;
       }
 
       if (!element) {

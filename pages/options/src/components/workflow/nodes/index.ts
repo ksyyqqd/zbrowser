@@ -3,6 +3,7 @@ import { AutomationNode } from './AutomationNode';
 import { ConditionNode } from './ConditionNode';
 import { StartNode } from './StartNode';
 import { EndNode } from './EndNode';
+import { OutputNode } from './OutputNode';
 
 export const nodeTypes = {
   ai: AINode,
@@ -10,6 +11,7 @@ export const nodeTypes = {
   condition: ConditionNode,
   start: StartNode,
   end: EndNode,
+  output: OutputNode,
 };
 
-export { AINode, AutomationNode, ConditionNode, StartNode, EndNode };
+export { AINode, AutomationNode, ConditionNode, StartNode, EndNode, OutputNode };

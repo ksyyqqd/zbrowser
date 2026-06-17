@@ -15,9 +15,15 @@ const INITIAL_STATE: ExecutionState = {
   currentNodeId: null,
   nodeStatus: {},
   status: 'idle',
+  events: [],
 };
 
+const MAX_EVENTS = 200;
+
 function applyEvent(prev: ExecutionState, ev: WorkflowEvent): ExecutionState {
+  const events = [...prev.events, ev];
+  if (events.length > MAX_EVENTS) events.splice(0, events.length - MAX_EVENTS);
+
   switch (ev.type) {
     case 'WORKFLOW_START':
       return {
@@ -25,34 +31,38 @@ function applyEvent(prev: ExecutionState, ev: WorkflowEvent): ExecutionState {
         currentNodeId: null,
         nodeStatus: {},
         status: 'running',
+        events: [ev],
       };
     case 'NODE_START':
-      if (!ev.nodeId) return prev;
+      if (!ev.nodeId) return { ...prev, events };
       return {
         ...prev,
+        events,
         currentNodeId: ev.nodeId,
         nodeStatus: { ...prev.nodeStatus, [ev.nodeId]: 'running' },
       };
     case 'NODE_OK':
-      if (!ev.nodeId) return prev;
+      if (!ev.nodeId) return { ...prev, events };
       return {
         ...prev,
+        events,
         nodeStatus: { ...prev.nodeStatus, [ev.nodeId]: 'ok' },
       };
     case 'NODE_FAIL':
-      if (!ev.nodeId) return prev;
+      if (!ev.nodeId) return { ...prev, events };
       return {
         ...prev,
+        events,
         nodeStatus: { ...prev.nodeStatus, [ev.nodeId]: 'fail' },
       };
     case 'WORKFLOW_OK':
-      return { ...prev, status: 'completed', currentNodeId: null };
+      return { ...prev, events, status: 'completed', currentNodeId: null };
     case 'WORKFLOW_FAIL':
-      return { ...prev, status: 'failed', currentNodeId: null };
+      return { ...prev, events, status: 'failed', currentNodeId: null };
     case 'WORKFLOW_CANCEL':
-      return { ...prev, status: 'idle', currentNodeId: null };
+      return { ...prev, events, status: 'idle', currentNodeId: null };
     default:
-      return prev;
+      return { ...prev, events };
   }
 }
 

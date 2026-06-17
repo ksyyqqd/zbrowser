@@ -44,6 +44,34 @@ export default function WorkflowSettings({ isDarkMode = false }: WorkflowSetting
     loadSkills();
   }, []);
 
+  // Auto-open workflow editor if redirected from recording save-as-workflow.
+  // Triggered via URL `?tab=workflows&editWorkflow=<id>` from side-panel save flow.
+  useEffect(() => {
+    const checkAutoOpen = async () => {
+      const params = new URLSearchParams(window.location.search);
+      const id = params.get('editWorkflow');
+      if (!id) return;
+      // Clean URL to avoid re-triggering on subsequent renders / refresh
+      params.delete('editWorkflow');
+      const newSearch = params.toString();
+      const newUrl = window.location.pathname + (newSearch ? '?' + newSearch : '') + window.location.hash;
+      window.history.replaceState(null, '', newUrl);
+
+      // Wait for workflow store to be queryable
+      try {
+        const stored = await userWorkflowsStore.getAllWorkflows();
+        const target = stored.find(w => w.id === id);
+        if (target) {
+          setSelectedWorkflow(target);
+          setIsEditorOpen(true);
+        }
+      } catch {
+        /* ignore */
+      }
+    };
+    checkAutoOpen();
+  }, []);
+
   const loadWorkflows = async () => {
     try {
       const storedWorkflows = await userWorkflowsStore.getAllWorkflows();
@@ -335,6 +363,43 @@ export default function WorkflowSettings({ isDarkMode = false }: WorkflowSetting
     }
   };
 
+  /**
+   * Execute workflow directly from within the editor.
+   * Saves the workflow silently (without closing the editor), then triggers execution.
+   */
+  const handleExecuteFromEditor = async (workflow: Workflow) => {
+    try {
+      // Save without closing editor
+      const config: UserWorkflowConfig = {
+        id: workflow.id,
+        name: workflow.name,
+        description: workflow.description || '',
+        version: workflow.version || '1.0.0',
+        nodes: workflow.nodes,
+        edges: workflow.edges,
+        variables: workflow.variables || [],
+        executionConfig: workflow.executionConfig || { onError: 'stop' as const },
+        createdAt: workflow.createdAt ?? Date.now(),
+        updatedAt: Date.now(),
+      };
+
+      if (selectedWorkflow) {
+        await userWorkflowsStore.updateWorkflow(selectedWorkflow.id, config);
+      } else {
+        await userWorkflowsStore.addWorkflow(config);
+        // Track as selected so subsequent saves update rather than re-create
+        setSelectedWorkflow(config);
+      }
+      await loadWorkflows();
+
+      // Small delay to ensure storage write completes before background reads it
+      await new Promise(resolve => setTimeout(resolve, 100));
+      await handleExecuteWorkflow(config);
+    } catch (error) {
+      console.error('[WorkflowSettings] Failed to execute from editor:', error);
+    }
+  };
+
   return (
     <section className="space-y-6">
       {/* Header */}
@@ -447,6 +512,13 @@ export default function WorkflowSettings({ isDarkMode = false }: WorkflowSetting
                   </button>
                   <button
                     type="button"
+                    onClick={() => handleExportWorkflows([workflow.id])}
+                    className={`p-2 rounded-md ${isDarkMode ? 'hover:bg-slate-700' : 'hover:bg-gray-100'}`}
+                    title="导出为 JSON">
+                    <FiDownload className={`size-4 ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`} />
+                  </button>
+                  <button
+                    type="button"
                     onClick={() => handleConvertWorkflowToSkill(workflow)}
                     className={`p-2 rounded-md ${isDarkMode ? 'hover:bg-slate-700' : 'hover:bg-gray-100'}`}
                     title={t('workflow_convertToSkill')}>
@@ -505,6 +577,7 @@ export default function WorkflowSettings({ isDarkMode = false }: WorkflowSetting
                 onCancel={() => setIsEditorOpen(false)}
                 isDarkMode={isDarkMode}
                 executionState={executionState}
+                onExecute={handleExecuteFromEditor}
               />
             </Suspense>
           </div>

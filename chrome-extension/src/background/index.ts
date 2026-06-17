@@ -152,16 +152,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 function buildSelectorList(params: Record<string, unknown>): string[] {
   const selectors: string[] = [];
 
-  // 1. Primary CSS selector
-  const primary = params.selector as string;
-  if (primary && primary.trim()) {
-    selectors.push(primary.trim());
-  }
-
-  // 2. XPath
+  // 1. XPath first — most precise, records exact element position in DOM tree
   const xpath = params.xpath as string;
   if (xpath && xpath.trim()) {
     selectors.push(xpath.trim());
+  }
+
+  // 2. Primary CSS selector (may match multiple elements, used as fallback)
+  const primary = params.selector as string;
+  if (primary && primary.trim()) {
+    selectors.push(primary.trim());
   }
 
   // 3. Fallback selectors
@@ -246,24 +246,25 @@ async function handleExecuteWorkflow(message: {
       return { success: false, error: `Workflow "${workflowId}" not found` };
     }
 
-    // Check if the workflow starts with a go_to_url action
+    // If the workflow starts with a go_to_url action, open a new tab for that URL
+    // up front so that targetPage is set and subsequent nodes can operate on it.
     const startNode = workflow.nodes.find((n: { type: string }) => n.type === 'start');
     const firstEdge = workflow.edges.find((e: { source: string }) => e.source === startNode?.id);
     const firstNodeId = firstEdge?.target;
     const firstNode = workflow.nodes.find((n: { id: string }) => n.id === firstNodeId);
 
-    // If first action is go_to_url, navigate to that URL
     if (firstNode?.type === 'automation' && firstNode.data.action === 'go_to_url') {
       const targetUrl = (firstNode.data.parameters?.url as string) || (params.url as string);
       if (targetUrl) {
-        logger.info('Workflow starts with go_to_url, navigating to:', targetUrl);
-        targetPage = await browserContext.openTab(targetUrl);
-        if (targetPage?.tabId) {
-          targetTabId = targetPage.tabId;
-          await injectBuildDomTreeScripts(targetTabId);
+        logger.info('Workflow starts with go_to_url, opening new tab:', targetUrl);
+        const newTab = await chrome.tabs.create({ url: targetUrl, active: true });
+        if (newTab.id) {
+          targetTabId = newTab.id;
+          browserContext.updateCurrentTabId(newTab.id);
           // Wait for page to load
-          await new Promise(resolve => setTimeout(resolve, 1000));
-          logger.info('Opened new tab for workflow:', targetTabId, targetUrl);
+          await new Promise(resolve => setTimeout(resolve, 2000));
+          targetPage = await browserContext.getCurrentPage();
+          logger.info('Pre-opened tab for workflow:', newTab.id, targetUrl);
         }
       }
     }
@@ -429,8 +430,26 @@ async function handleExecuteWorkflow(message: {
           case 'go_to_url': {
             const url = params.url as string;
             if (!url) return { success: false, error: 'URL is required' };
-            await browserContext.navigateTo(url);
-            return { success: true };
+            // If the active tab is already on this URL (e.g. pre-opened by the workflow entry),
+            // skip — avoids opening a duplicate tab when go_to_url is the first node.
+            try {
+              const curTab = await chrome.tabs.get(targetTabId!);
+              if (curTab?.url === url) {
+                return { success: true, extractedContent: `Already on: ${url}` };
+              }
+            } catch {
+              /* tab might have been closed; fall through to open a new one */
+            }
+            // Otherwise open the URL in a new tab so the workflow doesn't disrupt
+            // whatever the user is currently viewing.
+            const newTab = await chrome.tabs.create({ url, active: true });
+            if (!newTab.id) {
+              return { success: false, error: 'Failed to create tab for go_to_url' };
+            }
+            // Update the active target tab so subsequent automation nodes operate on this page
+            targetTabId = newTab.id;
+            browserContext.updateCurrentTabId(newTab.id);
+            return { success: true, extractedContent: `Opened new tab for: ${url}` };
           }
 
           case 'click_element': {
@@ -908,6 +927,19 @@ chrome.runtime.onConnect.addListener(port => {
             logger.info('start_recording', message.tabId);
 
             try {
+              // Defensive cleanup: stop any previous session first so a fresh recording starts cleanly
+              const previousSession = recorderState.getSession();
+              if (previousSession) {
+                logger.info('Stopping previous session before new recording:', previousSession.id);
+                recorderState.stopSession();
+                // Tell the previous tab's content script to stop listening
+                try {
+                  await chrome.tabs.sendMessage(previousSession.tabId, { type: 'stop_recording' }, { frameId: 0 });
+                } catch {
+                  // Tab may be closed or content script not loaded
+                }
+              }
+
               // Start recording session
               const session = recorderState.startSession(message.tabId);
 
@@ -1150,7 +1182,10 @@ ${stepsDescription}
 1. 分析用户的真实操作意图，为每个步骤生成更准确的描述
 2. 检查步骤是否有冗余或错误，可以合并或删除不必要的步骤
 3. 为 Skill 生成一个简洁明了的名称和描述
-4. 保持步骤参数不变，只优化描述和名称
+4. 【严格禁止】不得更改任何步骤的 action 类型（如 click_element、input_text、go_to_url 等）
+5. 【严格禁止】不得更改 parameters 中的 selector、xpath、fallbacks、url 等定位/导航参数
+6. 只允许修改 description 字段和 parameters.intent 字段
+7. 不允许发明新的 action 类型（如 ai_invoke），必须保留原始录制的精确操作
 
 请以 JSON 格式返回优化后的 Skill，格式如下：
 {
@@ -1158,10 +1193,10 @@ ${stepsDescription}
   "description": "优化后的描述",
   "steps": [
     {
-      "id": "step1",
-      "action": "原始action",
+      "id": "原始id",
+      "action": "原始action（不可更改）",
       "description": "优化后的描述",
-      "parameters": {...},
+      "parameters": {原始参数不变，仅可修改 intent 字段},
       "onError": "stop"
     }
   ]
@@ -1184,6 +1219,41 @@ ${stepsDescription}
                 logger.error('Failed to parse AI response:', parseError);
                 // Return original skill if parsing fails
                 polishedSkill = skill;
+              }
+
+              // Safety guard: even if the LLM ignored the prompt and changed action types
+              // or stripped selectors/xpath, we restore them from the original skill so
+              // recorded element targeting is never lost.
+              if (polishedSkill?.steps && Array.isArray(polishedSkill.steps)) {
+                const originalById = new Map(
+                  (skill.steps as Array<{ id: string; action: string; parameters: Record<string, unknown> }>).map(s => [
+                    s.id,
+                    s,
+                  ]),
+                );
+                polishedSkill.steps = polishedSkill.steps.map(
+                  (polishedStep: {
+                    id: string;
+                    action: string;
+                    parameters: Record<string, unknown>;
+                    description?: string;
+                  }) => {
+                    const original = originalById.get(polishedStep.id);
+                    if (!original) return polishedStep;
+                    return {
+                      ...polishedStep,
+                      // Restore action type — must never be changed
+                      action: original.action,
+                      // Merge parameters: keep all original params, only allow LLM to override `intent`
+                      parameters: {
+                        ...original.parameters,
+                        ...(polishedStep.parameters?.intent !== undefined
+                          ? { intent: polishedStep.parameters.intent }
+                          : {}),
+                      },
+                    };
+                  },
+                );
               }
 
               logger.info('AI polish result:', polishedSkill.name);

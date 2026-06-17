@@ -25,7 +25,8 @@
     "@extension/storage": "workspace:*",
     "@extension/i18n": "workspace:*",
     "@extension/ui": "workspace:*",
-    "@extension/skills": "workspace:*"
+    "@extension/skills": "workspace:*",
+    "@extension/workflow": "workspace:*"
   },
   "devDependencies": {
     "@extension/tailwindcss-config": "workspace:*",

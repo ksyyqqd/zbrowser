@@ -128,6 +128,10 @@ const SidePanel = () => {
   const [showSpotlightEnabled, setShowSpotlightEnabled] = useState(true);
   // 工作流遮罩开关
   const [showWorkflowSpotlightEnabled, setShowWorkflowSpotlightEnabled] = useState(false);
+  // Keep ref in sync for access inside callbacks
+  useEffect(() => {
+    showWorkflowSpotlightEnabledRef.current = showWorkflowSpotlightEnabled;
+  }, [showWorkflowSpotlightEnabled]);
   // 图片生成功能开关
   const [showImageGeneration, setShowImageGeneration] = useState(false);
   // 会话ID引用
@@ -272,6 +276,8 @@ const SidePanel = () => {
   const isMischiefModeRef = useRef(false);
   /** 工作流执行模式标记 — 在工作流执行期间，AI子任务的终端事件不应改变UI状态 */
   const isWorkflowModeRef = useRef(false);
+  /** 工作流遮罩开关的 ref 镜像，供回调内同步读取 */
+  const showWorkflowSpotlightEnabledRef = useRef(false);
   /** 任务目标标签ID — 记住任务发起时的标签，切换标签后仍能正确操作 */
   const targetTabIdRef = useRef<number | null>(null);
 
@@ -291,8 +297,13 @@ const SidePanel = () => {
 
   const _showSpotlight = useCallback(
     async (mode: 'planning' | 'executing' = 'planning') => {
-      // 检查遮罩开关
-      if (!showSpotlightEnabled) return;
+      // In workflow mode, the workflow-spotlight switch governs;
+      // otherwise the regular spotlight switch applies.
+      if (isWorkflowModeRef.current) {
+        if (!showWorkflowSpotlightEnabledRef.current) return;
+      } else {
+        if (!showSpotlightEnabled) return;
+      }
 
       try {
         // 策略：优先使用缓存的目标标签，但始终验证其有效性；
@@ -661,46 +672,57 @@ const SidePanel = () => {
       workflowId: string;
       nodeId?: string;
       nodeName?: string;
+      nodeType?: string;
       details?: string;
       timestamp?: number;
     }) => {
-      const { type, nodeName, details } = event;
+      const { type, nodeName, nodeType, details } = event;
 
-      // 根据事件类型生成显示内容
-      let displayContent = '';
-      switch (type) {
-        case 'WORKFLOW_START':
-          displayContent = `▶ 开始执行工作流`;
-          break;
-        case 'WORKFLOW_OK':
-          displayContent = `✅ 工作流执行完成`;
-          break;
-        case 'WORKFLOW_FAIL':
-          displayContent = `❌ 工作流执行失败: ${details || ''}`;
-          break;
-        case 'NODE_START':
-          displayContent = `⏳ 执行节点: ${nodeName || details || ''}`;
-          break;
-        case 'NODE_OK':
-          displayContent = `✓ 节点完成: ${nodeName || details || ''}`;
-          break;
-        case 'NODE_FAIL':
-          displayContent = `✗ 节点失败: ${nodeName || ''} - ${details || ''}`;
-          break;
-        case 'BRANCH_SELECT':
-          displayContent = `🔀 分支选择: ${details || ''}`;
-          break;
-        default:
-          displayContent = details || '';
-          break;
-      }
-
-      if (displayContent) {
+      // Output node completed: show full content as an independent final-output message
+      if (type === 'NODE_OK' && nodeType === 'output' && details) {
         appendMessage({
           actor: Actors.SYSTEM,
-          content: displayContent,
+          content: details,
           timestamp: event.timestamp || Date.now(),
         });
+        // Workflow completion bookkeeping still runs below
+      } else {
+        // 根据事件类型生成显示内容
+        let displayContent = '';
+        switch (type) {
+          case 'WORKFLOW_START':
+            displayContent = `▶ 开始执行工作流`;
+            break;
+          case 'WORKFLOW_OK':
+            displayContent = `✅ 工作流执行完成`;
+            break;
+          case 'WORKFLOW_FAIL':
+            displayContent = `❌ 工作流执行失败: ${details || ''}`;
+            break;
+          case 'NODE_START':
+            displayContent = `⏳ 执行节点: ${nodeName || details || ''}`;
+            break;
+          case 'NODE_OK':
+            displayContent = `✓ 节点完成: ${nodeName || ''}`;
+            break;
+          case 'NODE_FAIL':
+            displayContent = `✗ 节点失败: ${nodeName || ''} - ${details || ''}`;
+            break;
+          case 'BRANCH_SELECT':
+            displayContent = `🔀 分支选择: ${details || ''}`;
+            break;
+          default:
+            displayContent = details || '';
+            break;
+        }
+
+        if (displayContent) {
+          appendMessage({
+            actor: Actors.SYSTEM,
+            content: displayContent,
+            timestamp: event.timestamp || Date.now(),
+          });
+        }
       }
 
       // 工作流完成时恢复输入 + 清除工作流模式标记
@@ -709,10 +731,12 @@ const SidePanel = () => {
         setInputEnabled(true);
         setShowStopButton(false);
         setIsFollowUpMode(true);
-        // 只有开启了工作流遮罩时才隐藏
-        if (showWorkflowSpotlightEnabled) {
-          _hideSpotlight();
-        }
+        // 工作流结束时无条件隐藏 spotlight：
+        // 即便用户未开启 showWorkflowSpotlightEnabled,
+        // 工作流期间 AI 子任务（TASK_START）也可能开启了 planning spotlight,
+        // 此时 isWorkflowModeRef 阻止了 TASK_OK 中的隐藏逻辑,
+        // 必须在工作流结束时显式收尾。
+        _hideSpotlight();
       }
     },
     [appendMessage, _hideSpotlight, showWorkflowSpotlightEnabled],
@@ -1211,11 +1235,11 @@ const SidePanel = () => {
         taskId,
       );
 
-      // 添加系统消息
+      // 添加系统消息（带 ▶ 前缀，会被 MessageList 折叠到"执行过程"区，不长期占据聊天）
       appendMessage(
         {
           actor: Actors.SYSTEM,
-          content: `正在执行 Workflow "${workflowConfig.name}"...`,
+          content: `▶ 正在执行 Workflow "${workflowConfig.name}"...`,
           timestamp: Date.now(),
         },
         taskId,

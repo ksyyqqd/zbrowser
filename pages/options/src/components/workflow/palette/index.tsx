@@ -1,4 +1,4 @@
-import { FiCpu, FiMousePointer, FiGitBranch, FiPlay, FiXCircle, FiMoreVertical } from 'react-icons/fi';
+import { FiCpu, FiMousePointer, FiGitBranch, FiPlay, FiXCircle, FiMoreVertical, FiFileText } from 'react-icons/fi';
 import { t } from '@extension/i18n';
 import type { MessageKey } from '@extension/i18n';
 import type { WorkflowNodeType, NodeData } from '@extension/workflow';
@@ -13,6 +13,10 @@ export interface PaletteItem {
   bgClass: string;
   iconClass: string;
   borderClass: string;
+  /** Optional override for label (used when no i18n key exists yet for new node types) */
+  labelOverride?: string;
+  /** Optional override for description */
+  descriptionOverride?: string;
 }
 
 // ============ Palette Data ============
@@ -44,6 +48,18 @@ export const nodePalette: PaletteItem[] = [
     bgClass: 'bg-orange-50 dark:bg-orange-900/20',
     iconClass: 'text-orange-500',
     borderClass: 'border-orange-200 dark:border-orange-700/50',
+  },
+  {
+    type: 'output',
+    // Reuse existing keys to avoid touching all 4 locale files; supplement labelOverride below
+    labelKey: 'workflow_nodeType_ai',
+    descriptionKey: 'workflow_nodeType_ai_desc',
+    icon: FiFileText,
+    bgClass: 'bg-teal-50 dark:bg-teal-900/20',
+    iconClass: 'text-teal-500',
+    borderClass: 'border-teal-200 dark:border-teal-700/50',
+    labelOverride: '输出',
+    descriptionOverride: '收集要输出的内容',
   },
 ];
 
@@ -82,6 +98,9 @@ export const getNodeTypeLabelKey = (type: WorkflowNodeType): MessageKey => {
       return 'workflow_nodeType_start';
     case 'end':
       return 'workflow_nodeType_end';
+    case 'output':
+      // No dedicated i18n key yet; falls through to automation as placeholder
+      return 'workflow_nodeType_automation';
     default:
       return 'workflow_nodeType_automation';
   }
@@ -101,6 +120,9 @@ export function getDefaultNodeData(type: WorkflowNodeType): NodeData {
       { id: 'branch-no', name: '否' },
     ];
     data.evaluateWithAI = true;
+  } else if (type === 'output') {
+    data.label = '输出';
+    data.content = '{{}}';
   }
   return data;
 }
@@ -123,10 +145,10 @@ export function PaletteCard({ item, isDark }: { item: PaletteItem; isDark: boole
       </div>
       <div className="flex min-w-0 flex-1 flex-col">
         <span className={`text-sm font-medium leading-tight ${isDark ? 'text-gray-200' : 'text-gray-800'}`}>
-          {t(item.labelKey)}
+          {item.labelOverride || t(item.labelKey)}
         </span>
         <span className={`text-xs leading-tight ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
-          {t(item.descriptionKey)}
+          {item.descriptionOverride || t(item.descriptionKey)}
         </span>
       </div>
       <FiMoreVertical

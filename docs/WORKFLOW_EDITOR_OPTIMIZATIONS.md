@@ -218,19 +218,25 @@ pages/options/src/components/
 
 ---
 
-## 🟠 待做项
+### P3-1 变量系统
 
-### P3-1 变量系统增强 ⏱️ 1-2 天 ⭐⭐⭐⭐
+**完成时间**：2026-06-16
+**关联文件**：
+- `pages/options/src/components/workflow/panels/VariablesPanel.tsx`（新增）
+- `pages/options/src/components/workflow/WorkflowEditor.tsx`（variables state + 面板切换）
+- `pages/options/src/components/workflow/panels/NodeEditorPanel.tsx`（变量 chip 插入 + outputVariable datalist）
 
-**痛点**：`variables` 字段已定义但 UI 完全没有变量管理面板，节点之间数据流转靠 `outputVariable` 散落配置。
-
-**方案**：
-- 新增"变量"侧边栏 Tab：定义全局变量（name/type/default/description）
-- AI/Automation 节点 prompt/参数支持 `{{variableName}}` 模板，输入框旁有变量选择下拉
-- 可视化展示变量流（哪节点产生、哪节点消费）
-- 执行时 `WorkflowExecutor` 已支持 `setVariable`/`getVariable`，仅需 UI 配套
+**变更摘要**：
+- 新建 VariablesPanel 组件：增删改变量（name/type/default/description/required）
+- WorkflowEditor Header 加 FiDatabase 图标按钮，点击切换右侧面板为变量管理模式（带 badge 计数）
+- 保存时 `buildWorkflow()` 使用 state 中的 `variables` 而非 initialWorkflow 的旧版本
+- AI 节点 prompt textarea 下方渲染可用变量 chip 列表，点击在光标处插入 `{{varName}}`
+- AI 节点 outputVariable 输入框改为带 datalist 提示（自动补全已有变量名）
+- 执行引擎无需改动（`resolveTemplate` + `setVariable`/`getVariable` 已就绪）
 
 ---
+
+## 🟠 待做项
 
 ### P3-2 并行 / 循环节点 ⏱️ 2-3 天
 
@@ -263,8 +269,9 @@ pages/options/src/components/
 ✅ P2-1 执行可视化
 ✅ P2-2 React.memo 优化
 ✅ P2-3 代码分割 / Bundle 优化（首屏 -46%）
+✅ P3-1 变量系统
        ↓
-P3 大改造（按业务需求决定是否做）
+P3-2 / P3-3（按业务需求决定是否做）
 ```
 
 ---

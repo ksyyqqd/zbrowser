@@ -28,6 +28,9 @@ import {
   FiCornerUpLeft,
   FiCornerUpRight,
   FiCopy,
+  FiDatabase,
+  FiActivity,
+  FiPlay,
 } from 'react-icons/fi';
 import { t } from '@extension/i18n';
 import {
@@ -36,12 +39,15 @@ import {
   type WorkflowNode,
   type WorkflowNodeType,
   type NodeData,
+  type WorkflowVariable,
 } from '@extension/workflow';
 
 import type { FlowNode, FlowEdge, WorkflowEditorProps } from './types';
 import { nodeTypes } from './nodes';
 import { nodePalette, controlPalette, PaletteCard, getDefaultNodeData, getNodeTypeLabelKey } from './palette';
 import { NodeEditorPanel } from './panels/NodeEditorPanel';
+import { VariablesPanel } from './panels/VariablesPanel';
+import { ExecutionLogPanel } from './panels/ExecutionLogPanel';
 import {
   toFlowNode,
   toFlowEdge,
@@ -71,6 +77,7 @@ function WorkflowEditorInner({
   onCancel,
   isDarkMode = false,
   executionState,
+  onExecute,
 }: WorkflowEditorProps) {
   const reactFlowWrapper = useRef<HTMLDivElement>(null);
   const { screenToFlowPosition } = useReactFlow();
@@ -78,7 +85,7 @@ function WorkflowEditorInner({
   const [workflowId] = useState(initialWorkflow?.id || newWorkflowId());
   const [workflowName, setWorkflowName] = useState(initialWorkflow?.name || t('workflow_newWorkflow_defaultName'));
   const [workflowDescription, setWorkflowDescription] = useState(initialWorkflow?.description || '');
-  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(true);
 
   const initialNodes = useMemo(
     () => (initialWorkflow?.nodes?.length ? initialWorkflow.nodes.map(toFlowNode) : buildDefaultNodes()),
@@ -94,6 +101,23 @@ function WorkflowEditorInner({
   const [selectedNode, setSelectedNode] = useState<WorkflowNode | null>(null);
   const [selectedEdge, setSelectedEdge] = useState<FlowEdge | null>(null);
   const [validationErrors, setValidationErrors] = useState<string[]>([]);
+
+  // ============ Variables ============
+  const [variables, setVariables] = useState<WorkflowVariable[]>(initialWorkflow?.variables || []);
+  // Right panel mode: 'node' for node/edge editing, 'variables' for variable mgmt, 'logs' for execution log
+  const [rightPanelMode, setRightPanelMode] = useState<'node' | 'variables' | 'logs'>('node');
+
+  // Auto-switch to logs panel when execution starts
+  const prevExecStatusRef = useRef<string>('idle');
+  useEffect(() => {
+    const cur = executionState?.status ?? 'idle';
+    if (cur === 'running' && prevExecStatusRef.current !== 'running') {
+      setRightPanelMode('logs');
+      setSelectedNode(null);
+      setSelectedEdge(null);
+    }
+    prevExecStatusRef.current = cur;
+  }, [executionState?.status]);
 
   // ============ Undo/Redo ============
   type Snapshot = { nodes: FlowNode[]; edges: FlowEdge[] };
@@ -181,9 +205,9 @@ function WorkflowEditorInner({
       const position = screenToFlowPosition({ x: e.clientX, y: e.clientY });
       const nodeId = newNodeId();
       const defaultData = getDefaultNodeData(type);
-      const name = t(getNodeTypeLabelKey(type));
+      const name = type === 'output' ? '输出' : t(getNodeTypeLabelKey(type));
       setNodes(nds => nds.concat({ id: nodeId, type, position, data: { ...defaultData, type, name } }));
-      if (['ai', 'automation', 'condition'].includes(type)) {
+      if (['ai', 'automation', 'condition', 'output'].includes(type)) {
         setSelectedNode({ id: nodeId, type, name, position, data: { ...defaultData, type, name } });
         setSelectedEdge(null);
       }
@@ -194,7 +218,7 @@ function WorkflowEditorInner({
   // ============ Selection ============
   const onNodeClick = useCallback((_: React.MouseEvent, node: FlowNode) => {
     const nodeType = node.type as WorkflowNodeType;
-    if (['ai', 'automation', 'condition'].includes(nodeType)) {
+    if (['ai', 'automation', 'condition', 'output'].includes(nodeType)) {
       setSelectedNode({
         id: node.id,
         type: nodeType,
@@ -206,11 +230,13 @@ function WorkflowEditorInner({
       setSelectedNode(null);
     }
     setSelectedEdge(null);
+    setRightPanelMode('node');
   }, []);
 
   const onEdgeClick = useCallback((_: React.MouseEvent, edge: FlowEdge) => {
     setSelectedEdge(edge);
     setSelectedNode(null);
+    setRightPanelMode('node');
   }, []);
 
   const onPaneClick = useCallback(() => {
@@ -288,12 +314,12 @@ function WorkflowEditorInner({
       version: '1.0.0',
       nodes: nodes.map(toWorkflowNode),
       edges: edges.map(toWorkflowEdge),
-      variables: initialWorkflow?.variables || [],
+      variables: variables,
       executionConfig: initialWorkflow?.executionConfig || { onError: 'stop' },
       createdAt: initialWorkflow?.createdAt || Date.now(),
       updatedAt: Date.now(),
     }),
-    [workflowId, workflowName, workflowDescription, nodes, edges, initialWorkflow],
+    [workflowId, workflowName, workflowDescription, nodes, edges, variables, initialWorkflow],
   );
 
   const handleSave = useCallback(() => {
@@ -349,6 +375,33 @@ function WorkflowEditorInner({
     }));
   }, [nodes, executionState]);
 
+  // ============ Outputs Summary ============
+  // Extract output-node results from the current execution event stream.
+  // The ExecutionLogPanel surfaces these as "Final outputs" cards on completion.
+  const outputResults = useMemo(() => {
+    if (!executionState) return [];
+    const outputNodes = new Map<string, { label: string; nodeName: string }>();
+    for (const n of nodes) {
+      if (n.type === 'output') {
+        outputNodes.set(n.id, {
+          label: (n.data?.label as string) || (n.data?.name as string) || n.id,
+          nodeName: (n.data?.name as string) || n.id,
+        });
+      }
+    }
+    const result: { nodeId: string; name: string; output: string }[] = [];
+    for (const ev of executionState.events) {
+      if (ev.type === 'NODE_OK' && ev.nodeId && outputNodes.has(ev.nodeId)) {
+        const meta = outputNodes.get(ev.nodeId)!;
+        const existing = result.findIndex(r => r.nodeId === ev.nodeId);
+        const entry = { nodeId: ev.nodeId, name: meta.label, output: ev.details ?? '' };
+        if (existing >= 0) result[existing] = entry;
+        else result.push(entry);
+      }
+    }
+    return result;
+  }, [executionState, nodes]);
+
   // ============ Render ============
   return (
     <div className={`workflow-editor flex h-full flex-col ${isFullscreen ? 'fixed inset-0 z-[100]' : ''}`}>
@@ -394,6 +447,55 @@ function WorkflowEditorInner({
             title="Duplicate (Ctrl+D)">
             <FiCopy className="size-4" />
           </button>
+          <button
+            type="button"
+            onClick={() => {
+              setRightPanelMode('variables');
+              setSelectedNode(null);
+              setSelectedEdge(null);
+            }}
+            className={`relative rounded-lg p-2 transition-colors ${
+              rightPanelMode === 'variables'
+                ? isDarkMode
+                  ? 'bg-slate-600 text-blue-300'
+                  : 'bg-blue-50 text-blue-600'
+                : isDarkMode
+                  ? 'text-gray-300 hover:bg-slate-600'
+                  : 'text-gray-600 hover:bg-gray-100'
+            }`}
+            title={`变量 (${variables.length})`}>
+            <FiDatabase className="size-4" />
+            {variables.length > 0 && (
+              <span className="absolute -right-0.5 -top-0.5 flex size-3.5 items-center justify-center rounded-full bg-blue-500 text-[9px] font-bold text-white">
+                {variables.length}
+              </span>
+            )}
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setRightPanelMode('logs');
+              setSelectedNode(null);
+              setSelectedEdge(null);
+            }}
+            className={`relative rounded-lg p-2 transition-colors ${
+              rightPanelMode === 'logs'
+                ? isDarkMode
+                  ? 'bg-slate-600 text-blue-300'
+                  : 'bg-blue-50 text-blue-600'
+                : isDarkMode
+                  ? 'text-gray-300 hover:bg-slate-600'
+                  : 'text-gray-600 hover:bg-gray-100'
+            }`}
+            title={`执行日志${executionState ? ` (${executionState.events.length})` : ''}`}>
+            <FiActivity className="size-4" />
+            {executionState && executionState.status === 'running' && (
+              <span className="absolute -right-0.5 -top-0.5 flex size-2 animate-pulse rounded-full bg-blue-500" />
+            )}
+            {executionState && executionState.status === 'failed' && (
+              <span className="absolute -right-0.5 -top-0.5 flex size-2 rounded-full bg-red-500" />
+            )}
+          </button>
           <div className={`mx-1 h-5 w-px ${isDarkMode ? 'bg-slate-600' : 'bg-gray-300'}`} />
           <button
             type="button"
@@ -421,6 +523,23 @@ function WorkflowEditorInner({
             className="rounded-lg bg-blue-600 px-4 py-1.5 text-sm font-medium text-white shadow-sm transition-colors hover:bg-blue-500">
             {t('workflow_save')}
           </button>
+          {onExecute && (
+            <button
+              type="button"
+              onClick={() => {
+                const wf = buildWorkflow();
+                onExecute(wf);
+              }}
+              disabled={executionState?.status === 'running'}
+              className={`flex items-center gap-1.5 rounded-lg px-4 py-1.5 text-sm font-medium text-white shadow-sm transition-colors ${
+                executionState?.status === 'running'
+                  ? 'cursor-not-allowed bg-green-400 opacity-60'
+                  : 'bg-green-600 hover:bg-green-500'
+              }`}>
+              <FiPlay className="size-3.5" />
+              {executionState?.status === 'running' ? '执行中...' : '运行'}
+            </button>
+          )}
         </div>
       </div>
 
@@ -524,55 +643,105 @@ function WorkflowEditorInner({
         </div>
 
         {/* Right Editor Panel */}
-        {(selectedNode || selectedEdge) && (
+        {(selectedNode || selectedEdge || rightPanelMode === 'variables' || rightPanelMode === 'logs') && (
           <div
             className={`w-72 overflow-y-auto border-l shadow-lg ${isDarkMode ? 'border-slate-700 bg-slate-800' : 'border-gray-200 bg-white'}`}>
-            <div
-              className={`flex items-center justify-between border-b px-4 py-2.5 ${isDarkMode ? 'border-slate-700' : 'border-gray-200'}`}>
-              <h3 className={`text-sm font-semibold ${isDarkMode ? 'text-gray-200' : 'text-gray-800'}`}>
-                {selectedNode ? t('workflow_editNode') : t('workflow_editEdge')}
-              </h3>
-              <div className="flex items-center gap-1">
-                {selectedNode && (
+            {rightPanelMode === 'logs' ? (
+              <>
+                <div
+                  className={`flex items-center justify-between border-b px-4 py-2.5 ${isDarkMode ? 'border-slate-700' : 'border-gray-200'}`}>
+                  <h3 className={`text-sm font-semibold ${isDarkMode ? 'text-gray-200' : 'text-gray-800'}`}>
+                    执行日志
+                  </h3>
                   <button
                     type="button"
-                    onClick={handleDeleteNode}
-                    className="rounded-md p-1.5 text-red-500 transition-colors hover:bg-red-100 dark:hover:bg-red-900/30"
-                    title={t('workflow_delete')}>
-                    <FiTrash2 className="size-4" />
+                    onClick={() => setRightPanelMode('node')}
+                    className={`rounded-md p-1.5 transition-colors ${isDarkMode ? 'text-gray-400 hover:bg-slate-700' : 'text-gray-500 hover:bg-gray-100'}`}
+                    title="关闭">
+                    <FiX className="size-4" />
                   </button>
+                </div>
+                <ExecutionLogPanel
+                  events={executionState?.events || []}
+                  status={executionState?.status || 'idle'}
+                  isDarkMode={isDarkMode}
+                  outputs={outputResults}
+                />
+              </>
+            ) : rightPanelMode === 'variables' ? (
+              <>
+                <div
+                  className={`flex items-center justify-between border-b px-4 py-2.5 ${isDarkMode ? 'border-slate-700' : 'border-gray-200'}`}>
+                  <h3 className={`text-sm font-semibold ${isDarkMode ? 'text-gray-200' : 'text-gray-800'}`}>
+                    变量管理
+                  </h3>
+                  <button
+                    type="button"
+                    onClick={() => setRightPanelMode('node')}
+                    className={`rounded-md p-1.5 transition-colors ${isDarkMode ? 'text-gray-400 hover:bg-slate-700' : 'text-gray-500 hover:bg-gray-100'}`}
+                    title="关闭">
+                    <FiX className="size-4" />
+                  </button>
+                </div>
+                <VariablesPanel variables={variables} onChange={setVariables} isDarkMode={isDarkMode} />
+              </>
+            ) : (
+              <>
+                <div
+                  className={`flex items-center justify-between border-b px-4 py-2.5 ${isDarkMode ? 'border-slate-700' : 'border-gray-200'}`}>
+                  <h3 className={`text-sm font-semibold ${isDarkMode ? 'text-gray-200' : 'text-gray-800'}`}>
+                    {selectedNode ? t('workflow_editNode') : t('workflow_editEdge')}
+                  </h3>
+                  <div className="flex items-center gap-1">
+                    {selectedNode && (
+                      <button
+                        type="button"
+                        onClick={handleDeleteNode}
+                        className="rounded-md p-1.5 text-red-500 transition-colors hover:bg-red-100 dark:hover:bg-red-900/30"
+                        title={t('workflow_delete')}>
+                        <FiTrash2 className="size-4" />
+                      </button>
+                    )}
+                    {selectedEdge && (
+                      <button
+                        type="button"
+                        onClick={handleDeleteEdge}
+                        className="rounded-md p-1.5 text-red-500 transition-colors hover:bg-red-100 dark:hover:bg-red-900/30"
+                        title={t('workflow_delete')}>
+                        <FiTrash2 className="size-4" />
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectedNode(null);
+                        setSelectedEdge(null);
+                      }}
+                      className={`rounded-md p-1.5 transition-colors ${isDarkMode ? 'text-gray-400 hover:bg-slate-700' : 'text-gray-500 hover:bg-gray-100'}`}
+                      title={t('workflow_close')}>
+                      <FiX className="size-4" />
+                    </button>
+                  </div>
+                </div>
+                {selectedNode && (
+                  <NodeEditorPanel
+                    node={selectedNode}
+                    onSave={handleUpdateNode}
+                    isDarkMode={isDarkMode}
+                    variables={variables}
+                  />
                 )}
                 {selectedEdge && (
-                  <button
-                    type="button"
-                    onClick={handleDeleteEdge}
-                    className="rounded-md p-1.5 text-red-500 transition-colors hover:bg-red-100 dark:hover:bg-red-900/30"
-                    title={t('workflow_delete')}>
-                    <FiTrash2 className="size-4" />
-                  </button>
+                  <div className="p-4">
+                    <p className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+                      {t('workflow_edgeInfo')}: {selectedEdge.source} → {selectedEdge.target}
+                    </p>
+                    <p className={`mt-2 text-xs ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>
+                      {t('workflow_edgeDeleteHint')}
+                    </p>
+                  </div>
                 )}
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSelectedNode(null);
-                    setSelectedEdge(null);
-                  }}
-                  className={`rounded-md p-1.5 transition-colors ${isDarkMode ? 'text-gray-400 hover:bg-slate-700' : 'text-gray-500 hover:bg-gray-100'}`}
-                  title={t('workflow_close')}>
-                  <FiX className="size-4" />
-                </button>
-              </div>
-            </div>
-            {selectedNode && <NodeEditorPanel node={selectedNode} onSave={handleUpdateNode} isDarkMode={isDarkMode} />}
-            {selectedEdge && (
-              <div className="p-4">
-                <p className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
-                  {t('workflow_edgeInfo')}: {selectedEdge.source} → {selectedEdge.target}
-                </p>
-                <p className={`mt-2 text-xs ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>
-                  {t('workflow_edgeDeleteHint')}
-                </p>
-              </div>
+              </>
             )}
           </div>
         )}
