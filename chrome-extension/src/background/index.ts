@@ -1029,18 +1029,17 @@ chrome.runtime.onConnect.addListener(port => {
               const session = recorderState.stopSession();
 
               if (session) {
-                // Notify content script to stop - ONLY in main frame
-                try {
-                  await chrome.tabs.sendMessage(
-                    session.tabId,
-                    {
-                      type: 'stop_recording',
-                    },
-                    { frameId: 0 },
-                  );
-                } catch {
-                  // Tab might be closed
-                }
+                // Notify ALL tracked tabs' content scripts to stop - ONLY main frame
+                const tabIds = session.tabIds && session.tabIds.length > 0 ? session.tabIds : [session.tabId];
+                await Promise.all(
+                  tabIds.map(async tid => {
+                    try {
+                      await chrome.tabs.sendMessage(tid, { type: 'stop_recording' }, { frameId: 0 });
+                    } catch {
+                      // Tab might be closed
+                    }
+                  }),
+                );
               }
 
               return port.postMessage({ type: 'recording_stopped', session });
@@ -1049,6 +1048,53 @@ chrome.runtime.onConnect.addListener(port => {
               return port.postMessage({
                 type: 'error',
                 error: error instanceof Error ? error.message : 'Failed to stop recording',
+              });
+            }
+          }
+
+          case 'recording_add_active_tab': {
+            // Manually add the currently active tab to the recording set.
+            // Used by RecordingPill when user wants to record on an unrelated tab.
+            const session = recorderState.getActiveSession();
+            if (!session) {
+              return port.postMessage({ type: 'error', error: '当前没有正在进行的录制' });
+            }
+            try {
+              const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+              if (!activeTab?.id || !activeTab.url?.startsWith('http')) {
+                return port.postMessage({ type: 'error', error: '无法在该标签页上录制' });
+              }
+              const tabId = activeTab.id;
+              if (recorderState.isTabTracked(tabId)) {
+                return port.postMessage({ type: 'recording_state_update', session: recorderState.getSession() });
+              }
+              recorderState.addTab(tabId, { url: activeTab.url, title: activeTab.title || '' });
+              // Mark as active immediately (no tab_switch — addTab already emitted tab_open)
+              recorderState.markActiveTab(tabId, { url: activeTab.url, title: activeTab.title || '' });
+              // Inject content script if needed and start recording in this tab
+              try {
+                await chrome.tabs.sendMessage(tabId, { type: 'ping' }, { frameId: 0 });
+              } catch {
+                await chrome.scripting.executeScript({
+                  target: { tabId, frameIds: [0] },
+                  files: ['content/index.iife.js'],
+                });
+              }
+              try {
+                await chrome.tabs.sendMessage(
+                  tabId,
+                  { type: 'start_recording', sessionId: session.id },
+                  { frameId: 0 },
+                );
+              } catch (e) {
+                console.warn('[Recording] Failed to start recording on manually added tab:', e);
+              }
+              return port.postMessage({ type: 'recording_state_update', session: recorderState.getSession() });
+            } catch (error) {
+              logger.error('Failed to add active tab to recording:', error);
+              return port.postMessage({
+                type: 'error',
+                error: error instanceof Error ? error.message : 'Failed to add active tab',
               });
             }
           }
@@ -1478,23 +1524,19 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         return false;
       }
 
-      // Verify this action comes from the tab we're recording
-      const recordingTabId = recorderState.getRecordingTabId();
+      // Verify this action comes from a tab we're tracking (cross-tab recording)
       const senderTabId = sender.tab?.id;
 
-      if (recordingTabId !== null && senderTabId !== recordingTabId) {
-        console.log(
-          '[Recording] Ignoring action from different tab:',
-          senderTabId,
-          'vs recording tab:',
-          recordingTabId,
-        );
+      if (senderTabId !== undefined && !recorderState.isTabTracked(senderTabId)) {
+        console.log('[Recording] Ignoring action from untracked tab:', senderTabId);
         sendResponse({ success: false, reason: 'wrong_tab' });
         return false;
       }
 
       // Process the recorded action
       const action = message.action;
+      // Attach tabId for cross-tab distinction
+      if (senderTabId !== undefined) action.tabId = senderTabId;
 
       // Generate element selectors if element info is present
       if (action.element) {
@@ -1527,17 +1569,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         return false;
       }
 
-      // Verify this request comes from the tab we're recording
-      const recordingTabId = recorderState.getRecordingTabId();
+      // Verify this request comes from a tab we're tracking
       const senderTabId = sender.tab?.id;
 
-      if (recordingTabId !== null && senderTabId !== recordingTabId) {
-        console.log(
-          '[Recording] Ignoring check_recording_status from different tab:',
-          senderTabId,
-          'vs recording tab:',
-          recordingTabId,
-        );
+      if (senderTabId !== undefined && !recorderState.isTabTracked(senderTabId)) {
+        console.log('[Recording] Ignoring check_recording_status from untracked tab:', senderTabId);
         sendResponse({ isRecording: false, sessionId: null, reason: 'wrong_tab' });
         return false;
       }
@@ -1560,20 +1596,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 });
 
 // Listen for tab activation to inject recording script when recording is active
-// Note: This only handles tab switching, NOT iframe navigation
+// Cross-tab aware: only handle tabs that are in the tracked set; other tabs are
+// ignored so users can browse unrelated tabs without polluting the recording.
 chrome.tabs.onActivated.addListener(async activeInfo => {
   const session = recorderState.getActiveSession();
   if (!session) return;
 
-  // Check if this is the tab we're recording (only record actions in the original recording tab)
-  const recordingTabId = recorderState.getRecordingTabId();
-  if (recordingTabId !== null && activeInfo.tabId !== recordingTabId) {
-    console.log(
-      '[Recording] User switched to different tab, ignoring:',
-      activeInfo.tabId,
-      'vs recording tab:',
-      recordingTabId,
-    );
+  // Only react if this tab is being tracked
+  if (!recorderState.isTabTracked(activeInfo.tabId)) {
+    console.log('[Recording] Ignoring activation of untracked tab:', activeInfo.tabId);
     return;
   }
 
@@ -1582,6 +1613,12 @@ chrome.tabs.onActivated.addListener(async activeInfo => {
   if (!tab.url?.startsWith('http')) return;
 
   console.log('[Recording] Tab activated during recording:', activeInfo.tabId, tab.url);
+
+  // Mark active tab — emit synthetic tab_switch action if focus actually changed
+  const switched = recorderState.markActiveTab(activeInfo.tabId, { url: tab.url, title: tab.title });
+  if (switched) {
+    currentPort?.postMessage({ type: 'recording_state_update', session: recorderState.getSession() });
+  }
 
   // Inject content script if needed - ONLY in main frame
   try {
@@ -1620,15 +1657,8 @@ chrome.webNavigation?.onCompleted?.addListener(async details => {
   // Recording is active, ensure content script is ready after navigation
   if (!details.url?.startsWith('http')) return;
 
-  // Check if this is the same tab we're recording
-  const recordingTabId = recorderState.getRecordingTabId();
-  if (recordingTabId !== null && details.tabId !== recordingTabId) {
-    console.log(
-      '[Recording] Ignoring navigation in different tab:',
-      details.tabId,
-      'vs recording tab:',
-      recordingTabId,
-    );
+  // Only handle tabs in our tracked set
+  if (!recorderState.isTabTracked(details.tabId)) {
     return;
   }
 
@@ -1670,6 +1700,35 @@ chrome.webNavigation?.onCompleted?.addListener(async details => {
     } catch (injectError) {
       console.warn('[Recording] Failed to inject content script after navigation:', injectError);
     }
+  }
+});
+
+// Auto-track new tabs opened from a tracked tab (target="_blank" / window.open)
+chrome.tabs.onCreated.addListener(async tab => {
+  const session = recorderState.getActiveSession();
+  if (!session || tab.id === undefined) return;
+  // Only auto-add if the opener is a tracked tab
+  if (tab.openerTabId !== undefined && recorderState.isTabTracked(tab.openerTabId)) {
+    const added = recorderState.addTab(tab.id, {
+      url: tab.pendingUrl || tab.url || '',
+      title: tab.title || '',
+      openerTabId: tab.openerTabId,
+    });
+    if (added) {
+      console.log('[Recording] Auto-tracked new tab:', tab.id, 'from opener:', tab.openerTabId);
+      currentPort?.postMessage({ type: 'recording_state_update', session: recorderState.getSession() });
+    }
+  }
+});
+
+// Clean up when a tracked tab is closed
+chrome.tabs.onRemoved.addListener(tabId => {
+  const session = recorderState.getActiveSession();
+  if (!session) return;
+  if (recorderState.isTabTracked(tabId)) {
+    recorderState.removeTab(tabId);
+    console.log('[Recording] Tab closed, removed from tracking:', tabId);
+    currentPort?.postMessage({ type: 'recording_state_update', session: recorderState.getSession() });
   }
 });
 

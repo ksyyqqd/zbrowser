@@ -2,7 +2,7 @@
  * Recorder Manager - manages recording sessions
  */
 
-import type { RecordedAction, RecordingSession, GeneratedSkill, ElementSelector } from './types';
+import type { RecordedAction, RecordingSession, GeneratedSkill, ElementSelector, TabInfo } from './types';
 
 /**
  * Generate unique ID (simple implementation)
@@ -11,23 +11,35 @@ function generateId(): string {
   return `rec-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 }
 
+function generateActionId(): string {
+  return `act-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+}
+
 /**
  * Recorder state storage (in-memory for MVP)
+ * Supports cross-tab recording via a tracked tab set.
  */
 class RecorderState {
   private session: RecordingSession | null = null;
   // Deduplication: track last navigate to avoid duplicates
   private lastNavigateUrl: string | null = null;
   private lastNavigateTime: number = 0;
-  // Track the tab ID where recording started
-  private recordingTabId: number | null = null;
+  // Multi-tab tracking set
+  private recordingTabIds: Set<number> = new Set();
+  // The tab where recording was initiated (kept for metadata/backwards compat)
+  private startedTabId: number | null = null;
   // Minimum time between same URL navigates (ms)
   private readonly NAVIGATE_DEDUP_MS = 2000;
 
   startSession(tabId: number): RecordingSession {
+    this.recordingTabIds.clear();
+    this.recordingTabIds.add(tabId);
+    this.startedTabId = tabId;
     this.session = {
       id: generateId(),
       tabId,
+      tabIds: [tabId],
+      activeTabId: tabId,
       startedAt: Date.now(),
       actions: [],
       status: 'recording',
@@ -35,7 +47,6 @@ class RecorderState {
     // Reset dedup state
     this.lastNavigateUrl = null;
     this.lastNavigateTime = 0;
-    this.recordingTabId = tabId;
     return this.session;
   }
 
@@ -58,8 +69,71 @@ class RecorderState {
     return this.session;
   }
 
+  /** @deprecated Use isTabTracked instead */
   getRecordingTabId(): number | null {
-    return this.recordingTabId;
+    return this.startedTabId;
+  }
+
+  /** Check if a tab is in the tracked set */
+  isTabTracked(tabId: number): boolean {
+    return this.recordingTabIds.has(tabId);
+  }
+
+  /** Add a new tab to the tracked set and emit a synthetic tab_open action */
+  addTab(tabId: number, tabInfo?: TabInfo): boolean {
+    if (!this.session || this.session.status !== 'recording') return false;
+    if (this.recordingTabIds.has(tabId)) return false; // idempotent
+    this.recordingTabIds.add(tabId);
+    this.session.tabIds = Array.from(this.recordingTabIds);
+    // Emit synthetic tab_open action
+    const action: RecordedAction = {
+      id: generateActionId(),
+      type: 'tab_open',
+      timestamp: Date.now(),
+      tabId,
+      tabInfo,
+      pageUrl: tabInfo?.url || '',
+      pageTitle: tabInfo?.title || '',
+    };
+    this.session.actions.push(action);
+    return true;
+  }
+
+  /** Remove a tab from tracking and emit a synthetic tab_close action */
+  removeTab(tabId: number): boolean {
+    if (!this.session || this.session.status !== 'recording') return false;
+    if (!this.recordingTabIds.has(tabId)) return false;
+    this.recordingTabIds.delete(tabId);
+    this.session.tabIds = Array.from(this.recordingTabIds);
+    const action: RecordedAction = {
+      id: generateActionId(),
+      type: 'tab_close',
+      timestamp: Date.now(),
+      tabId,
+      pageUrl: '',
+      pageTitle: '',
+    };
+    this.session.actions.push(action);
+    return true;
+  }
+
+  /** Mark a tab as the active tab; if changed, emit tab_switch */
+  markActiveTab(tabId: number, tabInfo?: TabInfo): boolean {
+    if (!this.session || this.session.status !== 'recording') return false;
+    if (!this.recordingTabIds.has(tabId)) return false;
+    if (this.session.activeTabId === tabId) return false; // no change
+    this.session.activeTabId = tabId;
+    const action: RecordedAction = {
+      id: generateActionId(),
+      type: 'tab_switch',
+      timestamp: Date.now(),
+      tabId,
+      tabInfo,
+      pageUrl: tabInfo?.url || '',
+      pageTitle: tabInfo?.title || '',
+    };
+    this.session.actions.push(action);
+    return true;
   }
 
   addAction(action: RecordedAction): boolean {
@@ -110,7 +184,8 @@ class RecorderState {
     this.session = null;
     this.lastNavigateUrl = null;
     this.lastNavigateTime = 0;
-    this.recordingTabId = null;
+    this.recordingTabIds.clear();
+    this.startedTabId = null;
   }
 }
 
@@ -386,6 +461,53 @@ class ActionConverter {
           parameters: {
             intent: description,
             cutInfo: action.cutInfo,
+          },
+          onError: 'continue',
+        };
+      }
+
+      case 'tab_open': {
+        const url = action.tabInfo?.url || action.pageUrl || '';
+        const title = action.tabInfo?.title || action.pageTitle || '';
+        const description = url ? `Open new tab: ${title || url.slice(0, 40)}` : 'Open new tab';
+        return {
+          id: stepId,
+          action: 'open_tab',
+          description,
+          parameters: {
+            intent: description,
+            url,
+          },
+          onError: 'stop',
+        };
+      }
+
+      case 'tab_switch': {
+        const url = action.tabInfo?.url || action.pageUrl || '';
+        const title = action.tabInfo?.title || action.pageTitle || '';
+        const description = title || url ? `Switch to tab: ${title || url.slice(0, 40)}` : 'Switch tab';
+        return {
+          id: stepId,
+          action: 'switch_tab',
+          description,
+          parameters: {
+            // tabId is unstable across replay sessions; pass URL as the canonical match key.
+            intent: description,
+            url,
+            tabId: action.tabId,
+          },
+          onError: 'continue',
+        };
+      }
+
+      case 'tab_close': {
+        return {
+          id: stepId,
+          action: 'close_tab',
+          description: 'Close tab',
+          parameters: {
+            intent: 'Close current tab',
+            tabId: action.tabId,
           },
           onError: 'continue',
         };

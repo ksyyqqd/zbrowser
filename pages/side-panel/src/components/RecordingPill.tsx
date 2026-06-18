@@ -18,6 +18,8 @@ import { FiVideo, FiVideoOff, FiX, FiSave, FiSquare } from 'react-icons/fi';
 interface RecordingSession {
   id: string;
   tabId: number;
+  tabIds?: number[];
+  activeTabId?: number;
   startedAt: number;
   endedAt?: number;
   actions: RecordedAction[];
@@ -26,8 +28,22 @@ interface RecordingSession {
 
 interface RecordedAction {
   id: string;
-  type: 'click' | 'input' | 'scroll' | 'keydown' | 'navigate' | 'select' | 'copy' | 'paste' | 'cut';
+  type:
+    | 'click'
+    | 'input'
+    | 'scroll'
+    | 'keydown'
+    | 'navigate'
+    | 'select'
+    | 'copy'
+    | 'paste'
+    | 'cut'
+    | 'tab_open'
+    | 'tab_switch'
+    | 'tab_close';
   timestamp: number;
+  tabId?: number;
+  tabInfo?: { url?: string; title?: string; openerTabId?: number };
   element?: { tagName: string; primary: string; textContent?: string; xpath?: string };
   value?: string;
   keys?: string;
@@ -61,6 +77,9 @@ const ACTION_ICON: Record<RecordedAction['type'], string> = {
   copy: '📋',
   paste: '📎',
   cut: '✂',
+  tab_open: '🗂',
+  tab_switch: '🔀',
+  tab_close: '❎',
 };
 
 function actionToSkillAction(type: RecordedAction['type']): string {
@@ -83,6 +102,12 @@ function actionToSkillAction(type: RecordedAction['type']): string {
       return 'paste_text';
     case 'cut':
       return 'cut_text';
+    case 'tab_open':
+      return 'open_tab';
+    case 'tab_switch':
+      return 'switch_tab';
+    case 'tab_close':
+      return 'close_tab';
     default:
       return 'wait';
   }
@@ -108,6 +133,12 @@ function actionToParams(a: RecordedAction): Record<string, unknown> {
       return { intent: 'Paste content', text: a.value, pasteInfo: a.pasteInfo };
     case 'cut':
       return { intent: 'Cut content', cutInfo: a.cutInfo };
+    case 'tab_open':
+      return { intent: `Open new tab: ${a.tabInfo?.title || a.tabInfo?.url || ''}`, url: a.tabInfo?.url || '' };
+    case 'tab_switch':
+      return { intent: `Switch to tab: ${a.tabInfo?.title || a.tabInfo?.url || ''}`, url: a.tabInfo?.url || '' };
+    case 'tab_close':
+      return { intent: 'Close tab' };
     default:
       return { intent: 'Wait', seconds: 1 };
   }
@@ -133,6 +164,12 @@ function actionLabel(a: RecordedAction): string {
       return `粘贴 "${(a.value || '').slice(0, 20)}"`;
     case 'cut':
       return `剪切 "${(a.value || '').slice(0, 20)}"`;
+    case 'tab_open':
+      return `新标签页 "${a.tabInfo?.title?.slice(0, 24) || a.tabInfo?.url?.slice(0, 24) || ''}"`;
+    case 'tab_switch':
+      return `切换标签 "${a.tabInfo?.title?.slice(0, 24) || a.tabInfo?.url?.slice(0, 24) || ''}"`;
+    case 'tab_close':
+      return '关闭标签页';
     default:
       return a.type;
   }
@@ -611,25 +648,53 @@ export default function RecordingPill({ isDarkMode = false, port, getPort, onRec
                 background: isDarkMode ? 'rgba(15,23,42,0.6)' : 'rgba(248,250,252,0.6)',
               }}>
               {isRecording ? (
-                <button
-                  type="button"
-                  onClick={handleStop}
-                  style={{
-                    flex: 1,
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: 6,
-                    padding: '6px 10px',
-                    borderRadius: 8,
-                    background: accent,
-                    color: '#fff',
-                    border: 'none',
-                    fontWeight: 600,
-                    cursor: 'pointer',
-                  }}>
-                  <FiSquare size={12} fill="#fff" /> 停止
-                </button>
+                <>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      try {
+                        portRef.current?.postMessage({ type: 'recording_add_active_tab' });
+                      } catch {
+                        /* ignore */
+                      }
+                    }}
+                    title="把当前激活的标签页加入录制"
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: 4,
+                      padding: '6px 10px',
+                      borderRadius: 8,
+                      background: 'transparent',
+                      color: isDarkMode ? '#cbd5e1' : '#475569',
+                      border: `1px solid ${isDarkMode ? '#475569' : '#cbd5e1'}`,
+                      fontWeight: 500,
+                      fontSize: 12,
+                      cursor: 'pointer',
+                    }}>
+                    + 当前页
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleStop}
+                    style={{
+                      flex: 1,
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: 6,
+                      padding: '6px 10px',
+                      borderRadius: 8,
+                      background: accent,
+                      color: '#fff',
+                      border: 'none',
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                    }}>
+                    <FiSquare size={12} fill="#fff" /> 停止
+                  </button>
+                </>
               ) : (
                 <button
                   type="button"

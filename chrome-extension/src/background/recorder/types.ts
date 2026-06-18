@@ -33,7 +33,22 @@ export type RecordedActionType =
   | 'select'
   | 'copy'
   | 'paste'
-  | 'cut';
+  | 'cut'
+  | 'tab_open'
+  | 'tab_switch'
+  | 'tab_close';
+
+/**
+ * Tab info for tab_open / tab_switch / tab_close synthetic actions
+ */
+export interface TabInfo {
+  /** URL of the tab when the event happened */
+  url?: string;
+  /** Title of the tab when the event happened */
+  title?: string;
+  /** Opener tab id (only set for tab_open) */
+  openerTabId?: number;
+}
 
 /**
  * Selection info for copy/cut actions
@@ -73,6 +88,10 @@ export interface RecordedAction {
   type: RecordedActionType;
   /** Timestamp when action occurred */
   timestamp: number;
+  /** Tab ID where the action occurred (for cross-tab recording) */
+  tabId?: number;
+  /** Tab info for tab_open / tab_switch / tab_close */
+  tabInfo?: TabInfo;
   /** Element selector info (for click/input/scroll/select) */
   element?: ElementSelector;
   /** Value for input/select/copy/paste/cut actions */
@@ -108,8 +127,12 @@ export interface RecordedAction {
 export interface RecordingSession {
   /** Session ID */
   id: string;
-  /** Tab ID being recorded */
+  /** Tab ID where the session was started (kept for backwards compatibility) */
   tabId: number;
+  /** All tab IDs currently being tracked */
+  tabIds: number[];
+  /** Currently focused tab id (last activated tracked tab) */
+  activeTabId?: number;
   /** Start timestamp */
   startedAt: number;
   /** End timestamp (null if ongoing) */
