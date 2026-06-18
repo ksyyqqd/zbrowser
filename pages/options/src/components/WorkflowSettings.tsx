@@ -64,6 +64,7 @@ export default function WorkflowSettings({ isDarkMode = false }: WorkflowSetting
         const target = stored.find(w => w.id === id);
         if (target) {
           setSelectedWorkflow(target);
+          resetExecution();
           setIsEditorOpen(true);
         }
       } catch {
@@ -71,6 +72,7 @@ export default function WorkflowSettings({ isDarkMode = false }: WorkflowSetting
       }
     };
     checkAutoOpen();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const loadWorkflows = async () => {
@@ -107,12 +109,14 @@ export default function WorkflowSettings({ isDarkMode = false }: WorkflowSetting
   // Create new workflow
   const handleCreateWorkflow = () => {
     setSelectedWorkflow(null);
+    resetExecution();
     setIsEditorOpen(true);
   };
 
   // Edit existing workflow
   const handleEditWorkflow = (workflow: UserWorkflowConfig) => {
     setSelectedWorkflow(workflow);
+    resetExecution();
     setIsEditorOpen(true);
   };
 

@@ -1035,6 +1035,31 @@ const SidePanel = () => {
         return true;
       }
 
+      // /image <prompt>  —— 通过聊天输入直接触发图片生成
+      // 也支持 /img、/draw 别名
+      if (
+        command.startsWith('/image ') ||
+        command.startsWith('/img ') ||
+        command.startsWith('/draw ') ||
+        command === '/image' ||
+        command === '/img' ||
+        command === '/draw'
+      ) {
+        const firstSpace = command.indexOf(' ');
+        const prompt = firstSpace === -1 ? '' : command.slice(firstSpace + 1).trim();
+        if (!prompt) {
+          appendMessage({
+            actor: Actors.SYSTEM,
+            content: '用法: /image <描述文字>，例如：/image 一只穿着宇航服的猫，赛博朋克风格',
+            timestamp: Date.now(),
+          });
+          return true;
+        }
+        // 复用现有的图片生成入口（按钮路径），无需新增协议
+        await handleGenerateImage({ prompt });
+        return true;
+      }
+
       // 不支持的命令
       appendMessage({
         actor: Actors.SYSTEM,

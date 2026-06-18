@@ -11,6 +11,7 @@ import {
   Controls,
   MiniMap,
   MarkerType,
+  SelectionMode,
   addEdge,
   useNodesState,
   useEdgesState,
@@ -80,7 +81,14 @@ function WorkflowEditorInner({
   onExecute,
 }: WorkflowEditorProps) {
   const reactFlowWrapper = useRef<HTMLDivElement>(null);
-  const { screenToFlowPosition } = useReactFlow();
+  const { screenToFlowPosition, fitView, zoomIn, zoomOut } = useReactFlow();
+  // Internal clipboard for Ctrl+C / Ctrl+V node copy-paste (ref-based, not OS clipboard)
+  const clipboardRef = useRef<FlowNode[] | null>(null);
+  // Help overlay (Ctrl+/) toggle
+  const [showShortcutHelp, setShowShortcutHelp] = useState(false);
+  // Right-click context menu state
+  type CtxTarget = { kind: 'node'; nodeId: string } | { kind: 'edge'; edgeId: string } | { kind: 'pane' };
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; target: CtxTarget } | null>(null);
 
   const [workflowId] = useState(initialWorkflow?.id || newWorkflowId());
   const [workflowName, setWorkflowName] = useState(initialWorkflow?.name || t('workflow_newWorkflow_defaultName'));
@@ -242,7 +250,30 @@ function WorkflowEditorInner({
   const onPaneClick = useCallback(() => {
     setSelectedNode(null);
     setSelectedEdge(null);
+    setContextMenu(null);
   }, []);
+
+  // ============ Context Menu (right-click) ============
+  const onNodeContextMenu = useCallback((e: React.MouseEvent, node: FlowNode) => {
+    e.preventDefault();
+    setContextMenu({ x: e.clientX, y: e.clientY, target: { kind: 'node', nodeId: node.id } });
+  }, []);
+
+  const onEdgeContextMenu = useCallback((e: React.MouseEvent, edge: FlowEdge) => {
+    e.preventDefault();
+    setContextMenu({ x: e.clientX, y: e.clientY, target: { kind: 'edge', edgeId: edge.id } });
+  }, []);
+
+  const onPaneContextMenu = useCallback((e: React.MouseEvent | MouseEvent) => {
+    e.preventDefault();
+    setContextMenu({
+      x: (e as React.MouseEvent).clientX,
+      y: (e as React.MouseEvent).clientY,
+      target: { kind: 'pane' },
+    });
+  }, []);
+
+  const closeContextMenu = useCallback(() => setContextMenu(null), []);
 
   // ============ Actions ============
   const handleDeleteNode = useCallback(() => {
@@ -333,15 +364,94 @@ function WorkflowEditorInner({
     onSave(workflow);
   }, [buildWorkflow, onSave]);
 
+  // Copy selected nodes to internal clipboard
+  const handleCopy = useCallback(() => {
+    const selected = nodes.filter(
+      n => (n.selected || n.id === selectedNode?.id) && n.type !== 'start' && n.type !== 'end',
+    );
+    if (selected.length === 0) return;
+    // Deep-copy node data to avoid stale references
+    clipboardRef.current = selected.map(n => ({
+      ...n,
+      data: JSON.parse(JSON.stringify(n.data || {})),
+    }));
+  }, [nodes, selectedNode]);
+
+  // Paste nodes from internal clipboard
+  const handlePaste = useCallback(() => {
+    const source = clipboardRef.current;
+    if (!source || source.length === 0) return;
+    const newNodes: FlowNode[] = source
+      .filter(n => n.type !== 'start' && n.type !== 'end')
+      .map(n => ({
+        ...n,
+        id: `node-${Math.random().toString(36).slice(2, 10)}`,
+        position: { x: n.position.x + 60, y: n.position.y + 60 },
+        data: { ...JSON.parse(JSON.stringify(n.data || {})), _executionStatus: undefined },
+        selected: false,
+      }));
+    if (newNodes.length === 0) return;
+    setNodes(nds => nds.concat(newNodes));
+    if (newNodes.length === 1) {
+      const created = newNodes[0];
+      setSelectedNode({
+        id: created.id,
+        type: created.type as WorkflowNodeType,
+        name: (created.data?.name as string) || created.id,
+        position: created.position,
+        data: (created.data as NodeData) || {},
+      });
+    }
+  }, [setNodes]);
+
+  // Cycle selection through nodes with Tab / Shift+Tab
+  const handleCycleSelection = useCallback(
+    (reverse: boolean) => {
+      const selectableNodes = nodes.filter(n => n.type !== 'start' && n.type !== 'end');
+      if (selectableNodes.length === 0) return;
+      const currentIdx = selectableNodes.findIndex(n => n.id === selectedNode?.id);
+      let nextIdx: number;
+      if (currentIdx < 0) {
+        nextIdx = reverse ? selectableNodes.length - 1 : 0;
+      } else {
+        nextIdx = reverse
+          ? (currentIdx - 1 + selectableNodes.length) % selectableNodes.length
+          : (currentIdx + 1) % selectableNodes.length;
+      }
+      const next = selectableNodes[nextIdx];
+      // Update canvas highlight (ReactFlow reads `selected` from node state)
+      setNodes(nds => nds.map(n => ({ ...n, selected: n.id === next.id })));
+      setSelectedNode({
+        id: next.id,
+        type: next.type as WorkflowNodeType,
+        name: (next.data?.name as string) || next.id,
+        position: next.position,
+        data: (next.data as NodeData) || {},
+      });
+      setSelectedEdge(null);
+      setRightPanelMode('node');
+    },
+    [nodes, selectedNode],
+  );
+
   // ============ Keyboard Shortcuts ============
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      // Skip shortcuts when user is typing in an input / textarea
+      const tag = (e.target as HTMLElement)?.tagName;
+      const isInputFocused = tag === 'INPUT' || tag === 'TEXTAREA' || (e.target as HTMLElement)?.isContentEditable;
       const mod = e.ctrlKey || e.metaKey;
+
+      // --- Shortcuts that work even when input is focused (via Ctrl/⌘) ---
       if (mod && e.key === 's') {
         e.preventDefault();
         handleSave();
         return;
       }
+
+      // --- Shortcuts blocked while typing in input fields ---
+      if (isInputFocused && !mod) return;
+
       if (mod && e.key === 'd') {
         e.preventDefault();
         handleDuplicateNode();
@@ -357,18 +467,139 @@ function WorkflowEditorInner({
         handleRedo();
         return;
       }
+      // Ctrl+C / Ctrl+V — Copy / Paste nodes
+      if (mod && e.key === 'c') {
+        if (!isInputFocused) {
+          e.preventDefault();
+          handleCopy();
+        }
+        return;
+      }
+      if (mod && e.key === 'v') {
+        if (!isInputFocused) {
+          e.preventDefault();
+          handlePaste();
+        }
+        return;
+      }
+      // Ctrl+A — Select all nodes
+      if (mod && e.key === 'a') {
+        if (!isInputFocused) {
+          e.preventDefault();
+          setNodes(nds => nds.map(n => ({ ...n, selected: true })));
+        }
+        return;
+      }
+      // Ctrl+E — Execute workflow
+      if (mod && e.key === 'e') {
+        e.preventDefault();
+        if (onExecute) {
+          const wf = buildWorkflow();
+          onExecute(wf);
+        }
+        return;
+      }
+      // Ctrl+L — Auto layout
+      if (mod && e.key === 'l') {
+        e.preventDefault();
+        handleAutoLayout();
+        return;
+      }
+      // Ctrl+0 — Fit view
+      if (mod && e.key === '0') {
+        e.preventDefault();
+        fitView({ padding: 0.2 });
+        return;
+      }
+      // Ctrl+= / Ctrl+- — Zoom in / out
+      if (mod && (e.key === '=' || e.key === '+')) {
+        e.preventDefault();
+        zoomIn();
+        return;
+      }
+      if (mod && e.key === '-') {
+        e.preventDefault();
+        zoomOut();
+        return;
+      }
+      // F11 — Toggle fullscreen
+      if (e.key === 'F11') {
+        e.preventDefault();
+        setIsFullscreen(f => !f);
+        return;
+      }
+      // Ctrl+1/2/3 — Switch right panel
+      if (mod && e.key === '1') {
+        e.preventDefault();
+        setRightPanelMode('node');
+        return;
+      }
+      if (mod && e.key === '2') {
+        e.preventDefault();
+        setRightPanelMode('variables');
+        return;
+      }
+      if (mod && e.key === '3') {
+        e.preventDefault();
+        setRightPanelMode('logs');
+        return;
+      }
+      // Ctrl+/ — Toggle shortcut help
+      if (mod && e.key === '/') {
+        e.preventDefault();
+        setShowShortcutHelp(v => !v);
+        return;
+      }
+      // Tab / Shift+Tab — Cycle node selection
+      if (e.key === 'Tab' && !mod) {
+        e.preventDefault();
+        handleCycleSelection(e.shiftKey);
+        return;
+      }
+      // Escape — Deselect or close help
       if (e.key === 'Escape') {
-        setSelectedNode(null);
-        setSelectedEdge(null);
+        if (showShortcutHelp) {
+          setShowShortcutHelp(false);
+        } else {
+          setSelectedNode(null);
+          setSelectedEdge(null);
+        }
+        return;
       }
     };
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [handleSave, handleDuplicateNode, handleUndo, handleRedo]);
+  }, [
+    handleSave,
+    handleDuplicateNode,
+    handleUndo,
+    handleRedo,
+    handleCopy,
+    handlePaste,
+    handleCycleSelection,
+    handleAutoLayout,
+    onExecute,
+    buildWorkflow,
+    fitView,
+    zoomIn,
+    zoomOut,
+    showShortcutHelp,
+    setNodes,
+    setIsFullscreen,
+    setRightPanelMode,
+  ]);
 
   // ============ Execution Status Injection ============
   const nodesWithStatus = useMemo(() => {
-    if (!executionState || executionState.status === 'idle') return nodes;
+    // When no execution is in progress (idle), strip any stale _executionStatus so
+    // canvas badges don't linger from previous runs.
+    if (!executionState || executionState.status === 'idle') {
+      return nodes.map(n => {
+        if (!n.data || !('_executionStatus' in n.data)) return n;
+        const { _executionStatus: _ignored, ...cleanData } = n.data as Record<string, unknown>;
+        return { ...n, data: cleanData as typeof n.data };
+      });
+    }
     return nodes.map(n => ({
       ...n,
       data: { ...n.data, _executionStatus: executionState.nodeStatus[n.id] ?? 'idle' },
@@ -404,354 +635,586 @@ function WorkflowEditorInner({
 
   // ============ Render ============
   return (
-    <div
-      className={`workflow-editor flex flex-col ${
-        isFullscreen
-          ? `fixed inset-0 z-[100] h-screen w-screen overflow-hidden ${isDarkMode ? 'bg-slate-900' : 'bg-white'}`
-          : 'h-full'
-      }`}>
-      {/* Header */}
+    <>
+      {/* Custom thin scrollbar for editor side panels (variables / logs / node editor) */}
+      <style>{`
+        .rp-log-scroll::-webkit-scrollbar { width: 6px; height: 6px; }
+        .rp-log-scroll::-webkit-scrollbar-track { background: transparent; }
+        .rp-log-scroll::-webkit-scrollbar-thumb {
+          background: ${isDarkMode ? 'rgba(148,163,184,0.25)' : 'rgba(100,116,139,0.3)'};
+          border-radius: 3px;
+        }
+        .rp-log-scroll::-webkit-scrollbar-thumb:hover {
+          background: ${isDarkMode ? 'rgba(148,163,184,0.5)' : 'rgba(100,116,139,0.55)'};
+        }
+        .rp-log-scroll {
+          scrollbar-width: thin;
+          scrollbar-color: ${isDarkMode ? 'rgba(148,163,184,0.25) transparent' : 'rgba(100,116,139,0.3) transparent'};
+        }
+      `}</style>
       <div
-        className={`flex items-center justify-between border-b px-4 py-2.5 shadow-sm ${isDarkMode ? 'border-slate-700 bg-slate-800' : 'border-gray-200 bg-white'}`}>
-        <div className="flex flex-1 items-center gap-3">
-          <input
-            type="text"
-            value={workflowName}
-            onChange={e => setWorkflowName(e.target.value)}
-            placeholder={t('workflow_name_placeholder')}
-            className={`w-40 rounded-lg border px-3 py-1.5 text-sm font-medium transition-colors focus:ring-2 focus:ring-blue-400/50 ${isDarkMode ? 'border-slate-600 bg-slate-700 text-gray-200' : 'border-gray-300 bg-white text-gray-700'}`}
-          />
-          <input
-            type="text"
-            value={workflowDescription}
-            onChange={e => setWorkflowDescription(e.target.value)}
-            placeholder={t('workflow_description_placeholder')}
-            className={`max-w-md flex-1 rounded-lg border px-3 py-1.5 text-sm transition-colors focus:ring-2 focus:ring-blue-400/50 ${isDarkMode ? 'border-slate-600 bg-slate-700 text-gray-200' : 'border-gray-300 bg-white text-gray-700'}`}
-          />
-        </div>
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={handleUndo}
-            className={`rounded-lg p-2 transition-colors ${isDarkMode ? 'text-gray-300 hover:bg-slate-600' : 'text-gray-600 hover:bg-gray-100'}`}
-            title="Undo (Ctrl+Z)">
-            <FiCornerUpLeft className="size-4" />
-          </button>
-          <button
-            type="button"
-            onClick={handleRedo}
-            className={`rounded-lg p-2 transition-colors ${isDarkMode ? 'text-gray-300 hover:bg-slate-600' : 'text-gray-600 hover:bg-gray-100'}`}
-            title="Redo (Ctrl+Shift+Z)">
-            <FiCornerUpRight className="size-4" />
-          </button>
-          <button
-            type="button"
-            onClick={handleDuplicateNode}
-            disabled={!selectedNode || selectedNode.type === 'start' || selectedNode.type === 'end'}
-            className={`rounded-lg p-2 transition-colors disabled:opacity-30 ${isDarkMode ? 'text-gray-300 hover:bg-slate-600' : 'text-gray-600 hover:bg-gray-100'}`}
-            title="Duplicate (Ctrl+D)">
-            <FiCopy className="size-4" />
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              setRightPanelMode('variables');
-              setSelectedNode(null);
-              setSelectedEdge(null);
-            }}
-            className={`relative rounded-lg p-2 transition-colors ${
-              rightPanelMode === 'variables'
-                ? isDarkMode
-                  ? 'bg-slate-600 text-blue-300'
-                  : 'bg-blue-50 text-blue-600'
-                : isDarkMode
-                  ? 'text-gray-300 hover:bg-slate-600'
-                  : 'text-gray-600 hover:bg-gray-100'
-            }`}
-            title={`变量 (${variables.length})`}>
-            <FiDatabase className="size-4" />
-            {variables.length > 0 && (
-              <span className="absolute -right-0.5 -top-0.5 flex size-3.5 items-center justify-center rounded-full bg-blue-500 text-[9px] font-bold text-white">
-                {variables.length}
-              </span>
-            )}
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              setRightPanelMode('logs');
-              setSelectedNode(null);
-              setSelectedEdge(null);
-            }}
-            className={`relative rounded-lg p-2 transition-colors ${
-              rightPanelMode === 'logs'
-                ? isDarkMode
-                  ? 'bg-slate-600 text-blue-300'
-                  : 'bg-blue-50 text-blue-600'
-                : isDarkMode
-                  ? 'text-gray-300 hover:bg-slate-600'
-                  : 'text-gray-600 hover:bg-gray-100'
-            }`}
-            title={`执行日志${executionState ? ` (${executionState.events.length})` : ''}`}>
-            <FiActivity className="size-4" />
-            {executionState && executionState.status === 'running' && (
-              <span className="absolute -right-0.5 -top-0.5 flex size-2 animate-pulse rounded-full bg-blue-500" />
-            )}
-            {executionState && executionState.status === 'failed' && (
-              <span className="absolute -right-0.5 -top-0.5 flex size-2 rounded-full bg-red-500" />
-            )}
-          </button>
-          <div className={`mx-1 h-5 w-px ${isDarkMode ? 'bg-slate-600' : 'bg-gray-300'}`} />
-          <button
-            type="button"
-            onClick={handleAutoLayout}
-            className={`rounded-lg p-2 transition-colors ${isDarkMode ? 'text-gray-300 hover:bg-slate-600' : 'text-gray-600 hover:bg-gray-100'}`}
-            title={t('workflow_autoLayout')}>
-            <FiLayout className="size-4" />
-          </button>
-          <button
-            type="button"
-            onClick={() => setIsFullscreen(!isFullscreen)}
-            className={`rounded-lg p-2 transition-colors ${isDarkMode ? 'text-gray-300 hover:bg-slate-600' : 'text-gray-600 hover:bg-gray-100'}`}
-            title={isFullscreen ? t('workflow_exitFullscreen') : t('workflow_enterFullscreen')}>
-            {isFullscreen ? <FiMinimize2 className="size-4" /> : <FiMaximize2 className="size-4" />}
-          </button>
-          <button
-            type="button"
-            onClick={onCancel}
-            className={`rounded-lg px-4 py-1.5 text-sm font-medium transition-colors ${isDarkMode ? 'bg-slate-700 text-gray-200 hover:bg-slate-600' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}>
-            {t('workflow_cancel')}
-          </button>
-          <button
-            type="button"
-            onClick={handleSave}
-            className="rounded-lg bg-blue-600 px-4 py-1.5 text-sm font-medium text-white shadow-sm transition-colors hover:bg-blue-500">
-            {t('workflow_save')}
-          </button>
-          {onExecute && (
+        className={`workflow-editor flex flex-col ${
+          isFullscreen
+            ? `fixed inset-0 z-[100] h-screen w-screen overflow-hidden ${isDarkMode ? 'bg-slate-900' : 'bg-white'}`
+            : 'h-full'
+        }`}>
+        {/* Header */}
+        <div
+          className={`flex items-center justify-between border-b px-4 py-2.5 shadow-sm ${isDarkMode ? 'border-slate-700 bg-slate-800' : 'border-gray-200 bg-white'}`}>
+          <div className="flex flex-1 items-center gap-3">
+            <input
+              type="text"
+              value={workflowName}
+              onChange={e => setWorkflowName(e.target.value)}
+              placeholder={t('workflow_name_placeholder')}
+              className={`w-40 rounded-lg border px-3 py-1.5 text-sm font-medium transition-colors focus:ring-2 focus:ring-blue-400/50 ${isDarkMode ? 'border-slate-600 bg-slate-700 text-gray-200' : 'border-gray-300 bg-white text-gray-700'}`}
+            />
+            <input
+              type="text"
+              value={workflowDescription}
+              onChange={e => setWorkflowDescription(e.target.value)}
+              placeholder={t('workflow_description_placeholder')}
+              className={`max-w-md flex-1 rounded-lg border px-3 py-1.5 text-sm transition-colors focus:ring-2 focus:ring-blue-400/50 ${isDarkMode ? 'border-slate-600 bg-slate-700 text-gray-200' : 'border-gray-300 bg-white text-gray-700'}`}
+            />
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handleUndo}
+              className={`rounded-lg p-2 transition-colors ${isDarkMode ? 'text-gray-300 hover:bg-slate-600' : 'text-gray-600 hover:bg-gray-100'}`}
+              title="Undo (Ctrl+Z)">
+              <FiCornerUpLeft className="size-4" />
+            </button>
+            <button
+              type="button"
+              onClick={handleRedo}
+              className={`rounded-lg p-2 transition-colors ${isDarkMode ? 'text-gray-300 hover:bg-slate-600' : 'text-gray-600 hover:bg-gray-100'}`}
+              title="Redo (Ctrl+Shift+Z)">
+              <FiCornerUpRight className="size-4" />
+            </button>
+            <button
+              type="button"
+              onClick={handleDuplicateNode}
+              disabled={!selectedNode || selectedNode.type === 'start' || selectedNode.type === 'end'}
+              className={`rounded-lg p-2 transition-colors disabled:opacity-30 ${isDarkMode ? 'text-gray-300 hover:bg-slate-600' : 'text-gray-600 hover:bg-gray-100'}`}
+              title="Duplicate (Ctrl+D)">
+              <FiCopy className="size-4" />
+            </button>
             <button
               type="button"
               onClick={() => {
-                const wf = buildWorkflow();
-                onExecute(wf);
+                setRightPanelMode('variables');
+                setSelectedNode(null);
+                setSelectedEdge(null);
               }}
-              disabled={executionState?.status === 'running'}
-              className={`flex items-center gap-1.5 rounded-lg px-4 py-1.5 text-sm font-medium text-white shadow-sm transition-colors ${
-                executionState?.status === 'running'
-                  ? 'cursor-not-allowed bg-green-400 opacity-60'
-                  : 'bg-green-600 hover:bg-green-500'
-              }`}>
-              <FiPlay className="size-3.5" />
-              {executionState?.status === 'running' ? '执行中...' : '运行'}
+              className={`relative rounded-lg p-2 transition-colors ${
+                rightPanelMode === 'variables'
+                  ? isDarkMode
+                    ? 'bg-slate-600 text-blue-300'
+                    : 'bg-blue-50 text-blue-600'
+                  : isDarkMode
+                    ? 'text-gray-300 hover:bg-slate-600'
+                    : 'text-gray-600 hover:bg-gray-100'
+              }`}
+              title={`变量 (${variables.length})`}>
+              <FiDatabase className="size-4" />
+              {variables.length > 0 && (
+                <span className="absolute -right-0.5 -top-0.5 flex size-3.5 items-center justify-center rounded-full bg-blue-500 text-[9px] font-bold text-white">
+                  {variables.length}
+                </span>
+              )}
             </button>
-          )}
-        </div>
-      </div>
-
-      {/* Canvas Area */}
-      <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
-        {/* Palette */}
-        <div
-          className={`flex shrink-0 flex-col overflow-y-auto overflow-x-hidden border-r ${isDarkMode ? 'border-slate-700 bg-slate-800/80' : 'border-gray-200 bg-gray-50/80'}`}
-          style={{ width: 224, minWidth: 224, maxWidth: 224, boxSizing: 'border-box' }}>
-          <div className="px-3 pb-1 pt-3">
-            <h3
-              className={`mb-2 text-xs font-semibold uppercase tracking-wider ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>
-              {t('workflow_nodePalette')}
-            </h3>
-            <div className="space-y-1.5">
-              {nodePalette.map(item => (
-                <PaletteCard key={item.type} item={item} isDark={isDarkMode} />
-              ))}
-            </div>
-          </div>
-          <div
-            className={`mt-2 border-t border-dashed px-3 pb-3 pt-3 ${isDarkMode ? 'border-slate-600' : 'border-gray-300'}`}>
-            <h3
-              className={`mb-2 text-xs font-semibold uppercase tracking-wider ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>
-              {t('workflow_controlPalette')}
-            </h3>
-            <div className="space-y-1.5">
-              {controlPalette.map(item => (
-                <PaletteCard key={item.type} item={item} isDark={isDarkMode} />
-              ))}
-            </div>
-          </div>
-        </div>
-
-        {/* React Flow Canvas */}
-        <div ref={reactFlowWrapper} className={`relative flex-1 ${isDarkMode ? 'bg-slate-900' : 'bg-gray-100'}`}>
-          {validationErrors.length > 0 && (
-            <div className="absolute inset-x-0 top-0 z-10 flex items-start gap-2 border-b border-red-200 bg-red-50 px-4 py-2 dark:border-red-900/50 dark:bg-red-900/30">
-              <FiAlertTriangle className="mt-0.5 size-4 shrink-0 text-red-500" />
-              <div className="flex-1 space-y-0.5">
-                {validationErrors.map((err, i) => (
-                  <p key={i} className="text-xs text-red-700 dark:text-red-300">
-                    {err}
-                  </p>
-                ))}
-              </div>
+            <button
+              type="button"
+              onClick={() => {
+                setRightPanelMode('logs');
+                setSelectedNode(null);
+                setSelectedEdge(null);
+              }}
+              className={`relative rounded-lg p-2 transition-colors ${
+                rightPanelMode === 'logs'
+                  ? isDarkMode
+                    ? 'bg-slate-600 text-blue-300'
+                    : 'bg-blue-50 text-blue-600'
+                  : isDarkMode
+                    ? 'text-gray-300 hover:bg-slate-600'
+                    : 'text-gray-600 hover:bg-gray-100'
+              }`}
+              title={`执行日志${executionState ? ` (${executionState.events.length})` : ''}`}>
+              <FiActivity className="size-4" />
+              {executionState && executionState.status === 'running' && (
+                <span className="absolute -right-0.5 -top-0.5 flex size-2 animate-pulse rounded-full bg-blue-500" />
+              )}
+              {executionState && executionState.status === 'failed' && (
+                <span className="absolute -right-0.5 -top-0.5 flex size-2 rounded-full bg-red-500" />
+              )}
+            </button>
+            <div className={`mx-1 h-5 w-px ${isDarkMode ? 'bg-slate-600' : 'bg-gray-300'}`} />
+            <button
+              type="button"
+              onClick={handleAutoLayout}
+              className={`rounded-lg p-2 transition-colors ${isDarkMode ? 'text-gray-300 hover:bg-slate-600' : 'text-gray-600 hover:bg-gray-100'}`}
+              title={t('workflow_autoLayout')}>
+              <FiLayout className="size-4" />
+            </button>
+            <button
+              type="button"
+              onClick={() => setIsFullscreen(!isFullscreen)}
+              className={`rounded-lg p-2 transition-colors ${isDarkMode ? 'text-gray-300 hover:bg-slate-600' : 'text-gray-600 hover:bg-gray-100'}`}
+              title={isFullscreen ? t('workflow_exitFullscreen') : t('workflow_enterFullscreen')}>
+              {isFullscreen ? <FiMinimize2 className="size-4" /> : <FiMaximize2 className="size-4" />}
+            </button>
+            <button
+              type="button"
+              onClick={onCancel}
+              className={`rounded-lg px-4 py-1.5 text-sm font-medium transition-colors ${isDarkMode ? 'bg-slate-700 text-gray-200 hover:bg-slate-600' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}>
+              {t('workflow_cancel')}
+            </button>
+            <button
+              type="button"
+              onClick={handleSave}
+              className="rounded-lg bg-blue-600 px-4 py-1.5 text-sm font-medium text-white shadow-sm transition-colors hover:bg-blue-500">
+              {t('workflow_save')}
+            </button>
+            {onExecute && (
               <button
                 type="button"
-                onClick={() => setValidationErrors([])}
-                className="shrink-0 rounded p-0.5 text-red-400 hover:bg-red-100 dark:hover:bg-red-900/50">
-                <FiX className="size-3.5" />
+                onClick={() => {
+                  const wf = buildWorkflow();
+                  onExecute(wf);
+                }}
+                disabled={executionState?.status === 'running'}
+                className={`flex items-center gap-1.5 rounded-lg px-4 py-1.5 text-sm font-medium text-white shadow-sm transition-colors ${
+                  executionState?.status === 'running'
+                    ? 'cursor-not-allowed bg-green-400 opacity-60'
+                    : 'bg-green-600 hover:bg-green-500'
+                }`}>
+                <FiPlay className="size-3.5" />
+                {executionState?.status === 'running' ? '执行中...' : '运行'}
               </button>
-            </div>
-          )}
-          <ReactFlow
-            nodes={nodesWithStatus}
-            edges={edges}
-            onNodesChange={onNodesChange}
-            onEdgesChange={onEdgesChange}
-            onConnect={onConnect}
-            isValidConnection={isValidConnection}
-            onDrop={onDrop}
-            onDragOver={onDragOver}
-            onNodeClick={onNodeClick}
-            onEdgeClick={onEdgeClick}
-            onPaneClick={onPaneClick}
-            nodeTypes={nodeTypes}
-            deleteKeyCode={['Backspace', 'Delete']}
-            fitView
-            snapToGrid
-            snapGrid={[20, 20]}
-            colorMode={isDarkMode ? 'dark' : 'light'}
-            defaultEdgeOptions={{
-              type: 'smoothstep',
-              markerEnd: { type: MarkerType.ArrowClosed, width: 16, height: 16 },
-            }}>
-            <Background gap={20} size={1} />
-            <Controls />
-            <MiniMap
-              nodeStrokeWidth={3}
-              pannable
-              zoomable
-              nodeColor={node => {
-                switch (node.type) {
-                  case 'ai':
-                    return '#9333ea';
-                  case 'automation':
-                    return '#3b82f6';
-                  case 'condition':
-                    return '#f97316';
-                  case 'start':
-                    return '#22c55e';
-                  case 'end':
-                    return '#ef4444';
-                  default:
-                    return '#6b7280';
-                }
-              }}
-            />
-          </ReactFlow>
+            )}
+          </div>
         </div>
 
-        {/* Right Editor Panel */}
-        {(selectedNode || selectedEdge || rightPanelMode === 'variables' || rightPanelMode === 'logs') && (
+        {/* Canvas Area */}
+        <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
+          {/* Palette */}
           <div
-            className={`w-72 overflow-y-auto border-l shadow-lg ${isDarkMode ? 'border-slate-700 bg-slate-800' : 'border-gray-200 bg-white'}`}>
-            {rightPanelMode === 'logs' ? (
-              <>
-                <div
-                  className={`flex items-center justify-between border-b px-4 py-2.5 ${isDarkMode ? 'border-slate-700' : 'border-gray-200'}`}>
-                  <h3 className={`text-sm font-semibold ${isDarkMode ? 'text-gray-200' : 'text-gray-800'}`}>
-                    执行日志
-                  </h3>
-                  <button
-                    type="button"
-                    onClick={() => setRightPanelMode('node')}
-                    className={`rounded-md p-1.5 transition-colors ${isDarkMode ? 'text-gray-400 hover:bg-slate-700' : 'text-gray-500 hover:bg-gray-100'}`}
-                    title="关闭">
-                    <FiX className="size-4" />
-                  </button>
+            className={`flex shrink-0 flex-col overflow-y-auto overflow-x-hidden border-r ${isDarkMode ? 'border-slate-700 bg-slate-800/80' : 'border-gray-200 bg-gray-50/80'}`}
+            style={{ width: 224, minWidth: 224, maxWidth: 224, boxSizing: 'border-box' }}>
+            <div className="px-3 pb-1 pt-3">
+              <h3
+                className={`mb-2 text-xs font-semibold uppercase tracking-wider ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>
+                {t('workflow_nodePalette')}
+              </h3>
+              <div className="space-y-1.5">
+                {nodePalette.map(item => (
+                  <PaletteCard key={item.type} item={item} isDark={isDarkMode} />
+                ))}
+              </div>
+            </div>
+            <div
+              className={`mt-2 border-t border-dashed px-3 pb-3 pt-3 ${isDarkMode ? 'border-slate-600' : 'border-gray-300'}`}>
+              <h3
+                className={`mb-2 text-xs font-semibold uppercase tracking-wider ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>
+                {t('workflow_controlPalette')}
+              </h3>
+              <div className="space-y-1.5">
+                {controlPalette.map(item => (
+                  <PaletteCard key={item.type} item={item} isDark={isDarkMode} />
+                ))}
+              </div>
+            </div>
+            {/* Shortcut help entry */}
+            <button
+              type="button"
+              onClick={() => setShowShortcutHelp(true)}
+              className={`mt-auto flex items-center gap-1.5 border-t px-3 py-2.5 text-xs transition-colors ${
+                isDarkMode
+                  ? 'border-slate-700 text-gray-500 hover:bg-slate-700/50 hover:text-gray-300'
+                  : 'border-gray-200 text-gray-400 hover:bg-gray-100 hover:text-gray-600'
+              }`}>
+              <kbd
+                className={`rounded border px-1 py-0.5 font-mono text-[10px] ${isDarkMode ? 'border-slate-600 bg-slate-900' : 'border-gray-300 bg-gray-50'}`}>
+                ⌘/
+              </kbd>
+              快捷键
+            </button>
+          </div>
+
+          {/* React Flow Canvas */}
+          <div ref={reactFlowWrapper} className={`relative flex-1 ${isDarkMode ? 'bg-slate-900' : 'bg-gray-100'}`}>
+            {validationErrors.length > 0 && (
+              <div className="absolute inset-x-0 top-0 z-10 flex items-start gap-2 border-b border-red-200 bg-red-50 px-4 py-2 dark:border-red-900/50 dark:bg-red-900/30">
+                <FiAlertTriangle className="mt-0.5 size-4 shrink-0 text-red-500" />
+                <div className="flex-1 space-y-0.5">
+                  {validationErrors.map((err, i) => (
+                    <p key={i} className="text-xs text-red-700 dark:text-red-300">
+                      {err}
+                    </p>
+                  ))}
                 </div>
-                <ExecutionLogPanel
-                  events={executionState?.events || []}
-                  status={executionState?.status || 'idle'}
-                  isDarkMode={isDarkMode}
-                  outputs={outputResults}
-                />
-              </>
-            ) : rightPanelMode === 'variables' ? (
-              <>
-                <div
-                  className={`flex items-center justify-between border-b px-4 py-2.5 ${isDarkMode ? 'border-slate-700' : 'border-gray-200'}`}>
-                  <h3 className={`text-sm font-semibold ${isDarkMode ? 'text-gray-200' : 'text-gray-800'}`}>
-                    变量管理
-                  </h3>
-                  <button
-                    type="button"
-                    onClick={() => setRightPanelMode('node')}
-                    className={`rounded-md p-1.5 transition-colors ${isDarkMode ? 'text-gray-400 hover:bg-slate-700' : 'text-gray-500 hover:bg-gray-100'}`}
-                    title="关闭">
-                    <FiX className="size-4" />
-                  </button>
-                </div>
-                <VariablesPanel variables={variables} onChange={setVariables} isDarkMode={isDarkMode} />
-              </>
-            ) : (
-              <>
-                <div
-                  className={`flex items-center justify-between border-b px-4 py-2.5 ${isDarkMode ? 'border-slate-700' : 'border-gray-200'}`}>
-                  <h3 className={`text-sm font-semibold ${isDarkMode ? 'text-gray-200' : 'text-gray-800'}`}>
-                    {selectedNode ? t('workflow_editNode') : t('workflow_editEdge')}
-                  </h3>
-                  <div className="flex items-center gap-1">
-                    {selectedNode && (
-                      <button
-                        type="button"
-                        onClick={handleDeleteNode}
-                        className="rounded-md p-1.5 text-red-500 transition-colors hover:bg-red-100 dark:hover:bg-red-900/30"
-                        title={t('workflow_delete')}>
-                        <FiTrash2 className="size-4" />
-                      </button>
-                    )}
-                    {selectedEdge && (
-                      <button
-                        type="button"
-                        onClick={handleDeleteEdge}
-                        className="rounded-md p-1.5 text-red-500 transition-colors hover:bg-red-100 dark:hover:bg-red-900/30"
-                        title={t('workflow_delete')}>
-                        <FiTrash2 className="size-4" />
-                      </button>
-                    )}
+                <button
+                  type="button"
+                  onClick={() => setValidationErrors([])}
+                  className="shrink-0 rounded p-0.5 text-red-400 hover:bg-red-100 dark:hover:bg-red-900/50">
+                  <FiX className="size-3.5" />
+                </button>
+              </div>
+            )}
+            <ReactFlow
+              nodes={nodesWithStatus}
+              edges={edges}
+              onNodesChange={onNodesChange}
+              onEdgesChange={onEdgesChange}
+              onConnect={onConnect}
+              isValidConnection={isValidConnection}
+              onDrop={onDrop}
+              onDragOver={onDragOver}
+              onNodeClick={onNodeClick}
+              onEdgeClick={onEdgeClick}
+              onPaneClick={onPaneClick}
+              onNodeContextMenu={onNodeContextMenu}
+              onEdgeContextMenu={onEdgeContextMenu}
+              onPaneContextMenu={onPaneContextMenu}
+              nodeTypes={nodeTypes}
+              deleteKeyCode={['Backspace', 'Delete']}
+              // Box-select on left-drag over empty pane; pan with middle/right mouse button
+              selectionOnDrag
+              panOnDrag={[1, 2]}
+              selectionMode={SelectionMode.Partial}
+              multiSelectionKeyCode={['Shift']}
+              fitView
+              snapToGrid
+              snapGrid={[20, 20]}
+              colorMode={isDarkMode ? 'dark' : 'light'}
+              defaultEdgeOptions={{
+                type: 'smoothstep',
+                markerEnd: { type: MarkerType.ArrowClosed, width: 16, height: 16 },
+              }}>
+              <Background gap={20} size={1} />
+              <Controls />
+              <MiniMap
+                nodeStrokeWidth={3}
+                pannable
+                zoomable
+                nodeColor={node => {
+                  switch (node.type) {
+                    case 'ai':
+                      return '#9333ea';
+                    case 'automation':
+                      return '#3b82f6';
+                    case 'condition':
+                      return '#f97316';
+                    case 'start':
+                      return '#22c55e';
+                    case 'end':
+                      return '#ef4444';
+                    default:
+                      return '#6b7280';
+                  }
+                }}
+              />
+            </ReactFlow>
+          </div>
+
+          {/* Right Editor Panel */}
+          {(selectedNode || selectedEdge || rightPanelMode === 'variables' || rightPanelMode === 'logs') && (
+            <div
+              className={`rp-log-scroll w-72 overflow-y-auto border-l shadow-lg ${isDarkMode ? 'border-slate-700 bg-slate-800' : 'border-gray-200 bg-white'}`}>
+              {rightPanelMode === 'logs' ? (
+                <>
+                  <div
+                    className={`flex items-center justify-between border-b px-4 py-2.5 ${isDarkMode ? 'border-slate-700' : 'border-gray-200'}`}>
+                    <h3 className={`text-sm font-semibold ${isDarkMode ? 'text-gray-200' : 'text-gray-800'}`}>
+                      执行日志
+                    </h3>
                     <button
                       type="button"
-                      onClick={() => {
-                        setSelectedNode(null);
-                        setSelectedEdge(null);
-                      }}
+                      onClick={() => setRightPanelMode('node')}
                       className={`rounded-md p-1.5 transition-colors ${isDarkMode ? 'text-gray-400 hover:bg-slate-700' : 'text-gray-500 hover:bg-gray-100'}`}
-                      title={t('workflow_close')}>
+                      title="关闭">
                       <FiX className="size-4" />
                     </button>
                   </div>
-                </div>
-                {selectedNode && (
-                  <NodeEditorPanel
-                    node={selectedNode}
-                    onSave={handleUpdateNode}
+                  <ExecutionLogPanel
+                    events={executionState?.events || []}
+                    status={executionState?.status || 'idle'}
                     isDarkMode={isDarkMode}
-                    variables={variables}
+                    outputs={outputResults}
                   />
-                )}
-                {selectedEdge && (
-                  <div className="p-4">
-                    <p className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
-                      {t('workflow_edgeInfo')}: {selectedEdge.source} → {selectedEdge.target}
-                    </p>
-                    <p className={`mt-2 text-xs ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>
-                      {t('workflow_edgeDeleteHint')}
-                    </p>
+                </>
+              ) : rightPanelMode === 'variables' ? (
+                <>
+                  <div
+                    className={`flex items-center justify-between border-b px-4 py-2.5 ${isDarkMode ? 'border-slate-700' : 'border-gray-200'}`}>
+                    <h3 className={`text-sm font-semibold ${isDarkMode ? 'text-gray-200' : 'text-gray-800'}`}>
+                      变量管理
+                    </h3>
+                    <button
+                      type="button"
+                      onClick={() => setRightPanelMode('node')}
+                      className={`rounded-md p-1.5 transition-colors ${isDarkMode ? 'text-gray-400 hover:bg-slate-700' : 'text-gray-500 hover:bg-gray-100'}`}
+                      title="关闭">
+                      <FiX className="size-4" />
+                    </button>
                   </div>
-                )}
-              </>
-            )}
+                  <VariablesPanel variables={variables} onChange={setVariables} isDarkMode={isDarkMode} />
+                </>
+              ) : (
+                <>
+                  <div
+                    className={`flex items-center justify-between border-b px-4 py-2.5 ${isDarkMode ? 'border-slate-700' : 'border-gray-200'}`}>
+                    <h3 className={`text-sm font-semibold ${isDarkMode ? 'text-gray-200' : 'text-gray-800'}`}>
+                      {selectedNode ? t('workflow_editNode') : t('workflow_editEdge')}
+                    </h3>
+                    <div className="flex items-center gap-1">
+                      {selectedNode && (
+                        <button
+                          type="button"
+                          onClick={handleDeleteNode}
+                          className="rounded-md p-1.5 text-red-500 transition-colors hover:bg-red-100 dark:hover:bg-red-900/30"
+                          title={t('workflow_delete')}>
+                          <FiTrash2 className="size-4" />
+                        </button>
+                      )}
+                      {selectedEdge && (
+                        <button
+                          type="button"
+                          onClick={handleDeleteEdge}
+                          className="rounded-md p-1.5 text-red-500 transition-colors hover:bg-red-100 dark:hover:bg-red-900/30"
+                          title={t('workflow_delete')}>
+                          <FiTrash2 className="size-4" />
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedNode(null);
+                          setSelectedEdge(null);
+                        }}
+                        className={`rounded-md p-1.5 transition-colors ${isDarkMode ? 'text-gray-400 hover:bg-slate-700' : 'text-gray-500 hover:bg-gray-100'}`}
+                        title={t('workflow_close')}>
+                        <FiX className="size-4" />
+                      </button>
+                    </div>
+                  </div>
+                  {selectedNode && (
+                    <NodeEditorPanel
+                      node={selectedNode}
+                      onSave={handleUpdateNode}
+                      isDarkMode={isDarkMode}
+                      variables={variables}
+                    />
+                  )}
+                  {selectedEdge && (
+                    <div className="p-4">
+                      <p className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+                        {t('workflow_edgeInfo')}: {selectedEdge.source} → {selectedEdge.target}
+                      </p>
+                      <p className={`mt-2 text-xs ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>
+                        {t('workflow_edgeDeleteHint')}
+                      </p>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Right-click context menu */}
+        {contextMenu && (
+          <>
+            {/* invisible overlay to close on outside click */}
+            <div
+              className="fixed inset-0 z-[150]"
+              onClick={closeContextMenu}
+              onContextMenu={e => {
+                e.preventDefault();
+                closeContextMenu();
+              }}
+            />
+            <div
+              style={{ left: contextMenu.x, top: contextMenu.y }}
+              className={`fixed z-[151] min-w-[160px] rounded-md border py-1 shadow-xl ${
+                isDarkMode ? 'border-slate-700 bg-slate-800 text-gray-200' : 'border-gray-200 bg-white text-gray-700'
+              }`}>
+              {contextMenu.target.kind === 'node' &&
+                (() => {
+                  const targetNode = nodes.find(n => n.id === (contextMenu.target as { nodeId: string }).nodeId);
+                  const isStartOrEnd = targetNode?.type === 'start' || targetNode?.type === 'end';
+                  return (
+                    <>
+                      <button
+                        type="button"
+                        disabled={isStartOrEnd}
+                        onClick={() => {
+                          if (!targetNode || isStartOrEnd) return;
+                          // mark as selectedNode then duplicate
+                          setSelectedNode({
+                            id: targetNode.id,
+                            type: targetNode.type as WorkflowNodeType,
+                            name: (targetNode.data?.name as string) || targetNode.id,
+                            position: targetNode.position,
+                            data: (targetNode.data as NodeData) || {},
+                          });
+                          // run after state updates settle
+                          setTimeout(() => {
+                            handleDuplicateNode();
+                            closeContextMenu();
+                          }, 0);
+                        }}
+                        className={`flex w-full items-center justify-between px-3 py-1.5 text-left text-xs disabled:opacity-40 ${isDarkMode ? 'hover:bg-slate-700' : 'hover:bg-gray-100'}`}>
+                        复制节点 <span className="text-[10px] opacity-60">Ctrl+D</span>
+                      </button>
+                      <button
+                        type="button"
+                        disabled={!clipboardRef.current?.length}
+                        onClick={() => {
+                          handlePaste();
+                          closeContextMenu();
+                        }}
+                        className={`flex w-full items-center justify-between px-3 py-1.5 text-left text-xs disabled:opacity-40 ${isDarkMode ? 'hover:bg-slate-700' : 'hover:bg-gray-100'}`}>
+                        粘贴 <span className="text-[10px] opacity-60">Ctrl+V</span>
+                      </button>
+                      <div className="my-1 border-t" style={{ borderColor: isDarkMode ? '#334155' : '#e5e7eb' }} />
+                      <button
+                        type="button"
+                        disabled={isStartOrEnd}
+                        onClick={() => {
+                          if (!targetNode || isStartOrEnd) return;
+                          setNodes(nds => nds.filter(n => n.id !== targetNode.id));
+                          setEdges(eds => eds.filter(e => e.source !== targetNode.id && e.target !== targetNode.id));
+                          if (selectedNode?.id === targetNode.id) setSelectedNode(null);
+                          closeContextMenu();
+                        }}
+                        className={`flex w-full items-center justify-between px-3 py-1.5 text-left text-xs text-red-500 disabled:opacity-40 ${isDarkMode ? 'hover:bg-red-900/30' : 'hover:bg-red-50'}`}>
+                        删除节点 <span className="text-[10px] opacity-60">Delete</span>
+                      </button>
+                    </>
+                  );
+                })()}
+              {contextMenu.target.kind === 'edge' && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const eid = (contextMenu.target as { edgeId: string }).edgeId;
+                    setEdges(eds => eds.filter(e => e.id !== eid));
+                    if (selectedEdge?.id === eid) setSelectedEdge(null);
+                    closeContextMenu();
+                  }}
+                  className={`flex w-full items-center justify-between px-3 py-1.5 text-left text-xs text-red-500 ${isDarkMode ? 'hover:bg-red-900/30' : 'hover:bg-red-50'}`}>
+                  删除连线 <span className="text-[10px] opacity-60">Delete</span>
+                </button>
+              )}
+              {contextMenu.target.kind === 'pane' && (
+                <>
+                  <button
+                    type="button"
+                    disabled={!clipboardRef.current?.length}
+                    onClick={() => {
+                      handlePaste();
+                      closeContextMenu();
+                    }}
+                    className={`flex w-full items-center justify-between px-3 py-1.5 text-left text-xs disabled:opacity-40 ${isDarkMode ? 'hover:bg-slate-700' : 'hover:bg-gray-100'}`}>
+                    粘贴节点 <span className="text-[10px] opacity-60">Ctrl+V</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setNodes(nds => nds.map(n => ({ ...n, selected: true })));
+                      closeContextMenu();
+                    }}
+                    className={`flex w-full items-center justify-between px-3 py-1.5 text-left text-xs ${isDarkMode ? 'hover:bg-slate-700' : 'hover:bg-gray-100'}`}>
+                    全选 <span className="text-[10px] opacity-60">Ctrl+A</span>
+                  </button>
+                  <div className="my-1 border-t" style={{ borderColor: isDarkMode ? '#334155' : '#e5e7eb' }} />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      handleAutoLayout();
+                      closeContextMenu();
+                    }}
+                    className={`flex w-full items-center justify-between px-3 py-1.5 text-left text-xs ${isDarkMode ? 'hover:bg-slate-700' : 'hover:bg-gray-100'}`}>
+                    自动布局 <span className="text-[10px] opacity-60">Ctrl+L</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      fitView({ padding: 0.2 });
+                      closeContextMenu();
+                    }}
+                    className={`flex w-full items-center justify-between px-3 py-1.5 text-left text-xs ${isDarkMode ? 'hover:bg-slate-700' : 'hover:bg-gray-100'}`}>
+                    画布适配 <span className="text-[10px] opacity-60">Ctrl+0</span>
+                  </button>
+                </>
+              )}
+            </div>
+          </>
+        )}
+
+        {/* Keyboard shortcut help overlay (Ctrl+/) */}
+        {showShortcutHelp && (
+          <div
+            onClick={() => setShowShortcutHelp(false)}
+            className="absolute inset-0 z-[200] flex items-center justify-center bg-black/60 backdrop-blur-sm">
+            <div
+              onClick={e => e.stopPropagation()}
+              className={`max-h-[80vh] w-[440px] max-w-[95vw] overflow-y-auto rounded-2xl border p-5 shadow-2xl ${
+                isDarkMode ? 'border-slate-700 bg-slate-800' : 'border-gray-200 bg-white'
+              }`}>
+              <div
+                className={`mb-4 flex items-center justify-between ${isDarkMode ? 'text-gray-100' : 'text-gray-900'}`}>
+                <h3 className="text-base font-semibold">键盘快捷键</h3>
+                <button
+                  type="button"
+                  onClick={() => setShowShortcutHelp(false)}
+                  className={`rounded p-1 ${isDarkMode ? 'hover:bg-slate-700' : 'hover:bg-gray-100'}`}>
+                  <FiX className="size-4" />
+                </button>
+              </div>
+              <div className="grid grid-cols-1 gap-1 text-sm">
+                {[
+                  ['Ctrl/⌘ + S', '保存（含校验）'],
+                  ['Ctrl/⌘ + E', '运行工作流'],
+                  ['Ctrl/⌘ + L', '自动布局'],
+                  ['Ctrl/⌘ + 0', '画布适配视图'],
+                  ['Ctrl/⌘ + + / -', '放大 / 缩小'],
+                  ['F11', '切换全屏'],
+                  ['Ctrl/⌘ + Z', '撤销'],
+                  ['Ctrl/⌘ + Shift + Z', '重做'],
+                  ['Ctrl/⌘ + C / V', '复制 / 粘贴节点'],
+                  ['Ctrl/⌘ + D', '原位复制选中节点'],
+                  ['Ctrl/⌘ + A', '全选节点'],
+                  ['Delete / Backspace', '删除选中'],
+                  ['Tab / Shift + Tab', '在节点间切换选中'],
+                  ['Ctrl/⌘ + 1 / 2 / 3', '切换右侧面板（节点 / 变量 / 日志）'],
+                  ['Ctrl/⌘ + /', '显示/隐藏此帮助'],
+                  ['Esc', '取消选择 / 关闭弹窗'],
+                ].map(([key, desc]) => (
+                  <div
+                    key={key}
+                    className={`flex items-center justify-between rounded px-2 py-1.5 ${
+                      isDarkMode ? 'hover:bg-slate-700/50' : 'hover:bg-gray-50'
+                    }`}>
+                    <span className={isDarkMode ? 'text-gray-300' : 'text-gray-700'}>{desc}</span>
+                    <kbd
+                      className={`shrink-0 rounded border px-2 py-0.5 font-mono text-xs ${
+                        isDarkMode
+                          ? 'border-slate-600 bg-slate-900 text-gray-300'
+                          : 'border-gray-300 bg-gray-50 text-gray-600'
+                      }`}>
+                      {key}
+                    </kbd>
+                  </div>
+                ))}
+              </div>
+            </div>
           </div>
         )}
       </div>
-    </div>
+    </>
   );
 }
 

@@ -3,11 +3,14 @@ import type { WorkflowNode, WorkflowEdge, WorkflowNodeType, NodeData } from '@ex
 import type { FlowNode, FlowEdge } from '../types';
 
 export function toFlowNode(n: WorkflowNode): FlowNode {
+  // Strip any runtime-only fields that may have leaked into storage (e.g. _executionStatus)
+  // so old executions don't "haunt" the canvas on next load
+  const { _executionStatus: _ignored, ...cleanData } = (n.data || {}) as Record<string, unknown>;
   return {
     id: n.id,
     type: n.type,
     position: n.position ?? { x: 100, y: 100 },
-    data: { ...(n.data || {}), name: n.name || n.id, type: n.type },
+    data: { ...cleanData, name: n.name || n.id, type: n.type },
   };
 }
 
@@ -23,7 +26,8 @@ export function toFlowEdge(e: WorkflowEdge): FlowEdge {
 }
 
 export function toWorkflowNode(n: FlowNode): WorkflowNode {
-  const { name, type: dataType, ...restData } = n.data || {};
+  // Strip runtime-only UI state (_executionStatus, selected) before persisting
+  const { name, type: dataType, _executionStatus: _statusIgnored, selected: _selIgnored, ...restData } = n.data || {};
   const nodeType = (n.type || dataType || 'automation') as WorkflowNodeType;
   return {
     id: n.id,

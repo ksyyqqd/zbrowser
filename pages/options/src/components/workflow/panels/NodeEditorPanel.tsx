@@ -42,8 +42,6 @@ export function NodeEditorPanel({ node, onSave, isDarkMode, variables = [] }: No
         ];
       case 'scroll_to_percent':
         return [{ key: 'yPercent', label: t('workflow_param_yPercent'), type: 'number', placeholder: '0-100' }];
-      case 'scroll_to_text':
-        return [{ key: 'text', label: t('workflow_param_scrollText'), type: 'text', placeholder: 'Text to scroll to' }];
       case 'select_dropdown_option':
         return [
           {
@@ -274,15 +272,12 @@ export function NodeEditorPanel({ node, onSave, isDarkMode, variables = [] }: No
               <option value="scroll_to_percent">{t('workflow_action_scroll')}</option>
               <option value="scroll_to_top">{t('workflow_action_scrollTop')}</option>
               <option value="scroll_to_bottom">{t('workflow_action_scrollBottom')}</option>
-              <option value="scroll_to_text">{t('workflow_action_scrollText')}</option>
               <option value="wait">{t('workflow_action_wait')}</option>
               <option value="open_tab">{t('workflow_action_openTab')}</option>
               <option value="close_tab">{t('workflow_action_closeTab')}</option>
               <option value="switch_tab">{t('workflow_action_switchTab')}</option>
               <option value="send_keys">{t('workflow_action_sendKeys')}</option>
               <option value="select_dropdown_option">{t('workflow_action_selectDropdown')}</option>
-              <option value="get_dropdown_options">{t('workflow_action_getDropdownOptions')}</option>
-              <option value="cache_content">{t('workflow_action_cacheContent')}</option>
               <option value="generate_image">{t('workflow_action_generateImage')}</option>
             </select>
           </div>
@@ -322,12 +317,50 @@ export function NodeEditorPanel({ node, onSave, isDarkMode, variables = [] }: No
           <div>
             <label className={labelClass}>{t('workflow_aiPrompt')}</label>
             <textarea
+              ref={promptRef}
               value={editedNode.data.prompt || ''}
               onChange={e => handleFieldChange('prompt', e.target.value)}
               className={inputClass}
               rows={3}
               placeholder={t('workflow_conditionExpression')}
             />
+            {variables.length > 0 && (
+              <div className="mt-1.5 flex flex-wrap items-center gap-1">
+                <span className={`text-[10px] uppercase ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>
+                  读取 {'{{ }}'}:
+                </span>
+                {variables.map(v => (
+                  <button
+                    key={`cond-read-${v.name}`}
+                    type="button"
+                    onClick={() => {
+                      const token = `{{${v.name}}}`;
+                      const ta = promptRef.current;
+                      if (ta) {
+                        const start = ta.selectionStart ?? editedNode.data.prompt?.length ?? 0;
+                        const end = ta.selectionEnd ?? start;
+                        const cur = editedNode.data.prompt || '';
+                        const next = cur.slice(0, start) + token + cur.slice(end);
+                        handleFieldChange('prompt', next);
+                        requestAnimationFrame(() => {
+                          ta.focus();
+                          ta.selectionStart = ta.selectionEnd = start + token.length;
+                        });
+                      } else {
+                        handleFieldChange('prompt', (editedNode.data.prompt || '') + token);
+                      }
+                    }}
+                    title={v.description || `Insert {{${v.name}}} (read value)`}
+                    className={`rounded px-1.5 py-0.5 font-mono text-[10px] transition-colors ${
+                      isDarkMode
+                        ? 'bg-blue-900/30 text-blue-300 hover:bg-blue-900/60'
+                        : 'bg-blue-100 text-blue-700 hover:bg-blue-200'
+                    }`}>
+                    {`{{${v.name}}}`}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
           <div>
             <label className={labelClass}>{t('workflow_branches')}</label>

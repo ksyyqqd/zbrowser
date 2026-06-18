@@ -845,6 +845,15 @@ chrome.runtime.onConnect.addListener(port => {
               message.task,
               message.images?.length ? `with ${message.images.length} images` : '',
             );
+            // Clean up any prior executor to free its browser context before starting a new task
+            if (currentExecutor) {
+              try {
+                await currentExecutor.cleanup();
+              } catch (e) {
+                logger.warning('Failed to cleanup previous executor before new task:', e);
+              }
+              currentExecutor = null;
+            }
             currentExecutor = await setupExecutor(message.taskId, message.task, browserContext, message.images);
             subscribeToExecutorEvents(currentExecutor);
 
@@ -1778,12 +1787,11 @@ async function subscribeToExecutorEvents(executor: Executor) {
       logger.error('Failed to send message to side panel:', error);
     }
 
-    if (
-      event.state === ExecutionState.TASK_OK ||
-      event.state === ExecutionState.TASK_FAIL ||
-      event.state === ExecutionState.TASK_CANCEL
-    ) {
-      await currentExecutor?.cleanup();
-    }
+    // Do NOT cleanup the executor on task completion — the user may send follow-up messages
+    // that reuse the same executor (same browser context, same conversation history).
+    // Cleanup happens when:
+    //  1. A new_task is initiated (overwrites currentExecutor)
+    //  2. The side-panel port disconnects
+    //  3. The user explicitly cancels
   });
 }

@@ -111,7 +111,7 @@ export function ExecutionLogPanel({ events, status, isDarkMode, outputs = [] }: 
         </span>
       </div>
 
-      <div ref={scrollRef} className="flex-1 overflow-y-auto p-2">
+      <div ref={scrollRef} className="rp-log-scroll flex-1 overflow-y-auto p-2">
         {showSummary && (
           <div
             className={`mb-2 rounded-md border p-2.5 ${
@@ -165,7 +165,7 @@ export function ExecutionLogPanel({ events, status, isDarkMode, outputs = [] }: 
                     </button>
                   </div>
                   <div
-                    className={`max-h-48 overflow-y-auto whitespace-pre-wrap break-words p-2 text-[11px] leading-relaxed ${
+                    className={`rp-log-scroll max-h-48 overflow-y-auto whitespace-pre-wrap break-words p-2 text-[11px] leading-relaxed ${
                       isDarkMode ? 'text-gray-300' : 'text-gray-600'
                     }`}>
                     {out.output}
