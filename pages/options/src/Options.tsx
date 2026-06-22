@@ -60,19 +60,48 @@ const Options = () => {
   };
 
   const [activeTab, setActiveTab] = useState<TabTypes>(getInitialTab);
-  const [isDarkMode, setIsDarkMode] = useState(false);
+  // Theme is shared with the side-panel via localStorage['nanobrowser_dark_mode'].
+  // If the user hasn't picked one yet, fall back to the OS preference.
+  const readStoredDarkMode = (): boolean => {
+    try {
+      const saved = localStorage.getItem('nanobrowser_dark_mode');
+      if (saved === 'true') return true;
+      if (saved === 'false') return false;
+    } catch {
+      /* ignore */
+    }
+    return window.matchMedia('(prefers-color-scheme: dark)').matches;
+  };
+  const [isDarkMode, setIsDarkMode] = useState<boolean>(readStoredDarkMode);
 
-  // Check for dark mode preference
+  // Keep theme in sync with the side-panel (cross-page via the storage event)
+  // and with OS preference changes when no manual choice has been made.
   useEffect(() => {
-    const darkModeMediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
-    setIsDarkMode(darkModeMediaQuery.matches);
-
-    const handleChange = (e: MediaQueryListEvent) => {
-      setIsDarkMode(e.matches);
+    const handleStorage = (e: StorageEvent) => {
+      if (e.key !== 'nanobrowser_dark_mode') return;
+      if (e.newValue === 'true') setIsDarkMode(true);
+      else if (e.newValue === 'false') setIsDarkMode(false);
+      else setIsDarkMode(window.matchMedia('(prefers-color-scheme: dark)').matches);
     };
+    window.addEventListener('storage', handleStorage);
 
-    darkModeMediaQuery.addEventListener('change', handleChange);
-    return () => darkModeMediaQuery.removeEventListener('change', handleChange);
+    const darkModeMediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+    const handleOsChange = (e: MediaQueryListEvent) => {
+      // Only follow OS preference when the user hasn't made an explicit choice.
+      try {
+        if (localStorage.getItem('nanobrowser_dark_mode') == null) {
+          setIsDarkMode(e.matches);
+        }
+      } catch {
+        setIsDarkMode(e.matches);
+      }
+    };
+    darkModeMediaQuery.addEventListener('change', handleOsChange);
+
+    return () => {
+      window.removeEventListener('storage', handleStorage);
+      darkModeMediaQuery.removeEventListener('change', handleOsChange);
+    };
   }, []);
 
   const handleTabClick = (tabId: TabTypes) => {
@@ -137,8 +166,8 @@ const Options = () => {
       </nav>
 
       {/* Main Content Area */}
-      <main className={`flex-1 ${isDarkMode ? 'bg-slate-800/50' : 'bg-white/10'} p-8 backdrop-blur-sm`}>
-        <div className="mx-auto min-w-[512px] max-w-screen-lg">{renderTabContent()}</div>
+      <main className={`min-w-0 flex-1 ${isDarkMode ? 'bg-slate-800/50' : 'bg-white/10'} p-8`}>
+        <div className="mx-auto min-w-0 max-w-screen-lg">{renderTabContent()}</div>
       </main>
     </div>
   );

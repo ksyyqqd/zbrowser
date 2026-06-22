@@ -36,11 +36,9 @@ export const SkillSettings = ({ isDarkMode = false }: SkillSettingsProps) => {
   const [exportFormat, setExportFormat] = useState<'markdown' | 'json' | 'zip'>('markdown');
   const [viewingFile, setViewingFile] = useState<{ name: string; content: string; type: string } | null>(null);
 
-  // Editing states
+  // Editing states (text-only editor)
   const [isEditing, setIsEditing] = useState(false);
-  const [editMode, setEditMode] = useState<'ui' | 'text'>('ui');
   const [editContent, setEditContent] = useState('');
-  const [editedSkill, setEditedSkill] = useState<StoredSkillPackage | null>(null);
   const [editTextFormat, setEditTextFormat] = useState<'markdown' | 'json'>('markdown');
 
   // Export selection states
@@ -315,31 +313,25 @@ export const SkillSettings = ({ isDarkMode = false }: SkillSettingsProps) => {
     setSelectedSkill(skill);
     setIsDetailModalOpen(true);
     setIsEditing(false);
-    setEditedSkill(null);
     setEditContent('');
   };
 
-  // Start editing a skill
-  const startEditing = (mode: 'ui' | 'text') => {
+  // Start editing a skill (text-only)
+  const startEditing = () => {
     if (!selectedSkill) return;
 
-    // Clone the skill for editing
-    setEditedSkill(JSON.parse(JSON.stringify(selectedSkill)));
-
-    // Generate text content for text mode
+    // Generate text content from the current skill definition
     const parser = new MarkdownParser();
     const skillObj = convertPackageToSkill(selectedSkill);
     const markdown = parser.toMarkdown(skillObj);
     setEditContent(markdown);
-
-    setEditMode(mode);
+    setEditTextFormat('markdown');
     setIsEditing(true);
   };
 
   // Cancel editing
   const cancelEditing = () => {
     setIsEditing(false);
-    setEditedSkill(null);
     setEditContent('');
   };
 

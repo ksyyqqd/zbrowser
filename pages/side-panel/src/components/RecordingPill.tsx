@@ -678,32 +678,6 @@ export default function RecordingPill({ isDarkMode = false, port, getPort, onRec
                 <>
                   <button
                     type="button"
-                    onClick={() => {
-                      try {
-                        portRef.current?.postMessage({ type: 'recording_add_active_tab' });
-                      } catch {
-                        /* ignore */
-                      }
-                    }}
-                    title="把当前激活的标签页加入录制"
-                    style={{
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      gap: 4,
-                      padding: '6px 10px',
-                      borderRadius: 8,
-                      background: 'transparent',
-                      color: isDarkMode ? '#cbd5e1' : '#475569',
-                      border: `1px solid ${isDarkMode ? '#475569' : '#cbd5e1'}`,
-                      fontWeight: 500,
-                      fontSize: 12,
-                      cursor: 'pointer',
-                    }}>
-                    + 当前页
-                  </button>
-                  <button
-                    type="button"
                     onClick={handleStop}
                     style={{
                       flex: 1,

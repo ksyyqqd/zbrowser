@@ -5,19 +5,16 @@
 
 import { useState, useEffect, lazy, Suspense } from 'react';
 import { createPortal } from 'react-dom';
-import { FiPlus, FiEdit2, FiTrash2, FiDownload, FiUpload, FiPlay, FiShare2, FiCode } from 'react-icons/fi';
+import { FiPlus, FiEdit2, FiTrash2, FiDownload, FiUpload, FiPlay, FiCode } from 'react-icons/fi';
 import { t } from '@extension/i18n';
-import { userWorkflowsStore, type UserWorkflowConfig } from '@extension/storage';
-import { userSkillsStore, type UserSkillConfig } from '@extension/storage';
+import { userWorkflowsStore, userSkillsStore, type UserWorkflowConfig, type UserSkillConfig } from '@extension/storage';
 import {
-  convertSkillToWorkflow,
   convertWorkflowToSkill,
   parseWorkflow,
   serializeWorkflows,
   validateWorkflowStructure,
 } from '@extension/workflow';
 import type { Workflow } from '@extension/workflow';
-import type { Skill } from '@extension/skills';
 import { useWorkflowExecution } from '../hooks/useWorkflowExecution';
 
 // Lazy-load the heavy WorkflowEditor (React Flow + dagre); only fetched when the editor is opened
@@ -29,12 +26,10 @@ interface WorkflowSettingsProps {
 
 export default function WorkflowSettings({ isDarkMode = false }: WorkflowSettingsProps) {
   const [workflows, setWorkflows] = useState<UserWorkflowConfig[]>([]);
-  const [skills, setSkills] = useState<UserSkillConfig[]>([]);
   const [selectedWorkflow, setSelectedWorkflow] = useState<UserWorkflowConfig | null>(null);
   const [isEditorOpen, setIsEditorOpen] = useState(false);
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
-  const [isConvertModalOpen, setIsConvertModalOpen] = useState(false);
   const { state: executionState, reset: resetExecution } = useWorkflowExecution();
   const [importContent, setImportContent] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
@@ -42,7 +37,6 @@ export default function WorkflowSettings({ isDarkMode = false }: WorkflowSetting
   // Load workflows on mount
   useEffect(() => {
     loadWorkflows();
-    loadSkills();
   }, []);
 
   // Auto-open workflow editor if redirected from recording save-as-workflow.
@@ -82,16 +76,6 @@ export default function WorkflowSettings({ isDarkMode = false }: WorkflowSetting
     } catch (e) {
       console.error('[WorkflowSettings] Failed to load workflows:', e);
       setWorkflows([]);
-    }
-  };
-
-  const loadSkills = async () => {
-    try {
-      const storedSkills = await userSkillsStore.getAllSkills();
-      setSkills(storedSkills);
-    } catch (e) {
-      console.error('[WorkflowSettings] Failed to load skills:', e);
-      setSkills([]);
     }
   };
 
@@ -235,72 +219,6 @@ export default function WorkflowSettings({ isDarkMode = false }: WorkflowSetting
     setIsExportModalOpen(false);
   };
 
-  // Convert Skill to Workflow
-  const handleConvertSkillToWorkflow = async (skill: UserSkillConfig) => {
-    try {
-      const skillFull = {
-        id: skill.id,
-        name: skill.name,
-        description: skill.description,
-        version: skill.version,
-        category: skill.category,
-        author: skill.author,
-        tags: skill.tags,
-        parameters: skill.parameters.map(p => ({
-          name: p.name,
-          type: p.type as 'string' | 'number' | 'boolean' | 'array' | 'object',
-          description: p.description,
-          required: p.required,
-          default: p.default,
-          enum: p.enum,
-        })),
-        steps: skill.steps.map(s => ({
-          id: s.id,
-          action: s.action,
-          description: s.description,
-          parameters: s.parameters,
-          condition: s.condition
-            ? {
-                type: s.condition.type,
-                expression: s.condition.expression,
-                thenSteps: s.condition.thenSteps as Skill['steps'] | undefined,
-                elseSteps: s.condition.elseSteps as Skill['steps'] | undefined,
-              }
-            : undefined,
-          onError: s.onError,
-          retryCount: s.retryCount,
-          delay: s.delay,
-        })),
-        executionMode: skill.executionMode,
-        timeout: skill.timeout,
-        createdAt: skill.createdAt,
-        updatedAt: skill.updatedAt,
-      } as unknown as Skill;
-
-      const workflow = convertSkillToWorkflow(skillFull);
-
-      const config: UserWorkflowConfig = {
-        id: `converted-${workflow.id}`,
-        name: workflow.name,
-        description: workflow.description,
-        version: workflow.version,
-        nodes: workflow.nodes,
-        edges: workflow.edges,
-        variables: workflow.variables,
-        executionConfig: workflow.executionConfig,
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-      };
-
-      await userWorkflowsStore.addWorkflow(config);
-      await loadWorkflows();
-      setIsConvertModalOpen(false);
-    } catch (e) {
-      console.error('[WorkflowSettings] Failed to convert skill:', e);
-      alert(t('workflow_convertError'));
-    }
-  };
-
   // Convert Workflow to Skill
   const handleConvertWorkflowToSkill = async (workflow: UserWorkflowConfig) => {
     try {
@@ -334,7 +252,6 @@ export default function WorkflowSettings({ isDarkMode = false }: WorkflowSetting
       };
 
       await userSkillsStore.addSkill(skillConfig);
-      await loadSkills();
       alert(t('workflow_convertSuccess'));
     } catch (e) {
       console.error('[WorkflowSettings] Failed to convert workflow:', e);
@@ -417,11 +334,11 @@ export default function WorkflowSettings({ isDarkMode = false }: WorkflowSetting
         className={`rounded-lg border p-6 text-left shadow-sm ${
           isDarkMode ? 'border-slate-700 bg-slate-800' : 'border-blue-100 bg-white'
         }`}>
-        <div className="flex items-center justify-between mb-4">
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
           <h2 className={`text-xl font-semibold ${isDarkMode ? 'text-gray-200' : 'text-gray-800'}`}>
             {t('options_workflow_header')}
           </h2>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
               onClick={handleCreateWorkflow}
@@ -439,17 +356,6 @@ export default function WorkflowSettings({ isDarkMode = false }: WorkflowSetting
               }`}>
               <FiUpload className="size-4" />
               {t('workflow_import')}
-            </button>
-            <button
-              type="button"
-              onClick={() => setIsConvertModalOpen(true)}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm ${
-                isDarkMode
-                  ? 'bg-slate-600 text-gray-200 hover:bg-slate-500'
-                  : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-              }`}>
-              <FiShare2 className="size-4" />
-              {t('workflow_convertFromSkill')}
             </button>
           </div>
         </div>
@@ -487,11 +393,11 @@ export default function WorkflowSettings({ isDarkMode = false }: WorkflowSetting
             </p>
           </div>
         ) : (
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="grid min-w-0 grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {filteredWorkflows.map(workflow => (
               <div
                 key={workflow.id}
-                className={`group flex flex-col rounded-xl border p-4 transition-shadow hover:shadow-md ${
+                className={`group flex min-w-0 flex-col rounded-xl border p-4 transition-shadow hover:shadow-md ${
                   isDarkMode
                     ? 'border-slate-700 bg-slate-800 hover:border-slate-600'
                     : 'border-gray-200 bg-white hover:border-gray-300'
@@ -516,43 +422,46 @@ export default function WorkflowSettings({ isDarkMode = false }: WorkflowSetting
                   {workflow.description || '暂无描述'}
                 </p>
                 <div
-                  className="flex items-center gap-1 border-t pt-3"
+                  className="flex min-w-0 items-center gap-1 border-t pt-3"
                   style={{ borderColor: isDarkMode ? '#334155' : '#e5e7eb' }}>
-                  <span className={`mr-auto text-xs ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>
+                  <span className={`mr-auto shrink-0 text-xs ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>
                     {workflow.nodes.length} 节点
                   </span>
                   <button
                     type="button"
                     onClick={() => handleExecuteWorkflow(workflow)}
-                    className="rounded-md p-1.5 hover:bg-green-500/20"
+                    className="shrink-0 rounded-md p-1.5 hover:bg-green-500/20"
                     title={t('workflow_execute')}>
                     <FiPlay className="size-3.5 text-green-500" />
                   </button>
                   <button
                     type="button"
                     onClick={() => handleEditWorkflow(workflow)}
-                    className={`rounded-md p-1.5 ${isDarkMode ? 'hover:bg-slate-700' : 'hover:bg-gray-100'}`}
+                    className={`shrink-0 rounded-md p-1.5 ${isDarkMode ? 'hover:bg-slate-700' : 'hover:bg-gray-100'}`}
                     title={t('workflow_edit')}>
                     <FiEdit2 className={`size-3.5 ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`} />
                   </button>
                   <button
                     type="button"
                     onClick={() => handleExportWorkflows([workflow.id])}
-                    className={`rounded-md p-1.5 ${isDarkMode ? 'hover:bg-slate-700' : 'hover:bg-gray-100'}`}
+                    className={`shrink-0 rounded-md p-1.5 ${isDarkMode ? 'hover:bg-slate-700' : 'hover:bg-gray-100'}`}
                     title="导出为 JSON">
                     <FiDownload className={`size-3.5 ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`} />
                   </button>
                   <button
                     type="button"
                     onClick={() => handleConvertWorkflowToSkill(workflow)}
-                    className={`rounded-md p-1.5 ${isDarkMode ? 'hover:bg-slate-700' : 'hover:bg-gray-100'}`}
+                    className={`shrink-0 rounded-md p-1.5 ${isDarkMode ? 'hover:bg-slate-700' : 'hover:bg-gray-100'}`}
                     title={t('workflow_convertToSkill')}>
                     <FiCode className={`size-3.5 ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`} />
                   </button>
-                  <span className={`ml-auto text-xs ${isDarkMode ? 'text-gray-600' : 'text-gray-400'}`}>
+                  <span
+                    className={`ml-auto min-w-0 truncate text-xs tabular-nums ${isDarkMode ? 'text-gray-600' : 'text-gray-400'}`}
+                    title={
+                      workflow.updatedAt ? new Date(workflow.updatedAt).toLocaleString('zh-CN', { hour12: false }) : ''
+                    }>
                     {workflow.updatedAt
                       ? new Date(workflow.updatedAt).toLocaleString('zh-CN', {
-                          year: 'numeric',
                           month: '2-digit',
                           day: '2-digit',
                           hour: '2-digit',
@@ -648,64 +557,6 @@ export default function WorkflowSettings({ isDarkMode = false }: WorkflowSetting
                 onClick={handleImportWorkflows}
                 className="px-4 py-1.5 rounded-md text-sm bg-blue-600 text-white">
                 {t('workflow_import')}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Convert from Skill Modal */}
-      {isConvertModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div className="absolute inset-0 bg-black/50" onClick={() => setIsConvertModalOpen(false)} />
-          <div
-            className={`relative rounded-lg border p-6 w-full max-w-lg mx-4 shadow-xl ${
-              isDarkMode ? 'border-slate-600 bg-slate-800' : 'border-gray-200 bg-white'
-            }`}>
-            <h3 className={`text-lg font-semibold mb-4 ${isDarkMode ? 'text-gray-200' : 'text-gray-800'}`}>
-              {t('workflow_convertModalTitle')}
-            </h3>
-            <p className={`text-sm mb-3 ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
-              {t('workflow_convertModalDescription')}
-            </p>
-            <div className="space-y-2 max-h-64 overflow-y-auto">
-              {skills.length === 0 ? (
-                <p className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
-                  {t('workflow_noSkillsToConvert')}
-                </p>
-              ) : (
-                skills.map(skill => (
-                  <div
-                    key={skill.id}
-                    className={`flex items-center justify-between p-3 rounded-md ${
-                      isDarkMode ? 'bg-slate-700' : 'bg-gray-100'
-                    }`}>
-                    <div>
-                      <span className={`font-medium ${isDarkMode ? 'text-gray-200' : 'text-gray-700'}`}>
-                        {skill.name}
-                      </span>
-                      <span className={`text-xs ml-2 ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>
-                        {skill.steps.length} steps
-                      </span>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => handleConvertSkillToWorkflow(skill)}
-                      className="px-3 py-1 rounded-md text-sm bg-blue-600 text-white">
-                      {t('workflow_convert')}
-                    </button>
-                  </div>
-                ))
-              )}
-            </div>
-            <div className="flex justify-end mt-4">
-              <button
-                type="button"
-                onClick={() => setIsConvertModalOpen(false)}
-                className={`px-4 py-1.5 rounded-md text-sm ${
-                  isDarkMode ? 'bg-slate-600 text-gray-200' : 'bg-gray-200 text-gray-700'
-                }`}>
-                {t('workflow_close')}
               </button>
             </div>
           </div>

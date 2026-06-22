@@ -1263,53 +1263,6 @@ chrome.runtime.onConnect.addListener(port => {
             }
           }
 
-          case 'recording_add_active_tab': {
-            // Manually add the currently active tab to the recording set.
-            // Used by RecordingPill when user wants to record on an unrelated tab.
-            const session = recorderState.getActiveSession();
-            if (!session) {
-              return port.postMessage({ type: 'error', error: '当前没有正在进行的录制' });
-            }
-            try {
-              const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
-              if (!activeTab?.id || !activeTab.url?.startsWith('http')) {
-                return port.postMessage({ type: 'error', error: '无法在该标签页上录制' });
-              }
-              const tabId = activeTab.id;
-              if (recorderState.isTabTracked(tabId)) {
-                return port.postMessage({ type: 'recording_state_update', session: recorderState.getSession() });
-              }
-              recorderState.addTab(tabId, { url: activeTab.url, title: activeTab.title || '' });
-              // Mark as active immediately (no tab_switch — addTab already emitted tab_open)
-              recorderState.markActiveTab(tabId, { url: activeTab.url, title: activeTab.title || '' });
-              // Inject content script if needed and start recording in this tab
-              try {
-                await chrome.tabs.sendMessage(tabId, { type: 'ping' }, { frameId: 0 });
-              } catch {
-                await chrome.scripting.executeScript({
-                  target: { tabId, frameIds: [0] },
-                  files: ['content/index.iife.js'],
-                });
-              }
-              try {
-                await chrome.tabs.sendMessage(
-                  tabId,
-                  { type: 'start_recording', sessionId: session.id },
-                  { frameId: 0 },
-                );
-              } catch (e) {
-                console.warn('[Recording] Failed to start recording on manually added tab:', e);
-              }
-              return port.postMessage({ type: 'recording_state_update', session: recorderState.getSession() });
-            } catch (error) {
-              logger.error('Failed to add active tab to recording:', error);
-              return port.postMessage({
-                type: 'error',
-                error: error instanceof Error ? error.message : 'Failed to add active tab',
-              });
-            }
-          }
-
           case 'get_recording_state': {
             const session = recorderState.getSession();
             return port.postMessage({ type: 'recording_state', session });
