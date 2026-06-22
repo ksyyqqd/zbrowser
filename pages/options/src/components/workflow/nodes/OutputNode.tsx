@@ -8,7 +8,8 @@ import { getStatusRingClass, StatusBadge, areNodePropsEqual } from './statusOver
 function OutputNodeImpl({ data, selected }: NodeProps<FlowNode>) {
   const status = data._executionStatus as NodeStatus | undefined;
   const statusRing = getStatusRingClass(status);
-  const label = (data.label as string) || (data.name as string) || 'Output';
+  const name = (data.name as string) || '输出';
+  const label = (data.label as string) || '';
   return (
     <div
       className={`relative flex min-w-[160px] items-center gap-2.5 rounded-xl px-3.5 py-2.5 text-white shadow-lg transition-all duration-150 ${
@@ -21,8 +22,8 @@ function OutputNodeImpl({ data, selected }: NodeProps<FlowNode>) {
         <FiFileText className="size-4" />
       </div>
       <div className="flex min-w-0 flex-col">
-        <span className="text-sm font-semibold leading-tight">输出</span>
-        <span className="max-w-[110px] truncate text-xs opacity-75">{label}</span>
+        <span className="max-w-[140px] truncate text-sm font-semibold leading-tight">{name}</span>
+        {label && <span className="max-w-[140px] truncate text-xs opacity-75">{label}</span>}
       </div>
       <StatusBadge status={status} />
     </div>

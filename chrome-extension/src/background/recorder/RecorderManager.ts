@@ -31,6 +31,20 @@ class RecorderState {
   // Minimum time between same URL navigates (ms)
   private readonly NAVIGATE_DEDUP_MS = 2000;
 
+  /**
+   * Feed the navigate deduper so the synthetic navigate that the content
+   * script emits right after start_recording (and any webNavigation-triggered
+   * restart) on a freshly switched/opened tab is suppressed — the tab_open /
+   * tab_switch action already carries the URL, so a duplicate navigate would
+   * otherwise produce a redundant go_to_url step that opens an extra page on
+   * replay.
+   */
+  private suppressFollowingNavigate(url?: string): void {
+    if (!url) return;
+    this.lastNavigateUrl = url;
+    this.lastNavigateTime = Date.now();
+  }
+
   startSession(tabId: number): RecordingSession {
     this.recordingTabIds.clear();
     this.recordingTabIds.add(tabId);
@@ -79,23 +93,37 @@ class RecorderState {
     return this.recordingTabIds.has(tabId);
   }
 
-  /** Add a new tab to the tracked set and emit a synthetic tab_open action */
+  /** Add a new tab to the tracked set and emit a synthetic tab_open action.
+   *  The added tab is marked active (a newly joined tab is, by definition, the
+   *  tab the user is now operating on); tab_open implicitly represents the
+   *  switch, so no separate tab_switch is emitted. Browser-internal pages
+   *  (edge://, chrome://, about:) are tracked but recorded with an empty URL
+   *  so they don't produce a broken open_tab step on replay. */
   addTab(tabId: number, tabInfo?: TabInfo): boolean {
     if (!this.session || this.session.status !== 'recording') return false;
     if (this.recordingTabIds.has(tabId)) return false; // idempotent
     this.recordingTabIds.add(tabId);
     this.session.tabIds = Array.from(this.recordingTabIds);
+    this.session.activeTabId = tabId;
+    // Normalize: drop non-http URLs so we don't record un-replayable internal pages
+    const rawUrl = tabInfo?.url || '';
+    const safeUrl = /^https?:\/\//i.test(rawUrl) ? rawUrl : '';
+    const safeTabInfo: TabInfo | undefined =
+      safeUrl || tabInfo?.title ? { ...tabInfo, url: safeUrl || undefined } : undefined;
     // Emit synthetic tab_open action
     const action: RecordedAction = {
       id: generateActionId(),
       type: 'tab_open',
       timestamp: Date.now(),
       tabId,
-      tabInfo,
-      pageUrl: tabInfo?.url || '',
+      tabInfo: safeTabInfo,
+      pageUrl: safeUrl,
       pageTitle: tabInfo?.title || '',
     };
     this.session.actions.push(action);
+    // Suppress the redundant navigate the content script emits right after
+    // start_recording on this tab (same URL already recorded above).
+    this.suppressFollowingNavigate(rawUrl);
     return true;
   }
 
@@ -133,6 +161,9 @@ class RecorderState {
       pageTitle: tabInfo?.title || '',
     };
     this.session.actions.push(action);
+    // Suppress the redundant navigate the content script emits right after
+    // start_recording on the switched-to tab (URL already in tab_switch).
+    this.suppressFollowingNavigate(tabInfo?.url);
     return true;
   }
 
@@ -154,6 +185,17 @@ class RecorderState {
 
       this.lastNavigateUrl = url;
       this.lastNavigateTime = now;
+    }
+
+    // Collapse consecutive scrolls: keep only the latest yPercent — a user
+    // wheeling halfway down emits dozens of scroll events but the workflow
+    // only needs the final position.
+    if (action.type === 'scroll') {
+      const prev = this.session.actions[this.session.actions.length - 1];
+      if (prev?.type === 'scroll') {
+        this.session.actions[this.session.actions.length - 1] = action;
+        return true;
+      }
     }
 
     this.session.actions.push(action);
@@ -207,6 +249,8 @@ class SelectorGenerator {
     dataTestId?: string;
     href?: string;
     title?: string;
+    contenteditable?: string;
+    role?: string;
     textContent?: string;
     xpath?: string;
   }): ElementSelector {
@@ -248,11 +292,33 @@ class SelectorGenerator {
       attributes['aria-label'] = elementInfo.ariaLabel;
     }
 
+    // 5b. Contenteditable / role textbox — covers Slate / ProseMirror / Lexical
+    // chat editors (Qwen, ChatGPT, Claude.ai). These are usually unique on a
+    // page and survive most DOM churn that breaks XPath.
+    if (elementInfo.contenteditable === 'true') {
+      fallbacks.push('[contenteditable="true"]');
+      attributes['contenteditable'] = 'true';
+    }
+    if (elementInfo.role === 'textbox') {
+      fallbacks.push('[role="textbox"]');
+      attributes['role'] = 'textbox';
+    }
+
     // 6. Class-based selector (less stable but useful as fallback)
     if (elementInfo.className) {
       const classes = elementInfo.className
         .split(' ')
-        .filter(c => c && !c.includes(':') && c.length > 2)
+        .filter(c => {
+          if (!c || c.length <= 2) return false;
+          if (c.includes(':')) return false; // Tailwind variants (hover:, focus:)
+          // Tailwind JIT classes use [ ] / ( ) ! : @ which need CSS-escaping;
+          // skip them for the simple class selector to avoid generating
+          // invalid selectors like `.min-h-[24px]`.
+          if (/[[\](){}/!@%]/.test(c)) return false;
+          // Must start with a letter, _ or - per CSS ident rules
+          if (!/^[a-zA-Z_ -￿-]/.test(c)) return false;
+          return true;
+        })
         .slice(0, 2);
       if (classes.length > 0) {
         const classSelector = classes.map(c => `.${c}`).join('');

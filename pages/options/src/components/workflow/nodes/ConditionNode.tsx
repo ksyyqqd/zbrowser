@@ -26,18 +26,20 @@ function ConditionNodeImpl({ data, selected }: NodeProps<FlowNode>) {
         <FiGitBranch className="size-4" />
       </div>
       <div className="flex min-w-0 flex-col">
-        <span className="text-sm font-semibold leading-tight">{t('workflow_nodeType_condition')}</span>
+        <span className="max-w-[140px] truncate text-sm font-semibold leading-tight">
+          {(data.name as string) || t('workflow_nodeType_condition')}
+        </span>
         {branches.length > 0 ? (
           <div className="mt-0.5 flex flex-col gap-0.5">
             {branches.map(b => (
-              <span key={b.id} className="max-w-[110px] truncate text-xs leading-tight opacity-80">
+              <span key={b.id} className="max-w-[140px] truncate text-xs leading-tight opacity-80">
                 → {b.name}
               </span>
             ))}
           </div>
         ) : (
-          <span className="max-w-[110px] truncate text-xs opacity-75">
-            {data.prompt?.slice(0, 20) || t('workflow_nodeType_condition_default')}...
+          <span className="max-w-[140px] truncate text-xs opacity-75">
+            {(data.prompt as string)?.slice(0, 30) || t('workflow_nodeType_condition_default')}
           </span>
         )}
       </div>

@@ -6,9 +6,43 @@ const NODE_HEIGHT_DEFAULT = 60;
 const NODE_WIDTH_SMALL = 50;
 const NODE_HEIGHT_SMALL = 50;
 
-export function getLayoutedElements(nodes: FlowNode[], edges: FlowEdge[]): { nodes: FlowNode[]; edges: FlowEdge[] } {
+export type LayoutDirection = 'LR' | 'TB' | 'auto';
+
+/**
+ * Pick a direction automatically:
+ *  - Linear / chain workflows (every node has at most 1 out-edge, no branches)
+ *    with more than 6 nodes → vertical (TB), so they don't stretch the canvas.
+ *  - Workflows with branches (condition nodes, multiple out-edges) → horizontal
+ *    (LR) so branches read naturally side-by-side.
+ *  - Small linear workflows → horizontal (LR), classic look.
+ */
+function pickDirection(nodes: FlowNode[], edges: FlowEdge[]): 'LR' | 'TB' {
+  if (nodes.length <= 6) return 'LR';
+  const outCount = new Map<string, number>();
+  for (const e of edges) outCount.set(e.source, (outCount.get(e.source) ?? 0) + 1);
+  const hasBranches = Array.from(outCount.values()).some(c => c > 1);
+  if (hasBranches) return 'LR';
+  // Long linear chain — go vertical
+  return 'TB';
+}
+
+export function getLayoutedElements(
+  nodes: FlowNode[],
+  edges: FlowEdge[],
+  direction: LayoutDirection = 'auto',
+): { nodes: FlowNode[]; edges: FlowEdge[] } {
+  const rankdir = direction === 'auto' ? pickDirection(nodes, edges) : direction;
   const g = new dagre.graphlib.Graph();
-  g.setGraph({ rankdir: 'LR', nodesep: 60, ranksep: 120, marginx: 40, marginy: 40 });
+  // Tighter ranksep for vertical layouts so long chains stay compact in the
+  // viewport; horizontal layouts keep more room so labels don't overlap.
+  const isVertical = rankdir === 'TB';
+  g.setGraph({
+    rankdir,
+    nodesep: isVertical ? 40 : 60,
+    ranksep: isVertical ? 60 : 120,
+    marginx: 40,
+    marginy: 40,
+  });
   g.setDefaultEdgeLabel(() => ({}));
 
   nodes.forEach(node => {

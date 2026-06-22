@@ -80,6 +80,35 @@ export function NodeEditorPanel({ node, onSave, isDarkMode, variables = [] }: No
             placeholder: 'Variable name',
           },
         ];
+      case 'scroll_to_text':
+        return [{ key: 'text', label: '目标文本', type: 'text', placeholder: '要滚动到的文字（区分大小写不敏感）' }];
+      case 'get_dropdown_options':
+        return [
+          {
+            key: 'selector',
+            label: t('workflow_param_selector'),
+            type: 'text',
+            placeholder: '<select> 元素的 CSS selector',
+          },
+          {
+            key: 'outputVariable',
+            label: '输出变量名',
+            type: 'text',
+            placeholder: '所有选项 JSON 写入此变量',
+          },
+        ];
+      case 'cache_content':
+        return [
+          { key: 'selector', label: t('workflow_param_selector'), type: 'text', placeholder: 'CSS selector（可选）' },
+          { key: 'xpath', label: t('workflow_param_xpath'), type: 'text', placeholder: 'XPath（可选，selector 优先）' },
+          { key: 'attribute', label: '读取属性', type: 'text', placeholder: '留空则读 innerText / value' },
+          {
+            key: 'outputVariable',
+            label: '输出变量名',
+            type: 'text',
+            placeholder: '元素内容写入此变量',
+          },
+        ];
       default:
         return [];
     }
@@ -255,11 +284,14 @@ export function NodeEditorPanel({ node, onSave, isDarkMode, variables = [] }: No
             <label className={labelClass}>{t('workflow_intent')}</label>
             <input
               type="text"
-              value={editedNode.data.intent || ''}
-              onChange={e => handleFieldChange('intent', e.target.value)}
+              value={(editedNode.data.parameters?.intent as string) || (editedNode.data.intent as string) || ''}
+              onChange={e => handleParameterChange('intent', e.target.value)}
               className={inputClass}
               placeholder={t('workflow_intent_placeholder')}
             />
+            <div className={`mt-1 text-xs ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>
+              人类可读的步骤说明，用于日志展示和 AI 润色
+            </div>
           </div>
           <div>
             <label className={labelClass}>{t('workflow_action')}</label>
@@ -278,6 +310,9 @@ export function NodeEditorPanel({ node, onSave, isDarkMode, variables = [] }: No
               <option value="switch_tab">{t('workflow_action_switchTab')}</option>
               <option value="send_keys">{t('workflow_action_sendKeys')}</option>
               <option value="select_dropdown_option">{t('workflow_action_selectDropdown')}</option>
+              <option value="scroll_to_text">滚动到文本</option>
+              <option value="get_dropdown_options">读取下拉选项</option>
+              <option value="cache_content">缓存元素内容</option>
               <option value="generate_image">{t('workflow_action_generateImage')}</option>
             </select>
           </div>

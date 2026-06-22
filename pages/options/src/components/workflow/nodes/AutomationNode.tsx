@@ -21,9 +21,11 @@ function AutomationNodeImpl({ data, selected }: NodeProps<FlowNode>) {
         <FiMousePointer className="size-4" />
       </div>
       <div className="flex min-w-0 flex-col">
-        <span className="text-sm font-semibold leading-tight">{t('workflow_nodeType_automation')}</span>
-        <span className="max-w-[110px] truncate text-xs opacity-75">
-          {data.action || t('workflow_nodeType_automation_default')}
+        <span className="max-w-[140px] truncate text-sm font-semibold leading-tight">
+          {(data.name as string) || t('workflow_nodeType_automation')}
+        </span>
+        <span className="max-w-[140px] truncate text-xs opacity-75">
+          {(data.action as string) || t('workflow_nodeType_automation_default')}
         </span>
       </div>
       <Handle

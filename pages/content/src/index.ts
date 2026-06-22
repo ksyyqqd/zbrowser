@@ -59,6 +59,8 @@ function extractElementInfo(element: HTMLElement): {
   dataTestId?: string;
   href?: string;
   title?: string;
+  contenteditable?: string;
+  role?: string;
   textContent?: string;
   xpath?: string;
 } {
@@ -76,6 +78,10 @@ function extractElementInfo(element: HTMLElement): {
   if (element.getAttribute('data-testid')) info.dataTestId = element.getAttribute('data-testid');
   if (element.getAttribute('href')) info.href = element.getAttribute('href');
   if (element.getAttribute('title')) info.title = element.getAttribute('title');
+  // Attributes critical for matching modern rich-text inputs (Slate/ProseMirror/Lexical):
+  // contenteditable chat boxes are usually <div contenteditable role="textbox">.
+  if (element.getAttribute('contenteditable')) info.contenteditable = element.getAttribute('contenteditable');
+  if (element.getAttribute('role')) info.role = element.getAttribute('role');
 
   // Text content for buttons/links
   const tagName = element.tagName.toUpperCase();
@@ -190,15 +196,27 @@ let lastInputValue = '';
 function handleInput(event: Event) {
   if (!isRecording) return;
 
-  const target = event.target as HTMLInputElement | HTMLTextAreaElement;
+  const target = event.target as HTMLElement | null;
   if (!target) return;
+
+  // Read value across input/textarea/contenteditable.
+  // Slate/ProseMirror/Lexical render the chat box as a contenteditable div;
+  // it has no `.value` — use innerText (visible text) instead.
+  const isInput = target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement;
+  const isEditable =
+    target.isContentEditable ||
+    target.getAttribute('contenteditable') === 'true' ||
+    target.getAttribute('role') === 'textbox';
+  if (!isInput && !isEditable) return;
 
   // Debounce input to avoid too many messages
   if (inputDebounceTimer) {
     clearTimeout(inputDebounceTimer);
   }
 
-  const currentValue = target.value;
+  const currentValue = isInput
+    ? (target as HTMLInputElement | HTMLTextAreaElement).value
+    : ((target as HTMLElement).innerText ?? '').trim();
 
   inputDebounceTimer = setTimeout(() => {
     // Only send if value changed significantly
@@ -240,12 +258,39 @@ function handleKeydown(event: KeyboardEvent) {
 }
 
 /**
- * Handle scroll events (throttled)
+ * Handle scroll events (throttled, user-initiated only)
+ *
+ * SPAs (DeepSeek/Qianwen chat, infinite-scroll feeds, auto-scroll on stream
+ * response, scrollIntoView()) fire `scroll` programmatically all the time —
+ * recording every one of them produces a workflow that drowns user clicks in
+ * pointless `scroll_to_percent` steps. We only record a scroll if it landed
+ * within a short window after a real user input (wheel / touch / arrow-keys).
  */
+const USER_SCROLL_WINDOW_MS = 600;
+let lastUserInputTime = 0;
+
+function markUserScrollIntent(event: Event) {
+  // event.isTrusted is true only for events synthesized by the browser, not
+  // by page scripts. Filters out frameworks dispatching synthetic wheel/touch.
+  if (!event.isTrusted) return;
+  if (event.type === 'keydown') {
+    const k = (event as KeyboardEvent).key;
+    if (!['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', ' '].includes(k)) return;
+  }
+  lastUserInputTime = Date.now();
+}
+
 function handleScroll(event: Event) {
   if (!isRecording) return;
 
+  // Reject scroll events that don't come from the browser itself (synthetic
+  // dispatch from page scripts).
+  if (!event.isTrusted) return;
+
+  // Only record if a real user input happened recently
   const now = Date.now();
+  if (now - lastUserInputTime > USER_SCROLL_WINDOW_MS) return;
+
   if (now - lastScrollTime < THROTTLE_MS) return;
   lastScrollTime = now;
 
@@ -397,12 +442,23 @@ function startRecording(id: string) {
   // Add event listeners
   document.addEventListener('click', handleClick, true);
   document.addEventListener('input', handleInput, true);
+  // beforeinput fires for contenteditable editors (Slate/ProseMirror/Lexical)
+  // even when their `input` events get swallowed by the editor's controller.
+  document.addEventListener('beforeinput', handleInput, true);
+  // compositionend fires after IME (e.g. Pinyin) commits — picks up the
+  // assembled value when input/beforeinput fired only with intermediate text.
+  document.addEventListener('compositionend', handleInput, true);
   document.addEventListener('keydown', handleKeydown, true);
   document.addEventListener('scroll', handleScroll, true);
   document.addEventListener('change', handleSelect, true);
   document.addEventListener('copy', handleCopy, true);
   document.addEventListener('paste', handlePaste, true);
   document.addEventListener('cut', handleCut, true);
+  // User-scroll detectors: passive listeners that update lastUserInputTime so
+  // handleScroll can tell user-driven scrolls from script-driven ones.
+  window.addEventListener('wheel', markUserScrollIntent, { capture: true, passive: true });
+  window.addEventListener('touchstart', markUserScrollIntent, { capture: true, passive: true });
+  window.addEventListener('keydown', markUserScrollIntent, { capture: true });
 
   console.log('Recording started, session:', sessionId);
 }
@@ -417,12 +473,17 @@ function stopRecording() {
   // Remove event listeners
   document.removeEventListener('click', handleClick, true);
   document.removeEventListener('input', handleInput, true);
+  document.removeEventListener('beforeinput', handleInput, true);
+  document.removeEventListener('compositionend', handleInput, true);
   document.removeEventListener('keydown', handleKeydown, true);
   document.removeEventListener('scroll', handleScroll, true);
   document.removeEventListener('change', handleSelect, true);
   document.removeEventListener('copy', handleCopy, true);
   document.removeEventListener('paste', handlePaste, true);
   document.removeEventListener('cut', handleCut, true);
+  window.removeEventListener('wheel', markUserScrollIntent, { capture: true } as EventListenerOptions);
+  window.removeEventListener('touchstart', markUserScrollIntent, { capture: true } as EventListenerOptions);
+  window.removeEventListener('keydown', markUserScrollIntent, { capture: true } as EventListenerOptions);
 
   // Clear timers
   if (inputDebounceTimer) {

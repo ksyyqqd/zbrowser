@@ -72,6 +72,25 @@ function buildDefaultNodes(): FlowNode[] {
 
 // ============ Inner Editor (requires ReactFlowProvider) ============
 
+// Friendly relative time for the save indicator.
+// "刚刚" / "N 分钟前" within an hour; "今天 HH:mm" same day;
+// "MM-DD HH:mm" same year; "YYYY-MM-DD" older.
+function formatRelativeTime(ts: number): string {
+  const now = Date.now();
+  const diff = now - ts;
+  if (diff < 60_000) return '刚刚';
+  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)} 分钟前`;
+  const d = new Date(ts);
+  const today = new Date();
+  if (d.getFullYear() === today.getFullYear() && d.getMonth() === today.getMonth() && d.getDate() === today.getDate()) {
+    return `今天 ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  }
+  if (d.getFullYear() === today.getFullYear()) {
+    return `${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  }
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
 function WorkflowEditorInner({
   workflow: initialWorkflow,
   onSave,
@@ -81,13 +100,36 @@ function WorkflowEditorInner({
   onExecute,
 }: WorkflowEditorProps) {
   const reactFlowWrapper = useRef<HTMLDivElement>(null);
-  const { screenToFlowPosition, fitView, zoomIn, zoomOut } = useReactFlow();
+  const { screenToFlowPosition, fitView, zoomIn, zoomOut, getViewport, setViewport } = useReactFlow();
   // Internal clipboard for Ctrl+C / Ctrl+V node copy-paste (ref-based, not OS clipboard)
   const clipboardRef = useRef<FlowNode[] | null>(null);
   // Help overlay (Ctrl+/) toggle
-  const [showShortcutHelp, setShowShortcutHelp] = useState(false);
+  const SHORTCUT_HELP_SEEN_KEY = 'workflow_shortcut_help_seen_v1';
+  const [showShortcutHelp, setShowShortcutHelp] = useState(() => {
+    // First-time users: auto-open the shortcut overlay so they discover the
+    // keyboard/mouse interactions. Subsequent opens stay quiet.
+    try {
+      return !localStorage.getItem(SHORTCUT_HELP_SEEN_KEY);
+    } catch {
+      return false;
+    }
+  });
+  // Persist the "seen" flag the moment the overlay closes for any reason.
+  useEffect(() => {
+    if (!showShortcutHelp) {
+      try {
+        localStorage.setItem(SHORTCUT_HELP_SEEN_KEY, '1');
+      } catch {
+        /* ignore */
+      }
+    }
+  }, [showShortcutHelp]);
   // Right-click context menu state
-  type CtxTarget = { kind: 'node'; nodeId: string } | { kind: 'edge'; edgeId: string } | { kind: 'pane' };
+  type CtxTarget =
+    | { kind: 'node'; nodeId: string }
+    | { kind: 'edge'; edgeId: string }
+    | { kind: 'pane' }
+    | { kind: 'selection' };
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; target: CtxTarget } | null>(null);
 
   const [workflowId] = useState(initialWorkflow?.id || newWorkflowId());
@@ -273,6 +315,12 @@ function WorkflowEditorInner({
     });
   }, []);
 
+  // Right-click on a marquee selection of nodes
+  const onSelectionContextMenu = useCallback((e: React.MouseEvent, _selectedNodes: FlowNode[]) => {
+    e.preventDefault();
+    setContextMenu({ x: e.clientX, y: e.clientY, target: { kind: 'selection' } });
+  }, []);
+
   const closeContextMenu = useCallback(() => setContextMenu(null), []);
 
   // ============ Actions ============
@@ -289,13 +337,16 @@ function WorkflowEditorInner({
     setSelectedEdge(null);
   }, [selectedEdge, setEdges]);
 
-  const handleAutoLayout = useCallback(() => {
-    const layouted = getLayoutedElements(nodes, edges);
-    setNodes(layouted.nodes);
-    setEdges(layouted.edges);
-    setSelectedNode(null);
-    setSelectedEdge(null);
-  }, [nodes, edges, setNodes, setEdges]);
+  const handleAutoLayout = useCallback(
+    (direction: 'auto' | 'LR' | 'TB' = 'auto') => {
+      const layouted = getLayoutedElements(nodes, edges, direction);
+      setNodes(layouted.nodes);
+      setEdges(layouted.edges);
+      setSelectedNode(null);
+      setSelectedEdge(null);
+    },
+    [nodes, edges, setNodes, setEdges],
+  );
 
   const handleUpdateNode = useCallback(
     (updatedNode: WorkflowNode) => {
@@ -353,6 +404,11 @@ function WorkflowEditorInner({
     [workflowId, workflowName, workflowDescription, nodes, edges, variables, initialWorkflow],
   );
 
+  // Last-saved timestamp shown under the Save button.
+  // Initialize from the workflow's updatedAt so reopening a workflow shows
+  // "when it was last saved" right away, not just after the user saves again.
+  const [lastSavedAt, setLastSavedAt] = useState<number | null>(initialWorkflow?.updatedAt ?? null);
+
   const handleSave = useCallback(() => {
     const workflow = buildWorkflow();
     const validation = validateWorkflowStructure(workflow);
@@ -362,6 +418,7 @@ function WorkflowEditorInner({
     }
     setValidationErrors([]);
     onSave(workflow);
+    setLastSavedAt(Date.now());
   }, [buildWorkflow, onSave]);
 
   // Copy selected nodes to internal clipboard
@@ -377,32 +434,149 @@ function WorkflowEditorInner({
     }));
   }, [nodes, selectedNode]);
 
-  // Paste nodes from internal clipboard
-  const handlePaste = useCallback(() => {
-    const source = clipboardRef.current;
-    if (!source || source.length === 0) return;
-    const newNodes: FlowNode[] = source
-      .filter(n => n.type !== 'start' && n.type !== 'end')
-      .map(n => ({
+  // Track the mouse position over the canvas in screen coords; used so Ctrl+V
+  // pastes at the cursor instead of always offsetting from the source nodes.
+  const lastMouseScreenPosRef = useRef<{ x: number; y: number } | null>(null);
+  const onCanvasMouseMove = useCallback((e: React.MouseEvent) => {
+    lastMouseScreenPosRef.current = { x: e.clientX, y: e.clientY };
+  }, []);
+
+  // Right-button drag-to-pan with a press-hold threshold.
+  //
+  // We hook mousedown on the canvas wrapper. When the right button goes down
+  // we start a timer (RIGHT_PAN_HOLD_MS). If the user releases before it
+  // fires AND barely moved, we treat it as a right-CLICK and let React Flow's
+  // contextmenu fire normally. If the timer fires (still held) OR the user
+  // drags more than a few px while holding, we switch into pan mode: we
+  // suppress the upcoming contextmenu, drive the viewport ourselves, and
+  // restore on mouseup.
+  const RIGHT_PAN_HOLD_MS = 220;
+  const RIGHT_PAN_DRAG_PX = 6;
+  useEffect(() => {
+    const wrapper = reactFlowWrapper.current;
+    if (!wrapper) return;
+    let panActive = false;
+    let suppressNextContext = false;
+    let holdTimer: ReturnType<typeof setTimeout> | null = null;
+    let startX = 0;
+    let startY = 0;
+    let startVp: { x: number; y: number; zoom: number } | null = null;
+
+    const beginPan = () => {
+      panActive = true;
+      suppressNextContext = true;
+      wrapper.style.cursor = 'grabbing';
+    };
+
+    const onMouseDown = (e: MouseEvent) => {
+      if (e.button !== 2) return; // right button only
+      startX = e.clientX;
+      startY = e.clientY;
+      startVp = getViewport();
+      panActive = false;
+      suppressNextContext = false;
+      if (holdTimer) clearTimeout(holdTimer);
+      holdTimer = setTimeout(() => {
+        if (!panActive) beginPan();
+      }, RIGHT_PAN_HOLD_MS);
+
+      const onMove = (ev: MouseEvent) => {
+        if (!panActive) {
+          const dx = ev.clientX - startX;
+          const dy = ev.clientY - startY;
+          if (Math.hypot(dx, dy) > RIGHT_PAN_DRAG_PX) beginPan();
+          else return;
+        }
+        if (!startVp) return;
+        const dx = ev.clientX - startX;
+        const dy = ev.clientY - startY;
+        setViewport({ x: startVp.x + dx, y: startVp.y + dy, zoom: startVp.zoom });
+      };
+      const onUp = () => {
+        if (holdTimer) {
+          clearTimeout(holdTimer);
+          holdTimer = null;
+        }
+        wrapper.style.cursor = '';
+        window.removeEventListener('mousemove', onMove);
+        window.removeEventListener('mouseup', onUp);
+        // panActive flag stays so the contextmenu listener can read it
+        setTimeout(() => {
+          panActive = false;
+        }, 0);
+      };
+      window.addEventListener('mousemove', onMove);
+      window.addEventListener('mouseup', onUp);
+    };
+
+    const onContextMenu = (e: MouseEvent) => {
+      if (suppressNextContext) {
+        e.preventDefault();
+        e.stopPropagation();
+        suppressNextContext = false;
+      }
+    };
+
+    wrapper.addEventListener('mousedown', onMouseDown);
+    wrapper.addEventListener('contextmenu', onContextMenu, true); // capture so we beat React Flow
+    return () => {
+      wrapper.removeEventListener('mousedown', onMouseDown);
+      wrapper.removeEventListener('contextmenu', onContextMenu, true);
+      if (holdTimer) clearTimeout(holdTimer);
+    };
+  }, [getViewport, setViewport]);
+
+  // Paste nodes from internal clipboard. If targetScreenPos is given (e.g. from
+  // a context-menu click or the last tracked mouse position), the cluster is
+  // re-centered there in flow coordinates; otherwise we fall back to the old
+  // "offset by 60" behaviour for niceness.
+  const handlePaste = useCallback(
+    (targetScreenPos?: { x: number; y: number }) => {
+      const source = clipboardRef.current;
+      if (!source || source.length === 0) return;
+      const pasteable = source.filter(n => n.type !== 'start' && n.type !== 'end');
+      if (pasteable.length === 0) return;
+
+      // Compute the centroid of the source cluster so we can re-center it on
+      // the target screen position without breaking the relative layout.
+      let dx = 60;
+      let dy = 60;
+      const screenPos = targetScreenPos ?? lastMouseScreenPosRef.current;
+      if (screenPos) {
+        const target = screenToFlowPosition(screenPos);
+        const minX = Math.min(...pasteable.map(n => n.position.x));
+        const minY = Math.min(...pasteable.map(n => n.position.y));
+        const maxX = Math.max(...pasteable.map(n => n.position.x));
+        const maxY = Math.max(...pasteable.map(n => n.position.y));
+        const cx = (minX + maxX) / 2;
+        const cy = (minY + maxY) / 2;
+        dx = target.x - cx;
+        dy = target.y - cy;
+      }
+
+      const newNodes: FlowNode[] = pasteable.map(n => ({
         ...n,
         id: `node-${Math.random().toString(36).slice(2, 10)}`,
-        position: { x: n.position.x + 60, y: n.position.y + 60 },
+        position: { x: n.position.x + dx, y: n.position.y + dy },
         data: { ...JSON.parse(JSON.stringify(n.data || {})), _executionStatus: undefined },
-        selected: false,
+        selected: true, // Highlight just-pasted nodes so user sees where they landed
       }));
-    if (newNodes.length === 0) return;
-    setNodes(nds => nds.concat(newNodes));
-    if (newNodes.length === 1) {
-      const created = newNodes[0];
-      setSelectedNode({
-        id: created.id,
-        type: created.type as WorkflowNodeType,
-        name: (created.data?.name as string) || created.id,
-        position: created.position,
-        data: (created.data as NodeData) || {},
-      });
-    }
-  }, [setNodes]);
+      setNodes(nds => nds.map(n => ({ ...n, selected: false })).concat(newNodes));
+      if (newNodes.length === 1) {
+        const created = newNodes[0];
+        setSelectedNode({
+          id: created.id,
+          type: created.type as WorkflowNodeType,
+          name: (created.data?.name as string) || created.id,
+          position: created.position,
+          data: (created.data as NodeData) || {},
+        });
+      } else {
+        setSelectedNode(null);
+      }
+    },
+    [setNodes, screenToFlowPosition],
+  );
 
   // Cycle selection through nodes with Tab / Shift+Tab
   const handleCycleSelection = useCallback(
@@ -524,8 +698,8 @@ function WorkflowEditorInner({
       }
       // F11 — Toggle fullscreen
       if (e.key === 'F11') {
+        // No-op: editor is always fullscreen now
         e.preventDefault();
-        setIsFullscreen(f => !f);
         return;
       }
       // Ctrl+1/2/3 — Switch right panel
@@ -677,7 +851,8 @@ function WorkflowEditorInner({
               className={`max-w-md flex-1 rounded-lg border px-3 py-1.5 text-sm transition-colors focus:ring-2 focus:ring-blue-400/50 ${isDarkMode ? 'border-slate-600 bg-slate-700 text-gray-200' : 'border-gray-300 bg-white text-gray-700'}`}
             />
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5">
+            {/* Group: edit */}
             <button
               type="button"
               onClick={handleUndo}
@@ -694,12 +869,16 @@ function WorkflowEditorInner({
             </button>
             <button
               type="button"
-              onClick={handleDuplicateNode}
+              onClick={handleCopy}
               disabled={!selectedNode || selectedNode.type === 'start' || selectedNode.type === 'end'}
               className={`rounded-lg p-2 transition-colors disabled:opacity-30 ${isDarkMode ? 'text-gray-300 hover:bg-slate-600' : 'text-gray-600 hover:bg-gray-100'}`}
-              title="Duplicate (Ctrl+D)">
+              title="复制到剪贴板 (Ctrl+C)，然后按 Ctrl+V 或右键粘贴">
               <FiCopy className="size-4" />
             </button>
+
+            <div className={`mx-1 h-5 w-px ${isDarkMode ? 'bg-slate-600' : 'bg-gray-300'}`} />
+
+            {/* Group: panels */}
             <button
               type="button"
               onClick={() => {
@@ -749,50 +928,71 @@ function WorkflowEditorInner({
                 <span className="absolute -right-0.5 -top-0.5 flex size-2 rounded-full bg-red-500" />
               )}
             </button>
+
             <div className={`mx-1 h-5 w-px ${isDarkMode ? 'bg-slate-600' : 'bg-gray-300'}`} />
+
+            {/* Group: view */}
             <button
               type="button"
-              onClick={handleAutoLayout}
+              onClick={() => handleAutoLayout('LR')}
               className={`rounded-lg p-2 transition-colors ${isDarkMode ? 'text-gray-300 hover:bg-slate-600' : 'text-gray-600 hover:bg-gray-100'}`}
-              title={t('workflow_autoLayout')}>
+              title="横向布局（左→右）">
               <FiLayout className="size-4" />
             </button>
             <button
               type="button"
-              onClick={() => setIsFullscreen(!isFullscreen)}
+              onClick={() => handleAutoLayout('TB')}
               className={`rounded-lg p-2 transition-colors ${isDarkMode ? 'text-gray-300 hover:bg-slate-600' : 'text-gray-600 hover:bg-gray-100'}`}
-              title={isFullscreen ? t('workflow_exitFullscreen') : t('workflow_enterFullscreen')}>
-              {isFullscreen ? <FiMinimize2 className="size-4" /> : <FiMaximize2 className="size-4" />}
+              title="纵向布局（上→下，适合长流程）">
+              <FiLayout className="size-4 rotate-90" />
             </button>
-            <button
-              type="button"
-              onClick={onCancel}
-              className={`rounded-lg px-4 py-1.5 text-sm font-medium transition-colors ${isDarkMode ? 'bg-slate-700 text-gray-200 hover:bg-slate-600' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}>
-              {t('workflow_cancel')}
-            </button>
-            <button
-              type="button"
-              onClick={handleSave}
-              className="rounded-lg bg-blue-600 px-4 py-1.5 text-sm font-medium text-white shadow-sm transition-colors hover:bg-blue-500">
-              {t('workflow_save')}
-            </button>
+
+            <div className={`mx-2 h-5 w-px ${isDarkMode ? 'bg-slate-600' : 'bg-gray-300'}`} />
+
+            {/* Group: main actions */}
+            <div className="relative flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={handleSave}
+                className="rounded-md bg-blue-600 px-3 py-1 text-xs font-medium text-white shadow-sm transition-colors hover:bg-blue-500">
+                {t('workflow_save')}
+              </button>
+              {lastSavedAt && (
+                <span
+                  className={`pointer-events-none absolute -bottom-3 left-0 right-0 truncate whitespace-nowrap text-center text-[9px] tabular-nums ${
+                    isDarkMode ? 'text-gray-500' : 'text-gray-400'
+                  }`}
+                  title={new Date(lastSavedAt).toLocaleString('zh-CN', { hour12: false })}>
+                  {formatRelativeTime(lastSavedAt)}
+                </span>
+              )}
+            </div>
             {onExecute && (
               <button
                 type="button"
                 onClick={() => {
+                  handleSave();
                   const wf = buildWorkflow();
                   onExecute(wf);
                 }}
                 disabled={executionState?.status === 'running'}
-                className={`flex items-center gap-1.5 rounded-lg px-4 py-1.5 text-sm font-medium text-white shadow-sm transition-colors ${
+                className={`flex items-center gap-1 rounded-md px-3 py-1 text-xs font-medium text-white shadow-sm transition-colors ${
                   executionState?.status === 'running'
                     ? 'cursor-not-allowed bg-green-400 opacity-60'
                     : 'bg-green-600 hover:bg-green-500'
                 }`}>
-                <FiPlay className="size-3.5" />
-                {executionState?.status === 'running' ? '执行中...' : '运行'}
+                <FiPlay className="size-3" />
+                {executionState?.status === 'running' ? '执行中' : '运行'}
               </button>
             )}
+            <div className={`mx-1 h-5 w-px ${isDarkMode ? 'bg-slate-600' : 'bg-gray-300'}`} />
+            <button
+              type="button"
+              onClick={onCancel}
+              className={`rounded-lg p-2 transition-colors ${isDarkMode ? 'text-gray-300 hover:bg-slate-600' : 'text-gray-600 hover:bg-gray-100'}`}
+              title="关闭编辑器">
+              <FiX className="size-4" />
+            </button>
           </div>
         </div>
 
@@ -871,17 +1071,21 @@ function WorkflowEditorInner({
               isValidConnection={isValidConnection}
               onDrop={onDrop}
               onDragOver={onDragOver}
+              onMouseMove={onCanvasMouseMove}
               onNodeClick={onNodeClick}
               onEdgeClick={onEdgeClick}
               onPaneClick={onPaneClick}
               onNodeContextMenu={onNodeContextMenu}
               onEdgeContextMenu={onEdgeContextMenu}
               onPaneContextMenu={onPaneContextMenu}
+              onSelectionContextMenu={onSelectionContextMenu}
               nodeTypes={nodeTypes}
               deleteKeyCode={['Backspace', 'Delete']}
-              // Box-select on left-drag over empty pane; pan with middle/right mouse button
+              // Box-select on left-drag over empty pane; pan with middle mouse
+              // button (button === 1). DO NOT include 2 (right button) — it
+              // would swallow contextmenu events and break right-click menus.
               selectionOnDrag
-              panOnDrag={[1, 2]}
+              panOnDrag={[1]}
               selectionMode={SelectionMode.Partial}
               multiSelectionKeyCode={['Shift']}
               fitView
@@ -1051,28 +1255,24 @@ function WorkflowEditorInner({
                         disabled={isStartOrEnd}
                         onClick={() => {
                           if (!targetNode || isStartOrEnd) return;
-                          // mark as selectedNode then duplicate
-                          setSelectedNode({
-                            id: targetNode.id,
-                            type: targetNode.type as WorkflowNodeType,
-                            name: (targetNode.data?.name as string) || targetNode.id,
-                            position: targetNode.position,
-                            data: (targetNode.data as NodeData) || {},
-                          });
-                          // run after state updates settle
-                          setTimeout(() => {
-                            handleDuplicateNode();
-                            closeContextMenu();
-                          }, 0);
+                          // Write the right-clicked node to the internal clipboard so
+                          // the next Ctrl+V / right-click "粘贴" drops it at the cursor.
+                          clipboardRef.current = [
+                            {
+                              ...targetNode,
+                              data: JSON.parse(JSON.stringify(targetNode.data || {})),
+                            },
+                          ];
+                          closeContextMenu();
                         }}
                         className={`flex w-full items-center justify-between px-3 py-1.5 text-left text-xs disabled:opacity-40 ${isDarkMode ? 'hover:bg-slate-700' : 'hover:bg-gray-100'}`}>
-                        复制节点 <span className="text-[10px] opacity-60">Ctrl+D</span>
+                        复制 <span className="text-[10px] opacity-60">Ctrl+C</span>
                       </button>
                       <button
                         type="button"
                         disabled={!clipboardRef.current?.length}
                         onClick={() => {
-                          handlePaste();
+                          handlePaste({ x: contextMenu.x, y: contextMenu.y });
                           closeContextMenu();
                         }}
                         className={`flex w-full items-center justify-between px-3 py-1.5 text-left text-xs disabled:opacity-40 ${isDarkMode ? 'hover:bg-slate-700' : 'hover:bg-gray-100'}`}>
@@ -1114,11 +1314,11 @@ function WorkflowEditorInner({
                     type="button"
                     disabled={!clipboardRef.current?.length}
                     onClick={() => {
-                      handlePaste();
+                      handlePaste({ x: contextMenu.x, y: contextMenu.y });
                       closeContextMenu();
                     }}
                     className={`flex w-full items-center justify-between px-3 py-1.5 text-left text-xs disabled:opacity-40 ${isDarkMode ? 'hover:bg-slate-700' : 'hover:bg-gray-100'}`}>
-                    粘贴节点 <span className="text-[10px] opacity-60">Ctrl+V</span>
+                    粘贴 <span className="text-[10px] opacity-60">Ctrl+V</span>
                   </button>
                   <button
                     type="button"
@@ -1142,11 +1342,71 @@ function WorkflowEditorInner({
                   <button
                     type="button"
                     onClick={() => {
+                      handleAutoLayout('LR');
+                      closeContextMenu();
+                    }}
+                    className={`flex w-full items-center justify-between px-3 py-1.5 text-left text-xs ${isDarkMode ? 'hover:bg-slate-700' : 'hover:bg-gray-100'}`}>
+                    ↳ 横向布局 <span className="text-[10px] opacity-60">左→右</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      handleAutoLayout('TB');
+                      closeContextMenu();
+                    }}
+                    className={`flex w-full items-center justify-between px-3 py-1.5 text-left text-xs ${isDarkMode ? 'hover:bg-slate-700' : 'hover:bg-gray-100'}`}>
+                    ↳ 纵向布局 <span className="text-[10px] opacity-60">上→下</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
                       fitView({ padding: 0.2 });
                       closeContextMenu();
                     }}
                     className={`flex w-full items-center justify-between px-3 py-1.5 text-left text-xs ${isDarkMode ? 'hover:bg-slate-700' : 'hover:bg-gray-100'}`}>
                     画布适配 <span className="text-[10px] opacity-60">Ctrl+0</span>
+                  </button>
+                </>
+              )}
+
+              {contextMenu.target.kind === 'selection' && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      handleCopy();
+                      closeContextMenu();
+                    }}
+                    className={`flex w-full items-center justify-between px-3 py-1.5 text-left text-xs ${isDarkMode ? 'hover:bg-slate-700' : 'hover:bg-gray-100'}`}>
+                    复制 <span className="text-[10px] opacity-60">Ctrl+C</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      handlePaste({ x: contextMenu.x, y: contextMenu.y });
+                      closeContextMenu();
+                    }}
+                    disabled={!clipboardRef.current?.length}
+                    className={`flex w-full items-center justify-between px-3 py-1.5 text-left text-xs disabled:opacity-40 ${isDarkMode ? 'hover:bg-slate-700' : 'hover:bg-gray-100'}`}>
+                    粘贴 <span className="text-[10px] opacity-60">Ctrl+V</span>
+                  </button>
+                  <div className="my-1 border-t" style={{ borderColor: isDarkMode ? '#334155' : '#e5e7eb' }} />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      // Delete all selected nodes (except start/end) + their connected edges
+                      setNodes(nds => nds.filter(n => !n.selected || n.type === 'start' || n.type === 'end'));
+                      setEdges(eds => {
+                        const removedIds = new Set(
+                          nodes.filter(n => n.selected && n.type !== 'start' && n.type !== 'end').map(n => n.id),
+                        );
+                        return eds.filter(e => !removedIds.has(e.source) && !removedIds.has(e.target));
+                      });
+                      setSelectedNode(null);
+                      closeContextMenu();
+                    }}
+                    className={`flex w-full items-center justify-between px-3 py-1.5 text-left text-xs text-red-500 ${isDarkMode ? 'hover:bg-slate-700' : 'hover:bg-gray-100'}`}>
+                    删除选中 <span className="text-[10px] opacity-60">Delete</span>
                   </button>
                 </>
               )}
@@ -1161,12 +1421,12 @@ function WorkflowEditorInner({
             className="absolute inset-0 z-[200] flex items-center justify-center bg-black/60 backdrop-blur-sm">
             <div
               onClick={e => e.stopPropagation()}
-              className={`max-h-[80vh] w-[440px] max-w-[95vw] overflow-y-auto rounded-2xl border p-5 shadow-2xl ${
+              className={`max-h-[80vh] w-[720px] max-w-[95vw] overflow-y-auto rounded-2xl border p-5 shadow-2xl ${
                 isDarkMode ? 'border-slate-700 bg-slate-800' : 'border-gray-200 bg-white'
               }`}>
               <div
                 className={`mb-4 flex items-center justify-between ${isDarkMode ? 'text-gray-100' : 'text-gray-900'}`}>
-                <h3 className="text-base font-semibold">键盘快捷键</h3>
+                <h3 className="text-base font-semibold">快捷键</h3>
                 <button
                   type="button"
                   onClick={() => setShowShortcutHelp(false)}
@@ -1174,25 +1434,31 @@ function WorkflowEditorInner({
                   <FiX className="size-4" />
                 </button>
               </div>
-              <div className="grid grid-cols-1 gap-1 text-sm">
-                {[
+              {(() => {
+                const KEYBOARD: Array<[string, string]> = [
                   ['Ctrl/⌘ + S', '保存（含校验）'],
                   ['Ctrl/⌘ + E', '运行工作流'],
                   ['Ctrl/⌘ + L', '自动布局'],
                   ['Ctrl/⌘ + 0', '画布适配视图'],
                   ['Ctrl/⌘ + + / -', '放大 / 缩小'],
-                  ['F11', '切换全屏'],
                   ['Ctrl/⌘ + Z', '撤销'],
                   ['Ctrl/⌘ + Shift + Z', '重做'],
-                  ['Ctrl/⌘ + C / V', '复制 / 粘贴节点'],
-                  ['Ctrl/⌘ + D', '原位复制选中节点'],
+                  ['Ctrl/⌘ + C / V', '复制 / 粘贴（粘贴落到鼠标位置）'],
                   ['Ctrl/⌘ + A', '全选节点'],
                   ['Delete / Backspace', '删除选中'],
                   ['Tab / Shift + Tab', '在节点间切换选中'],
                   ['Ctrl/⌘ + 1 / 2 / 3', '切换右侧面板（节点 / 变量 / 日志）'],
                   ['Ctrl/⌘ + /', '显示/隐藏此帮助'],
                   ['Esc', '取消选择 / 关闭弹窗'],
-                ].map(([key, desc]) => (
+                ];
+                const MOUSE: Array<[string, string]> = [
+                  ['左键拖空白', '框选多个节点'],
+                  ['鼠标中键拖动', '平移画布'],
+                  ['右键长按拖动', '平移画布（按住 ≥ 0.2 秒）'],
+                  ['右键单击', '弹出上下文菜单'],
+                  ['Shift + 单击', '加选 / 取消加选'],
+                ];
+                const renderRow = ([key, desc]: [string, string]) => (
                   <div
                     key={key}
                     className={`flex items-center justify-between rounded px-2 py-1.5 ${
@@ -1200,7 +1466,7 @@ function WorkflowEditorInner({
                     }`}>
                     <span className={isDarkMode ? 'text-gray-300' : 'text-gray-700'}>{desc}</span>
                     <kbd
-                      className={`shrink-0 rounded border px-2 py-0.5 font-mono text-xs ${
+                      className={`ml-2 shrink-0 rounded border px-2 py-0.5 font-mono text-xs ${
                         isDarkMode
                           ? 'border-slate-600 bg-slate-900 text-gray-300'
                           : 'border-gray-300 bg-gray-50 text-gray-600'
@@ -1208,8 +1474,33 @@ function WorkflowEditorInner({
                       {key}
                     </kbd>
                   </div>
-                ))}
-              </div>
+                );
+                return (
+                  <div
+                    className={`grid grid-cols-2 gap-x-6 divide-x text-sm ${
+                      isDarkMode ? 'divide-slate-700' : 'divide-gray-200'
+                    }`}>
+                    <div className="pr-4">
+                      <h4
+                        className={`mb-2 px-2 text-[11px] font-semibold uppercase tracking-wider ${
+                          isDarkMode ? 'text-gray-500' : 'text-gray-400'
+                        }`}>
+                        键盘
+                      </h4>
+                      <div className="space-y-0.5">{KEYBOARD.map(renderRow)}</div>
+                    </div>
+                    <div className="pl-4">
+                      <h4
+                        className={`mb-2 px-2 text-[11px] font-semibold uppercase tracking-wider ${
+                          isDarkMode ? 'text-gray-500' : 'text-gray-400'
+                        }`}>
+                        鼠标
+                      </h4>
+                      <div className="space-y-0.5">{MOUSE.map(renderRow)}</div>
+                    </div>
+                  </div>
+                );
+              })()}
             </div>
           </div>
         )}

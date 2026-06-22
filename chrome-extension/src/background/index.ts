@@ -176,7 +176,10 @@ function buildSelectorList(params: Record<string, unknown>): string[] {
 
   // 4. Build attribute-based selectors from recorded attributes
   const attributes = params.attributes as Record<string, string> | undefined;
-  const tagName = (params.attributes as Record<string, string> | undefined)?.tagName;
+  // tagName may be stored either as a top-level field (legacy
+  // selectorGenerator output) or embedded inside attributes (RecordingPill's
+  // actionToParams output). Accept both.
+  const tagName = ((params.tagName as string) || attributes?.tagName || '').toLowerCase() || undefined;
   if (attributes && tagName) {
     // Try common attribute combinations
     const attrSelectors: string[] = [];
@@ -201,6 +204,11 @@ function buildSelectorList(params: Record<string, unknown>): string[] {
       attrSelectors.push(`${tagName}[type="${attributes.type}"][placeholder="${attributes.placeholder}"]`);
     }
 
+    // placeholder alone (common for chat inputs)
+    if (attributes.placeholder) {
+      attrSelectors.push(`${tagName}[placeholder="${attributes.placeholder}"]`);
+    }
+
     // aria-label
     if (attributes.ariaLabel) {
       attrSelectors.push(`[aria-label="${attributes.ariaLabel}"]`);
@@ -210,6 +218,16 @@ function buildSelectorList(params: Record<string, unknown>): string[] {
       if (!selectors.includes(attrSel)) {
         selectors.push(attrSel);
       }
+    }
+  }
+
+  // 5. Last-resort fallback: bare tag name. For SPAs with a single textarea /
+  // input (chat boxes, search bars) this rescues clicks/inputs when every
+  // brittle path-based selector has gone stale. Restricted to a small allowlist
+  // so we don't accidentally click "div".
+  if (tagName && ['textarea', 'input', 'select', 'button'].includes(tagName)) {
+    if (!selectors.includes(tagName)) {
+      selectors.push(tagName);
     }
   }
 
@@ -430,23 +448,32 @@ async function handleExecuteWorkflow(message: {
           case 'go_to_url': {
             const url = params.url as string;
             if (!url) return { success: false, error: 'URL is required' };
-            // If the active tab is already on this URL (e.g. pre-opened by the workflow entry),
-            // skip — avoids opening a duplicate tab when go_to_url is the first node.
-            try {
-              const curTab = await chrome.tabs.get(targetTabId!);
-              if (curTab?.url === url) {
-                return { success: true, extractedContent: `Already on: ${url}` };
+            // Use the workflow's current page (kept in sync by open_tab /
+            // switch_tab via browserContext) rather than a possibly-stale
+            // local targetTabId, so that a go_to_url following an open_tab
+            // doesn't re-open the same URL in yet another tab.
+            const page = await browserContext.getCurrentPage();
+            const curTabId = page?.tabId ?? targetTabId;
+            if (curTabId !== undefined) {
+              try {
+                const curTab = await chrome.tabs.get(curTabId);
+                if (curTab?.url === url) {
+                  return { success: true, extractedContent: `Already on: ${url}` };
+                }
+                // Navigate the current workflow tab in place instead of
+                // spawning a new tab for every go_to_url node.
+                await browserContext.navigateTo(url);
+                if (page?.tabId) targetTabId = page.tabId;
+                return { success: true, extractedContent: `Navigated to: ${url}` };
+              } catch {
+                /* current tab might be closed; fall through to open a new one */
               }
-            } catch {
-              /* tab might have been closed; fall through to open a new one */
             }
-            // Otherwise open the URL in a new tab so the workflow doesn't disrupt
-            // whatever the user is currently viewing.
+            // No current tab — open a new one and keep the workflow pointed at it.
             const newTab = await chrome.tabs.create({ url, active: true });
             if (!newTab.id) {
               return { success: false, error: 'Failed to create tab for go_to_url' };
             }
-            // Update the active target tab so subsequent automation nodes operate on this page
             targetTabId = newTab.id;
             browserContext.updateCurrentTabId(newTab.id);
             return { success: true, extractedContent: `Opened new tab for: ${url}` };
@@ -456,8 +483,14 @@ async function handleExecuteWorkflow(message: {
             const clickSelectors = buildSelectorList(params);
             if (clickSelectors.length === 0) return { success: false, error: 'No selector provided' };
             for (const sel of clickSelectors) {
-              const result = await currentPage.clickBySelector(sel);
-              if (result) return { success: true };
+              try {
+                const result = await currentPage.clickBySelector(sel);
+                if (result) return { success: true };
+              } catch (e) {
+                // Invalid selector (e.g. Tailwind JIT class with unescaped brackets)
+                // — log and try the next fallback.
+                console.warn('[workflow] click selector failed, trying next:', sel, e);
+              }
             }
             return { success: false, error: `Element not found with selectors: ${clickSelectors.join(', ')}` };
           }
@@ -467,8 +500,12 @@ async function handleExecuteWorkflow(message: {
             const text = params.text as string;
             if (inputSelectors.length === 0 || !text) return { success: false, error: 'Missing selector or text' };
             for (const sel of inputSelectors) {
-              const result = await currentPage.inputBySelector(sel, text);
-              if (result) return { success: true };
+              try {
+                const result = await currentPage.inputBySelector(sel, text);
+                if (result) return { success: true };
+              } catch (e) {
+                console.warn('[workflow] input selector failed, trying next:', sel, e);
+              }
             }
             return { success: false, error: `Element not found with selectors: ${inputSelectors.join(', ')}` };
           }
@@ -510,8 +547,20 @@ async function handleExecuteWorkflow(message: {
 
           case 'open_tab': {
             const url = (params.url as string) || '';
+            // Skip browser-internal pages (edge://, chrome://, about:): they
+            // can't be automated and cause WORKFLOW_FAIL on replay.
+            if (url && !/^https?:\/\//i.test(url)) {
+              return {
+                success: true,
+                extractedContent: `Skipped non-http URL: ${url}`,
+              };
+            }
             const newPage = await browserContext.openTab(url);
             if (newPage?.tabId) {
+              // Keep the local target in sync so subsequent nodes operate on
+              // the newly opened tab (browserContext already updated its own
+              // current tab id inside openTab).
+              targetTabId = newPage.tabId;
               await injectBuildDomTreeScripts(newPage.tabId);
             }
             return { success: true };
@@ -525,12 +574,73 @@ async function handleExecuteWorkflow(message: {
 
           case 'switch_tab': {
             const tabs = await chrome.tabs.query({ currentWindow: true });
-            const targetIndex = params.tabIndex as number;
-            if (tabs[targetIndex]?.id) {
-              await browserContext.switchTab(tabs[targetIndex].id!);
+            let matchedTabId: number | undefined;
+            const url = params.url as string;
+            if (url) {
+              // Match by URL — recorded tabId is a transient session id and
+              // won't survive replay. SPAs commonly carry a session in the
+              // path (e.g. /a/chat/s/<uuid>), so we match in stages from
+              // strictest to loosest.
+              const norm = (u: string) => u.split('#')[0].split('?')[0].replace(/\/$/, '');
+              const target = norm(url);
+              const targetUrl = (() => {
+                try {
+                  return new URL(url);
+                } catch {
+                  return null;
+                }
+              })();
+              const targetOrigin = targetUrl?.origin;
+              const targetPathTop = targetUrl?.pathname.split('/').filter(Boolean)[0]; // e.g. "a"
+
+              // 1) exact (after dropping #/?)
+              let match = tabs.find(t => t.url && norm(t.url) === target);
+              // 2) prefix (one is a parent path of the other)
+              if (!match)
+                match = tabs.find(t => t.url && (norm(t.url).startsWith(target) || target.startsWith(norm(t.url))));
+              // 3) same origin + same first path segment (handles dynamic
+              //    session ids: /a/chat/s/<uuid> vs /a/chat/s/<other>)
+              if (!match && targetOrigin && targetPathTop) {
+                match = tabs.find(t => {
+                  if (!t.url) return false;
+                  let u: URL;
+                  try {
+                    u = new URL(t.url);
+                  } catch {
+                    return false;
+                  }
+                  return u.origin === targetOrigin && u.pathname.split('/').filter(Boolean)[0] === targetPathTop;
+                });
+              }
+              // 4) same origin (last resort — better than failing the workflow)
+              if (!match && targetOrigin) {
+                match = tabs.find(t => {
+                  if (!t.url) return false;
+                  try {
+                    return new URL(t.url).origin === targetOrigin;
+                  } catch {
+                    return false;
+                  }
+                });
+              }
+              if (match?.id) matchedTabId = match.id;
+            }
+            if (matchedTabId === undefined && params.tabIndex !== undefined) {
+              const idx = params.tabIndex as number;
+              if (tabs[idx]?.id) matchedTabId = tabs[idx].id;
+            }
+            if (matchedTabId !== undefined) {
+              await browserContext.switchTab(matchedTabId);
+              // Sync the outer workflow target so subsequent nodes operate on
+              // the just-switched-to tab.
+              targetTabId = matchedTabId;
+              await injectBuildDomTreeScripts(matchedTabId);
               return { success: true };
             }
-            return { success: false, error: 'Invalid tab index' };
+            return {
+              success: false,
+              error: url ? `No tab matching ${url}` : 'Invalid tab index',
+            };
           }
 
           case 'select_dropdown_option': {
@@ -539,6 +649,107 @@ async function handleExecuteWorkflow(message: {
             if (!dropdownSelector || !optionText) return { success: false, error: 'Missing selector or option text' };
             const result = await currentPage.selectOptionBySelector(dropdownSelector, optionText);
             return { success: result, error: result ? undefined : 'Select failed' };
+          }
+
+          case 'scroll_to_text': {
+            const text = params.text as string;
+            if (!text || !text.trim()) return { success: false, error: 'text is required' };
+            // Run an in-page XPath query for the first element containing this text,
+            // then scrollIntoView. We do it via chrome.scripting because puppeteer's
+            // XPath helpers vary across versions and this stays self-contained.
+            const tabId = currentPage.tabId;
+            const [{ result } = { result: null }] = await chrome.scripting.executeScript({
+              target: { tabId, frameIds: [0] },
+              func: (needle: string) => {
+                const lowered = needle.toLowerCase();
+                // Try elements that look interactive first, then any visible element.
+                const candidates: Element[] = Array.from(
+                  document.querySelectorAll<HTMLElement>(
+                    'button, a, label, span, p, h1, h2, h3, h4, h5, h6, li, td, th, div',
+                  ),
+                );
+                for (const el of candidates) {
+                  const t = (el as HTMLElement).innerText?.trim();
+                  if (t && t.toLowerCase().includes(lowered)) {
+                    el.scrollIntoView({ block: 'center', behavior: 'instant' as ScrollBehavior });
+                    return { found: true, text: t.slice(0, 200) };
+                  }
+                }
+                return { found: false };
+              },
+              args: [text],
+            });
+            const r = result as { found: boolean; text?: string } | null;
+            if (r?.found) {
+              return { success: true, extractedContent: r.text };
+            }
+            return { success: false, error: `Text not found on page: ${text}` };
+          }
+
+          case 'get_dropdown_options': {
+            const sel = params.selector as string;
+            if (!sel) return { success: false, error: 'selector is required' };
+            const tabId = currentPage.tabId;
+            const [{ result } = { result: null }] = await chrome.scripting.executeScript({
+              target: { tabId, frameIds: [0] },
+              func: (selector: string) => {
+                const node = document.querySelector(selector) as HTMLSelectElement | null;
+                if (!node || node.tagName !== 'SELECT') return null;
+                return Array.from(node.options).map((o, i) => ({
+                  index: i,
+                  text: o.text,
+                  value: o.value,
+                  selected: o.selected,
+                }));
+              },
+              args: [sel],
+            });
+            const opts = result as Array<{ index: number; text: string; value: string; selected: boolean }> | null;
+            if (!opts) return { success: false, error: `Not a <select> element: ${sel}` };
+            // Stringify so the value flows cleanly through the variable system.
+            return { success: true, extractedContent: JSON.stringify(opts) };
+          }
+
+          case 'cache_content': {
+            const sel = params.selector as string;
+            const xp = params.xpath as string;
+            const attr = (params.attribute as string) || ''; // optional: read attribute instead of text
+            if (!sel && !xp) return { success: false, error: 'selector or xpath is required' };
+            const tabId = currentPage.tabId;
+            const [{ result } = { result: null }] = await chrome.scripting.executeScript({
+              target: { tabId, frameIds: [0] },
+              func: (selector: string, xpath: string, attribute: string) => {
+                let el: Element | null = null;
+                if (selector) {
+                  try {
+                    el = document.querySelector(selector);
+                  } catch {
+                    /* ignore invalid selector */
+                  }
+                }
+                if (!el && xpath) {
+                  try {
+                    const r = document.evaluate(xpath, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null);
+                    el = r.singleNodeValue as Element | null;
+                  } catch {
+                    /* ignore invalid xpath */
+                  }
+                }
+                if (!el) return { ok: false };
+                if (attribute) {
+                  return { ok: true, value: el.getAttribute(attribute) ?? '' };
+                }
+                // Prefer innerText (visible text) over textContent (raw); fallback to value for inputs.
+                const innerText = (el as HTMLElement).innerText;
+                if (innerText && innerText.trim()) return { ok: true, value: innerText.trim() };
+                if ('value' in el) return { ok: true, value: String((el as HTMLInputElement).value ?? '') };
+                return { ok: true, value: (el.textContent ?? '').trim() };
+              },
+              args: [sel || '', xp || '', attr],
+            });
+            const r = result as { ok: boolean; value?: string } | null;
+            if (!r?.ok) return { success: false, error: 'Element not found' };
+            return { success: true, extractedContent: r.value ?? '' };
           }
 
           case 'generate_image': {
@@ -1490,7 +1701,8 @@ ${stepsDescription}
           }
 
           default:
-            return port.postMessage({ type: 'error', error: t('errors_cmd_unknown', [message.type]) });
+            logger.warning('Unknown port message type:', message.type);
+            return port.postMessage({ type: 'error', error: `Unknown message type: ${message.type}` });
         }
       } catch (error) {
         console.error('Error handling port message:', error);
@@ -1595,28 +1807,33 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   return false;
 });
 
-// Listen for tab activation to inject recording script when recording is active
-// Cross-tab aware: only handle tabs that are in the tracked set; other tabs are
-// ignored so users can browse unrelated tabs without polluting the recording.
+// Listen for tab activation during recording.
+// Cross-tab recording: ANY tab the user switches to during a session is
+// automatically joined to the recording set, so users never have to manually
+// "add" a tab. Newly joined tabs emit a tab_open action (which also marks them
+// active); already-tracked tabs emit a tab_switch only when focus actually
+// changes.
 chrome.tabs.onActivated.addListener(async activeInfo => {
   const session = recorderState.getActiveSession();
   if (!session) return;
 
-  // Only react if this tab is being tracked
-  if (!recorderState.isTabTracked(activeInfo.tabId)) {
-    console.log('[Recording] Ignoring activation of untracked tab:', activeInfo.tabId);
-    return;
-  }
-
-  // Recording is active, ensure content script is injected in the tab
   const tab = await chrome.tabs.get(activeInfo.tabId);
   if (!tab.url?.startsWith('http')) return;
 
   console.log('[Recording] Tab activated during recording:', activeInfo.tabId, tab.url);
 
-  // Mark active tab — emit synthetic tab_switch action if focus actually changed
-  const switched = recorderState.markActiveTab(activeInfo.tabId, { url: tab.url, title: tab.title });
-  if (switched) {
+  let changed = false;
+  if (!recorderState.isTabTracked(activeInfo.tabId)) {
+    // Auto-join: the user switched here, so record from this tab too
+    const added = recorderState.addTab(activeInfo.tabId, { url: tab.url, title: tab.title });
+    if (added) changed = true;
+  } else {
+    // Already tracked — emit tab_switch if focus moved away from the previous tab
+    const switched = recorderState.markActiveTab(activeInfo.tabId, { url: tab.url, title: tab.title });
+    if (switched) changed = true;
+  }
+
+  if (changed) {
     currentPort?.postMessage({ type: 'recording_state_update', session: recorderState.getSession() });
   }
 

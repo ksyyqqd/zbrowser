@@ -44,7 +44,14 @@ interface RecordedAction {
   timestamp: number;
   tabId?: number;
   tabInfo?: { url?: string; title?: string; openerTabId?: number };
-  element?: { tagName: string; primary: string; textContent?: string; xpath?: string };
+  element?: {
+    tagName: string;
+    primary: string;
+    textContent?: string;
+    xpath?: string;
+    fallbacks?: string[];
+    attributes?: Record<string, string>;
+  };
   value?: string;
   keys?: string;
   scrollInfo?: { yPercent?: number };
@@ -118,15 +125,35 @@ function actionToParams(a: RecordedAction): Record<string, unknown> {
     case 'navigate':
       return { intent: `Navigate to ${a.navigateInfo?.url}`, url: a.navigateInfo?.url || a.pageUrl };
     case 'click':
-      return { intent: 'Click element', selector: a.element?.primary, xpath: a.element?.xpath };
+      return {
+        intent: a.element?.textContent ? `Click "${a.element.textContent.slice(0, 30)}"` : 'Click element',
+        selector: a.element?.primary,
+        xpath: a.element?.xpath,
+        fallbacks: a.element?.fallbacks ?? [],
+        attributes: { ...(a.element?.attributes ?? {}), tagName: a.element?.tagName ?? '' },
+      };
     case 'input':
-      return { intent: 'Input text', selector: a.element?.primary, xpath: a.element?.xpath, text: a.value };
+      return {
+        intent: 'Input text',
+        selector: a.element?.primary,
+        xpath: a.element?.xpath,
+        fallbacks: a.element?.fallbacks ?? [],
+        attributes: { ...(a.element?.attributes ?? {}), tagName: a.element?.tagName ?? '' },
+        text: a.value,
+      };
     case 'keydown':
       return { intent: a.keys === 'Enter' ? 'Submit or confirm' : `Send key ${a.keys}`, keys: a.keys };
     case 'scroll':
       return { intent: 'Scroll page', yPercent: a.scrollInfo?.yPercent || 50 };
     case 'select':
-      return { intent: 'Select option', selector: a.element?.primary, text: a.value };
+      return {
+        intent: 'Select option',
+        selector: a.element?.primary,
+        xpath: a.element?.xpath,
+        fallbacks: a.element?.fallbacks ?? [],
+        attributes: { ...(a.element?.attributes ?? {}), tagName: a.element?.tagName ?? '' },
+        text: a.value,
+      };
     case 'copy':
       return { intent: 'Copy content', selectionInfo: a.selectionInfo };
     case 'paste':

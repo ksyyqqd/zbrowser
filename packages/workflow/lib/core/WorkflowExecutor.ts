@@ -393,6 +393,14 @@ ${fields}
     // Execute action
     const actionResult = await context.executeAction(action, resolvedParams);
 
+    // Persist extracted content into a variable when the node specifies one.
+    // Used by cache_content / get_dropdown_options to feed page data into
+    // the workflow variable system.
+    const outputVar = (resolvedParams.outputVariable || resolvedParams.variable) as string | undefined;
+    if (outputVar && actionResult.success && actionResult.extractedContent !== undefined) {
+      context.setVariable(outputVar, actionResult.extractedContent);
+    }
+
     // Apply delay if specified
     if (node.data.delayAfter) {
       await this.delay(node.data.delayAfter);

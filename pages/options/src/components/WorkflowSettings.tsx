@@ -140,11 +140,14 @@ export default function WorkflowSettings({ isDarkMode = false }: WorkflowSetting
         await userWorkflowsStore.updateWorkflow(selectedWorkflow.id, config);
       } else {
         await userWorkflowsStore.addWorkflow(config);
+        // For new workflows we now have an id — adopt it so subsequent saves
+        // update instead of inserting duplicates.
+        setSelectedWorkflow({ ...config });
       }
 
       await loadWorkflows();
-      setIsEditorOpen(false);
-      setSelectedWorkflow(null);
+      // Do NOT close the editor here — saving keeps the user editing.
+      // The editor's ✕ button is the only way to close.
     } catch (e) {
       console.error('[WorkflowSettings] Failed to save workflow:', e);
       alert(t('workflow_saveError'));

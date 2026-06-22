@@ -22,9 +22,11 @@ function AINodeImpl({ data, selected }: NodeProps<FlowNode>) {
         <FiCpu className="size-4" />
       </div>
       <div className="flex min-w-0 flex-col">
-        <span className="text-sm font-semibold leading-tight">{t('workflow_nodeType_ai')}</span>
-        <span className="max-w-[110px] truncate text-xs opacity-75">
-          {data.prompt?.slice(0, 20) || t('workflow_nodeType_ai_default')}...
+        <span className="max-w-[140px] truncate text-sm font-semibold leading-tight">
+          {(data.name as string) || t('workflow_nodeType_ai')}
+        </span>
+        <span className="max-w-[140px] truncate text-xs opacity-75">
+          {(data.prompt as string)?.slice(0, 30) || t('workflow_nodeType_ai_default')}
         </span>
       </div>
       <Handle
