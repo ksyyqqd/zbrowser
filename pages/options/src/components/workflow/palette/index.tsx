@@ -1,4 +1,13 @@
-import { FiCpu, FiMousePointer, FiGitBranch, FiPlay, FiXCircle, FiMoreVertical, FiFileText } from 'react-icons/fi';
+import {
+  FiCpu,
+  FiMousePointer,
+  FiGitBranch,
+  FiRepeat,
+  FiPlay,
+  FiXCircle,
+  FiMoreVertical,
+  FiFileText,
+} from 'react-icons/fi';
 import { t } from '@extension/i18n';
 import type { MessageKey } from '@extension/i18n';
 import type { WorkflowNodeType, NodeData } from '@extension/workflow';
@@ -50,6 +59,18 @@ export const nodePalette: PaletteItem[] = [
     borderClass: 'border-orange-200 dark:border-orange-700/50',
   },
   {
+    type: 'loop',
+    // Reuse a stable existing key — overrides below carry the actual label.
+    labelKey: 'workflow_nodeType_condition',
+    descriptionKey: 'workflow_nodeType_condition_desc',
+    icon: FiRepeat,
+    bgClass: 'bg-indigo-50 dark:bg-indigo-900/20',
+    iconClass: 'text-indigo-500',
+    borderClass: 'border-indigo-200 dark:border-indigo-700/50',
+    labelOverride: '循环',
+    descriptionOverride: 'AI 判定或固定次数,带兜底上限',
+  },
+  {
     type: 'output',
     // Reuse existing keys to avoid touching all 4 locale files; supplement labelOverride below
     labelKey: 'workflow_nodeType_ai',
@@ -94,6 +115,9 @@ export const getNodeTypeLabelKey = (type: WorkflowNodeType): MessageKey => {
       return 'workflow_nodeType_automation';
     case 'condition':
       return 'workflow_nodeType_condition';
+    case 'loop':
+      // No dedicated i18n key yet; reuse condition's label and rely on labelOverride elsewhere
+      return 'workflow_nodeType_condition';
     case 'start':
       return 'workflow_nodeType_start';
     case 'end':
@@ -119,6 +143,11 @@ export function getDefaultNodeData(type: WorkflowNodeType): NodeData {
       { id: 'branch-yes', name: '是' },
       { id: 'branch-no', name: '否' },
     ];
+  } else if (type === 'loop') {
+    data.loopMode = 'fixed';
+    data.maxIterations = 3;
+    data.iterationVariable = 'loop';
+    data.prompt = '';
   } else if (type === 'output') {
     data.label = '输出';
     data.content = '{{}}';

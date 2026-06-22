@@ -133,6 +133,34 @@ export const ConditionModuleConfigSchema = z.object({
   falseNodeId: z.string().optional(),
 });
 
+/**
+ * Loop Module configuration (option A: loop-back edge)
+ *
+ * Has two named output ports: `continue` and `exit`.
+ * Each tick the executor evaluates the loop predicate and routes accordingly:
+ *  - `continue` should be wired (loop-back edge) to the start of the loop body
+ *  - `exit` should be wired to whatever runs after the loop completes
+ *
+ * `maxIterations` is a HARD ceiling — even ai_judge mode is bounded to avoid
+ * runaway loops when the AI keeps voting `continue`.
+ */
+export interface LoopModuleConfig {
+  mode: 'fixed' | 'ai_judge';
+  /** Total iterations (fixed mode) and hard safety cap (ai_judge mode). Required. */
+  maxIterations: number;
+  /** Variable prefix that exposes `<name>_iter` (0-based index) and `<name>_done` (boolean) to the workflow. */
+  iterationVariable?: string;
+  /** AI prompt for ai_judge mode. Should return "continue" or "stop". */
+  prompt?: string;
+}
+
+export const LoopModuleConfigSchema = z.object({
+  mode: z.enum(['fixed', 'ai_judge']),
+  maxIterations: z.number().int().positive(),
+  iterationVariable: z.string().optional(),
+  prompt: z.string().optional(),
+});
+
 export const ExpressionOperatorSchema = z.enum([
   '===',
   '!==',

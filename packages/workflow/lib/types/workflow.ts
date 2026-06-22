@@ -3,7 +3,7 @@ import { z } from 'zod';
 /**
  * Workflow node type
  */
-export type WorkflowNodeType = 'ai' | 'automation' | 'condition' | 'output' | 'start' | 'end';
+export type WorkflowNodeType = 'ai' | 'automation' | 'condition' | 'loop' | 'output' | 'start' | 'end';
 
 /**
  * Workflow node position for visual editor
@@ -52,6 +52,11 @@ export interface NodeData {
   // Output Module configuration
   content?: string; // Output content template, supports {{variableName}} interpolation
   label?: string; // Display label for this output (e.g. "Final Report", "Summary")
+
+  // Loop Module configuration (option A: loop-back edge)
+  loopMode?: 'fixed' | 'ai_judge';
+  maxIterations?: number; // Hard safety cap, also the target count in 'fixed' mode
+  iterationVariable?: string; // Variable name to expose iteration index (writes <name>_iter / <name>_done)
 }
 
 /**
@@ -153,11 +158,14 @@ export const NodeDataSchema = z.object({
   evaluateWithAI: z.boolean().optional(),
   content: z.string().optional(),
   label: z.string().optional(),
+  loopMode: z.enum(['fixed', 'ai_judge']).optional(),
+  maxIterations: z.number().int().positive().optional(),
+  iterationVariable: z.string().optional(),
 });
 
 export const WorkflowNodeSchema = z.object({
   id: z.string(),
-  type: z.enum(['ai', 'automation', 'condition', 'output', 'start', 'end']),
+  type: z.enum(['ai', 'automation', 'condition', 'loop', 'output', 'start', 'end']),
   name: z.string(),
   description: z.string().optional(),
   position: NodePositionSchema,

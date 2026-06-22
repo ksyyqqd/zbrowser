@@ -131,7 +131,7 @@ export function NodeEditorPanel({ node, onSave, isDarkMode, variables = [] }: No
     onSave(updated);
   };
 
-  const handleFieldChange = (field: string, value: string | boolean | Array<{ id: string; name: string }>) => {
+  const handleFieldChange = (field: string, value: string | number | boolean | Array<{ id: string; name: string }>) => {
     const updated = { ...editedNode, data: { ...editedNode.data, [field]: value } };
     setEditedNode(updated);
     onSave(updated);
@@ -148,6 +148,7 @@ export function NodeEditorPanel({ node, onSave, isDarkMode, variables = [] }: No
   const actionParamFields = getActionParameters(currentAction);
   const inputClass = `mt-1 w-full rounded-lg border px-3 py-2 text-sm transition-colors focus:ring-2 focus:ring-blue-400/50 ${isDarkMode ? 'border-slate-600 bg-slate-700 text-gray-200' : 'border-gray-300 bg-white text-gray-700'}`;
   const labelClass = `text-xs font-medium ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`;
+  const hintClass = `mt-1 text-[11px] leading-snug ${isDarkMode ? 'text-gray-500' : 'text-gray-500'}`;
 
   return (
     <div className="space-y-4 p-4">
@@ -172,7 +173,9 @@ export function NodeEditorPanel({ node, onSave, isDarkMode, variables = [] }: No
                 ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400'
                 : editedNode.type === 'output'
                   ? 'bg-teal-100 text-teal-700 dark:bg-teal-900/30 dark:text-teal-400'
-                  : 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400'
+                  : editedNode.type === 'loop'
+                    ? 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400'
+                    : 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400'
           }`}>
           {editedNode.type === 'ai'
             ? t('workflow_nodeType_ai')
@@ -180,7 +183,9 @@ export function NodeEditorPanel({ node, onSave, isDarkMode, variables = [] }: No
               ? t('workflow_nodeType_automation')
               : editedNode.type === 'output'
                 ? '输出'
-                : t('workflow_nodeType_condition')}
+                : editedNode.type === 'loop'
+                  ? '循环'
+                  : t('workflow_nodeType_condition')}
         </span>
       </div>
 
@@ -445,6 +450,87 @@ export function NodeEditorPanel({ node, onSave, isDarkMode, variables = [] }: No
           <p className={`text-xs ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>
             {t('workflow_conditionPortsHint')}
           </p>
+        </div>
+      )}
+
+      {/* Loop Fields */}
+      {editedNode.type === 'loop' && (
+        <div className="space-y-3">
+          <div>
+            <label className={labelClass}>循环模式</label>
+            <select
+              value={(editedNode.data.loopMode as string) || 'fixed'}
+              onChange={e => handleFieldChange('loopMode', e.target.value)}
+              className={inputClass}>
+              <option value="fixed">固定次数</option>
+              <option value="ai_judge">AI 判定（带兜底次数）</option>
+            </select>
+            <p className={hintClass}>
+              {(editedNode.data.loopMode as string) === 'ai_judge'
+                ? 'AI 每轮判断是否继续，仍受兜底次数限制以避免死循环'
+                : '到达指定次数后自动退出循环'}
+            </p>
+          </div>
+
+          <div>
+            <label className={labelClass}>
+              {(editedNode.data.loopMode as string) === 'ai_judge' ? '兜底最大次数' : '循环次数'}
+            </label>
+            <input
+              type="number"
+              min={1}
+              max={1000}
+              value={(editedNode.data.maxIterations as number | undefined) ?? 1}
+              onChange={e => handleFieldChange('maxIterations', Math.max(1, Number(e.target.value) || 1))}
+              className={inputClass}
+            />
+            <p className={hintClass}>硬性上限，最大 1000。即使 AI 持续要求继续也会被截断</p>
+          </div>
+
+          {(editedNode.data.loopMode as string) === 'ai_judge' && (
+            <div>
+              <label className={labelClass}>判定 Prompt</label>
+              <textarea
+                value={(editedNode.data.prompt as string) || ''}
+                onChange={e => handleFieldChange('prompt', e.target.value)}
+                placeholder='例如：判断 {{result}} 是否已包含 3 条以上有效数据，若已足够请回复 "stop"'
+                rows={4}
+                className={`${inputClass} font-mono text-xs`}
+              />
+              <p className={hintClass}>
+                可用 <code>{'{{变量名}}'}</code> 引用变量。AI 返回 <code>continue</code> 继续，
+                <code>stop</code> 退出（不确定的回答默认按 stop 处理）
+              </p>
+            </div>
+          )}
+
+          <div>
+            <label className={labelClass}>迭代变量名（可选）</label>
+            <input
+              type="text"
+              value={(editedNode.data.iterationVariable as string) || ''}
+              onChange={e => handleFieldChange('iterationVariable', e.target.value)}
+              placeholder="loop"
+              className={inputClass}
+            />
+            <p className={hintClass}>
+              填写后将自动暴露 <code>{'{{<name>_iter}}'}</code>（当前轮次，0 起）、
+              <code>{'{{<name>_done}}'}</code>、<code>{'{{<name>_total}}'}</code>
+            </p>
+          </div>
+
+          <div
+            className={`rounded-md border p-3 text-xs ${
+              isDarkMode ? 'border-slate-600 bg-slate-800/40 text-gray-400' : 'border-gray-200 bg-gray-50 text-gray-600'
+            }`}>
+            <p className="mb-1 font-semibold">端口连线</p>
+            <p>
+              <span className="font-mono text-green-500">continue</span>：回连到循环体起点（形成 loop-back 边）
+            </p>
+            <p>
+              <span className="font-mono text-red-500">exit</span>：连到循环结束后的下游节点
+            </p>
+          </div>
         </div>
       )}
 

@@ -13,11 +13,25 @@ import type {
  */
 export class WorkflowExecutor {
   /**
+   * Per-run loop iteration counters keyed by loop node id.
+   * Reset at the start of every `execute()` invocation so a workflow can be
+   * replayed without lingering state from a prior run.
+   */
+  private loopIterations = new Map<string, number>();
+
+  /**
+   * Hard ceiling on `maxIterations` no matter what the workflow declares —
+   * a final brake against runaway prompts that demand silly loop counts.
+   */
+  private static readonly ABSOLUTE_LOOP_CAP = 1000;
+
+  /**
    * Execute a workflow
    */
   async execute(workflow: Workflow, context: WorkflowExecutionContext): Promise<WorkflowResult> {
     const startTime = Date.now();
     const results: NodeResult[] = [];
+    this.loopIterations.clear();
 
     // Emit workflow start event
     await this.emitEvent(context, {
@@ -55,12 +69,15 @@ export class WorkflowExecutor {
 
         // Determine which output-node side branches to fire.
         // For condition nodes: only outputs reached via the selected branch's sourcePort.
+        // Loop nodes don't expose `output` side branches — they only route to body / exit.
         // For other nodes: all directly connected outputs.
         let outputBranches: WorkflowNode[];
         if (currentNode.type === 'condition' && nodeResult.selectedBranchId) {
           outputBranches = this.findOutputBranches(workflow, currentNode.id, nodeResult.selectedBranchId);
         } else if (currentNode.type === 'condition') {
           // Condition with no selected branch — no outputs to fire (defensive)
+          outputBranches = [];
+        } else if (currentNode.type === 'loop') {
           outputBranches = [];
         } else {
           outputBranches = this.findOutputBranches(workflow, currentNode.id);
@@ -71,8 +88,11 @@ export class WorkflowExecutor {
           results.push(outResult);
         }
 
-        // Find next main-flow node (for condition nodes, use the branch decision)
-        if (currentNode.type === 'condition' && nodeResult.nextNodeId) {
+        // Find next main-flow node.
+        //  - condition node: use the AI-decided branch target
+        //  - loop node: use the loop-back / exit edge target chosen by the loop module
+        //  - everything else: first non-output outgoing edge
+        if ((currentNode.type === 'condition' || currentNode.type === 'loop') && nodeResult.nextNodeId) {
           currentNode = workflow.nodes.find(n => n.id === nodeResult.nextNodeId);
         } else {
           currentNode = this.findNextNode(workflow, currentNode.id);
@@ -154,6 +174,9 @@ export class WorkflowExecutor {
           break;
         case 'condition':
           result = await this.handleConditionModule(node, workflow, context);
+          break;
+        case 'loop':
+          result = await this.handleLoopModule(node, workflow, context);
           break;
         case 'output':
           result = this.handleOutputModule(node, context, startTime);
@@ -523,6 +546,105 @@ ${fields}
         duration: Date.now() - startTime,
       };
     }
+  }
+
+  /**
+   * Handle Loop Module execution (option A: loop-back edge)
+   *
+   * Two outgoing ports:
+   *   - `continue`: edge back to the start of the loop body
+   *   - `exit`: edge to the post-loop flow
+   *
+   * Decision modes:
+   *   - `fixed`: increment until iter >= maxIterations, then exit
+   *   - `ai_judge`: ask AI "continue" or "stop" each tick, but `maxIterations`
+   *     is a HARD ceiling (defensive against AI runaways)
+   *
+   * Side effects on context:
+   *   - Writes `<iterationVariable>_iter`  = current iteration index (0-based,
+   *     value seen BY the body during this iteration)
+   *   - Writes `<iterationVariable>_done`  = true when we route to `exit`
+   *   - Writes `<iterationVariable>_total` = final iteration count on exit
+   */
+  private async handleLoopModule(
+    node: WorkflowNode,
+    workflow: Workflow,
+    context: WorkflowExecutionContext,
+  ): Promise<NodeResult> {
+    const startTime = Date.now();
+    const mode = (node.data.loopMode as 'fixed' | 'ai_judge' | undefined) ?? 'fixed';
+    const declaredMax = Math.max(1, Number(node.data.maxIterations ?? 1));
+    const maxIterations = Math.min(declaredMax, WorkflowExecutor.ABSOLUTE_LOOP_CAP);
+    const varName = (node.data.iterationVariable || '').trim();
+
+    // iter is the count of completed body executions so far (0 before the first body run).
+    const iter = this.loopIterations.get(node.id) ?? 0;
+
+    // Decide continue vs exit
+    let shouldContinue: boolean;
+    let reason: string;
+    if (mode === 'fixed') {
+      shouldContinue = iter < maxIterations;
+      reason = `${iter}/${maxIterations}`;
+    } else {
+      // ai_judge: still enforce the hard cap
+      if (iter >= maxIterations) {
+        shouldContinue = false;
+        reason = `cap reached (${maxIterations})`;
+      } else {
+        const rawPrompt = node.data.prompt || '';
+        const resolvedPrompt = this.resolveTemplate(rawPrompt, context);
+        const aiPrompt = `${resolvedPrompt}
+
+You are deciding whether a loop should run another iteration. Current iteration index (0-based): ${iter}. Hard cap: ${maxIterations}.
+Reply with exactly one word: "continue" to run another iteration, "stop" to exit. No explanation.`;
+        const aiResult = context.invokeAILight
+          ? await context.invokeAILight(aiPrompt)
+          : await context.invokeAI(aiPrompt);
+        const txt = (aiResult.response || '').trim().toLowerCase();
+        // Default to STOP on ambiguous response — safer than runaway.
+        shouldContinue = /continue|yes|true|next|again/.test(txt) && !/stop|no|false|end|exit|done/.test(txt);
+        reason = `ai → ${shouldContinue ? 'continue' : 'stop'} (iter=${iter})`;
+      }
+    }
+
+    // Locate the matching outgoing edge.
+    const port = shouldContinue ? 'continue' : 'exit';
+    const edge = workflow.edges.find(e => e.source === node.id && e.sourcePort === port);
+    const nextNodeId = edge?.target || '';
+
+    // Publish loop variables for the body / downstream nodes to read.
+    if (varName) {
+      context.setVariable(`${varName}_iter`, iter);
+      context.setVariable(`${varName}_done`, !shouldContinue);
+      if (!shouldContinue) {
+        context.setVariable(`${varName}_total`, iter);
+      }
+    }
+
+    // Bump the counter only when we are about to run the body again — the
+    // iter value the body sees during this pass equals what we just published.
+    if (shouldContinue) {
+      this.loopIterations.set(node.id, iter + 1);
+    }
+
+    await this.emitEvent(context, {
+      type: 'BRANCH_SELECT',
+      workflowId: workflow.id,
+      nodeId: node.id,
+      nodeName: node.name,
+      details: `Loop ${reason} → ${port}${nextNodeId ? ' → ' + nextNodeId : ' (no edge)'}`,
+    });
+
+    return {
+      nodeId: node.id,
+      nodeType: 'loop',
+      success: true,
+      output: `${port} (iter ${iter}/${maxIterations})`,
+      nextNodeId,
+      selectedBranchId: port,
+      duration: Date.now() - startTime,
+    };
   }
 
   /**
