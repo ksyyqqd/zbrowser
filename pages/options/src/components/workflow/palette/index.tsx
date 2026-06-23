@@ -7,6 +7,8 @@ import {
   FiXCircle,
   FiMoreVertical,
   FiFileText,
+  FiBox,
+  FiEdit3,
 } from 'react-icons/fi';
 import { t } from '@extension/i18n';
 import type { MessageKey } from '@extension/i18n';
@@ -82,6 +84,28 @@ export const nodePalette: PaletteItem[] = [
     labelOverride: '输出',
     descriptionOverride: '收集要输出的内容',
   },
+  {
+    type: 'subflow',
+    labelKey: 'workflow_nodeType_ai',
+    descriptionKey: 'workflow_nodeType_ai_desc',
+    icon: FiBox,
+    bgClass: 'bg-sky-50 dark:bg-sky-900/20',
+    iconClass: 'text-sky-500',
+    borderClass: 'border-sky-200 dark:border-sky-700/50',
+    labelOverride: '子流程',
+    descriptionOverride: '调用另一个已存的工作流',
+  },
+  {
+    type: 'note',
+    labelKey: 'workflow_nodeType_ai',
+    descriptionKey: 'workflow_nodeType_ai_desc',
+    icon: FiEdit3,
+    bgClass: 'bg-yellow-50 dark:bg-yellow-900/20',
+    iconClass: 'text-yellow-600',
+    borderClass: 'border-yellow-200 dark:border-yellow-700/50',
+    labelOverride: '备注',
+    descriptionOverride: '画布注释，不参与执行',
+  },
 ];
 
 export const controlPalette: PaletteItem[] = [
@@ -118,6 +142,10 @@ export const getNodeTypeLabelKey = (type: WorkflowNodeType): MessageKey => {
     case 'loop':
       // No dedicated i18n key yet; reuse condition's label and rely on labelOverride elsewhere
       return 'workflow_nodeType_condition';
+    case 'note':
+    case 'subflow':
+      // No dedicated i18n keys yet; callers should use labelOverride at drop time.
+      return 'workflow_nodeType_automation';
     case 'start':
       return 'workflow_nodeType_start';
     case 'end':
@@ -146,8 +174,18 @@ export function getDefaultNodeData(type: WorkflowNodeType): NodeData {
   } else if (type === 'loop') {
     data.loopMode = 'fixed';
     data.maxIterations = 3;
-    data.iterationVariable = 'loop';
+    data.iterationVariable = '';
     data.prompt = '';
+  } else if (type === 'note') {
+    data.content = '';
+    data.noteColor = 'yellow';
+    data.noteWidth = 220;
+    data.noteHeight = 120;
+  } else if (type === 'subflow') {
+    data.subflowId = '';
+    data.subflowInputs = {};
+    data.subflowOutputs = {};
+    data.subflowExpanded = false;
   } else if (type === 'output') {
     data.label = '输出';
     data.content = '{{}}';

@@ -13,13 +13,6 @@ import type {
  */
 export class WorkflowExecutor {
   /**
-   * Per-run loop iteration counters keyed by loop node id.
-   * Reset at the start of every `execute()` invocation so a workflow can be
-   * replayed without lingering state from a prior run.
-   */
-  private loopIterations = new Map<string, number>();
-
-  /**
    * Hard ceiling on `maxIterations` no matter what the workflow declares —
    * a final brake against runaway prompts that demand silly loop counts.
    */
@@ -31,7 +24,10 @@ export class WorkflowExecutor {
   async execute(workflow: Workflow, context: WorkflowExecutionContext): Promise<WorkflowResult> {
     const startTime = Date.now();
     const results: NodeResult[] = [];
-    this.loopIterations.clear();
+    // Per-RUN loop iteration counters keyed by loop node id. Each call to
+    // execute() (including recursive subflow calls) has its own map, so
+    // parent and child workflows don't stomp on each other's loop state.
+    const loopIterations = new Map<string, number>();
 
     // Emit workflow start event
     await this.emitEvent(context, {
@@ -47,10 +43,16 @@ export class WorkflowExecutor {
         throw new Error('Workflow must have a start node');
       }
 
-      // Initialize variables
+      // Initialize variables.
+      // A `required` variable must have either a default value declared on
+      // the workflow OR be provided by the caller (via `context.setVariable`
+      // before .execute()) — otherwise we fail fast with a clear message so
+      // the user sees exactly which input is missing.
       for (const varDef of workflow.variables) {
         if (varDef.default !== undefined) {
           context.setVariable(varDef.name, varDef.default);
+        } else if (varDef.required && context.getVariable(varDef.name) === undefined) {
+          throw new Error(`Required variable '${varDef.name}' is not provided`);
         }
       }
 
@@ -59,8 +61,15 @@ export class WorkflowExecutor {
       context.currentNodeId = currentNode?.id;
       context.executedNodes = [];
 
+      // Stack of active loop node ids. When the body of a loop runs off the
+      // end of its main-flow chain (no outgoing edge), we automatically jump
+      // back to the innermost loop node — the user does NOT have to draw a
+      // "return" edge by hand. Manually drawn return edges still work and
+      // take precedence over the implicit jump.
+      const loopStack: string[] = [];
+
       while (currentNode && currentNode.type !== 'end') {
-        const nodeResult = await this.executeNode(currentNode, workflow, context);
+        const nodeResult = await this.executeNode(currentNode, workflow, context, loopIterations);
         results.push(nodeResult);
 
         if (!nodeResult.success && workflow.executionConfig.onError === 'stop') {
@@ -84,19 +93,50 @@ export class WorkflowExecutor {
         }
 
         for (const outputNode of outputBranches) {
-          const outResult = await this.executeNode(outputNode, workflow, context);
+          const outResult = await this.executeNode(outputNode, workflow, context, loopIterations);
           results.push(outResult);
+        }
+
+        // Track loop stack:
+        //  - entering a loop iteration body (loop chose `continue`)  → push
+        //  - leaving a loop (loop chose `exit`)                       → pop
+        if (currentNode.type === 'loop') {
+          if (nodeResult.selectedBranchId === 'continue') {
+            // Same loop may already be at the top after a previous iteration;
+            // only push when it's not already there.
+            if (loopStack[loopStack.length - 1] !== currentNode.id) {
+              loopStack.push(currentNode.id);
+            }
+          } else if (nodeResult.selectedBranchId === 'exit') {
+            // Pop matching loop. If somehow the stack disagrees, fall back to
+            // popping the top — defensive against malformed graphs.
+            const idx = loopStack.lastIndexOf(currentNode.id);
+            if (idx >= 0) {
+              loopStack.splice(idx, 1);
+            }
+          }
         }
 
         // Find next main-flow node.
         //  - condition node: use the AI-decided branch target
         //  - loop node: use the loop-back / exit edge target chosen by the loop module
         //  - everything else: first non-output outgoing edge
+        let nextNode: WorkflowNode | undefined;
         if ((currentNode.type === 'condition' || currentNode.type === 'loop') && nodeResult.nextNodeId) {
-          currentNode = workflow.nodes.find(n => n.id === nodeResult.nextNodeId);
+          nextNode = workflow.nodes.find(n => n.id === nodeResult.nextNodeId);
         } else {
-          currentNode = this.findNextNode(workflow, currentNode.id);
+          nextNode = this.findNextNode(workflow, currentNode.id);
         }
+
+        // Implicit loop-back: if we ran off the end of the body chain while
+        // inside a loop, return control to the innermost active loop node.
+        // This keeps the canvas clean — no manual return edge required.
+        if (!nextNode && loopStack.length > 0 && currentNode.type !== 'loop') {
+          const loopNodeId = loopStack[loopStack.length - 1];
+          nextNode = workflow.nodes.find(n => n.id === loopNodeId);
+        }
+
+        currentNode = nextNode;
 
         context.currentNodeId = currentNode?.id;
       }
@@ -144,6 +184,7 @@ export class WorkflowExecutor {
     node: WorkflowNode,
     workflow: Workflow,
     context: WorkflowExecutionContext,
+    loopIterations: Map<string, number>,
   ): Promise<NodeResult> {
     const startTime = Date.now();
 
@@ -176,7 +217,19 @@ export class WorkflowExecutor {
           result = await this.handleConditionModule(node, workflow, context);
           break;
         case 'loop':
-          result = await this.handleLoopModule(node, workflow, context);
+          result = await this.handleLoopModule(node, workflow, context, loopIterations);
+          break;
+        case 'note':
+          // Display-only — never participates in execution.
+          result = {
+            nodeId: node.id,
+            nodeType: 'note',
+            success: true,
+            duration: Date.now() - startTime,
+          };
+          break;
+        case 'subflow':
+          result = await this.handleSubflowModule(node, context);
           break;
         case 'output':
           result = this.handleOutputModule(node, context, startTime);
@@ -570,6 +623,7 @@ ${fields}
     node: WorkflowNode,
     workflow: Workflow,
     context: WorkflowExecutionContext,
+    loopIterations: Map<string, number>,
   ): Promise<NodeResult> {
     const startTime = Date.now();
     const mode = (node.data.loopMode as 'fixed' | 'ai_judge' | undefined) ?? 'fixed';
@@ -578,7 +632,7 @@ ${fields}
     const varName = (node.data.iterationVariable || '').trim();
 
     // iter is the count of completed body executions so far (0 before the first body run).
-    const iter = this.loopIterations.get(node.id) ?? 0;
+    const iter = loopIterations.get(node.id) ?? 0;
 
     // Decide continue vs exit
     let shouldContinue: boolean;
@@ -625,7 +679,7 @@ Reply with exactly one word: "continue" to run another iteration, "stop" to exit
     // Bump the counter only when we are about to run the body again — the
     // iter value the body sees during this pass equals what we just published.
     if (shouldContinue) {
-      this.loopIterations.set(node.id, iter + 1);
+      loopIterations.set(node.id, iter + 1);
     }
 
     await this.emitEvent(context, {
@@ -643,6 +697,146 @@ Reply with exactly one word: "continue" to run another iteration, "stop" to exit
       output: `${port} (iter ${iter}/${maxIterations})`,
       nextNodeId,
       selectedBranchId: port,
+      duration: Date.now() - startTime,
+    };
+  }
+
+  /**
+   * Handle Subflow Module execution.
+   *
+   * Loads another saved workflow by id and runs it recursively.
+   *
+   *  - Variables are ISOLATED by default: the child only sees variables that
+   *    were explicitly mapped via `subflowInputs`. Same way out: only
+   *    `subflowOutputs` entries get copied back to the parent. This keeps
+   *    sub-workflows safe to reuse without accidental cross-contamination.
+   *  - Browser side effects (page navigation, clicks) share the same tab as
+   *    the parent — the executor wires them through the same `executeAction`
+   *    / `invokeAI` capabilities, so there's no separate "browser session"
+   *    for the child.
+   *  - Cycles are detected via `_subflowStack`. A workflow that (directly or
+   *    transitively) calls itself fails with a clear error rather than
+   *    recursing until the stack blows.
+   */
+  private async handleSubflowModule(node: WorkflowNode, context: WorkflowExecutionContext): Promise<NodeResult> {
+    const startTime = Date.now();
+    const subflowId = (node.data.subflowId as string | undefined)?.trim();
+    if (!subflowId) {
+      return {
+        nodeId: node.id,
+        nodeType: 'subflow',
+        success: false,
+        error: '子流程未选择目标工作流',
+        duration: Date.now() - startTime,
+      };
+    }
+    if (!context.loadWorkflowById) {
+      return {
+        nodeId: node.id,
+        nodeType: 'subflow',
+        success: false,
+        error: '当前执行环境不支持加载子流程',
+        duration: Date.now() - startTime,
+      };
+    }
+
+    // Cycle detection — refuse to recurse into a workflow we're already inside.
+    const stack = context._subflowStack ?? [];
+    if (stack.includes(subflowId)) {
+      return {
+        nodeId: node.id,
+        nodeType: 'subflow',
+        success: false,
+        error: `检测到子流程循环调用: ${[...stack, subflowId].join(' → ')}`,
+        duration: Date.now() - startTime,
+      };
+    }
+
+    // Hard depth cap (defensive — cycle detection should already cover this).
+    if (stack.length >= 8) {
+      return {
+        nodeId: node.id,
+        nodeType: 'subflow',
+        success: false,
+        error: `子流程嵌套深度超过 8 层`,
+        duration: Date.now() - startTime,
+      };
+    }
+
+    let subWorkflow: Workflow | null;
+    try {
+      subWorkflow = await context.loadWorkflowById(subflowId);
+    } catch (err) {
+      return {
+        nodeId: node.id,
+        nodeType: 'subflow',
+        success: false,
+        error: `加载子流程失败: ${err instanceof Error ? err.message : String(err)}`,
+        duration: Date.now() - startTime,
+      };
+    }
+
+    if (!subWorkflow) {
+      return {
+        nodeId: node.id,
+        nodeType: 'subflow',
+        success: false,
+        error: `子流程 ${subflowId} 不存在`,
+        duration: Date.now() - startTime,
+      };
+    }
+
+    // Build the child variable map.
+    //  1. Start from the child workflow's own variable defaults
+    //  2. Overlay caller-provided inputs (each value is a template resolved in
+    //     the parent scope, e.g. "{{topic}}" → parent variable "topic")
+    const childVars: Record<string, unknown> = {};
+    for (const v of subWorkflow.variables || []) {
+      if (v.default !== undefined) childVars[v.name] = v.default;
+    }
+    const inputBindings = node.data.subflowInputs || {};
+    for (const [childKey, templateOrName] of Object.entries(inputBindings)) {
+      // Template syntax wins; fall back to direct variable name if no braces.
+      const value = templateOrName.includes('{{')
+        ? this.resolveTemplate(templateOrName, context)
+        : context.getVariable(templateOrName);
+      childVars[childKey] = value;
+    }
+
+    // Build a child context that shares browser/AI capabilities with the
+    // parent, but has its own variable namespace and an extended subflow
+    // stack (for nested cycle detection).
+    const childContext: WorkflowExecutionContext = {
+      executeAction: context.executeAction,
+      invokeAI: context.invokeAI,
+      invokeAILight: context.invokeAILight,
+      getVariable: (name: string) => childVars[name],
+      setVariable: (name: string, value: unknown) => {
+        childVars[name] = value;
+      },
+      loadWorkflowById: context.loadWorkflowById,
+      _subflowStack: [...stack, subflowId],
+      emitEvent: context.emitEvent,
+    };
+
+    // Recurse. The child run emits its own WORKFLOW_START/_OK/_FAIL + NODE_*
+    // events through the shared emitter, so the parent UI sees the full trace.
+    const subResult = await this.execute(subWorkflow, childContext);
+
+    // Copy mapped outputs back into the parent scope.
+    const outputBindings = node.data.subflowOutputs || {};
+    for (const [childKey, parentKey] of Object.entries(outputBindings)) {
+      if (childKey in childVars) {
+        context.setVariable(parentKey, childVars[childKey]);
+      }
+    }
+
+    return {
+      nodeId: node.id,
+      nodeType: 'subflow',
+      success: subResult.success,
+      output: subResult.success ? `子流程 ${subWorkflow.name} 执行完成` : subResult.error,
+      error: subResult.success ? undefined : subResult.error,
       duration: Date.now() - startTime,
     };
   }

@@ -480,7 +480,10 @@ export default function WorkflowSettings({ isDarkMode = false }: WorkflowSetting
       {isEditorOpen &&
         createPortal(
           <div className="fixed inset-0 z-50 flex items-center justify-center">
-            <div className="absolute inset-0 bg-black/50" onClick={() => setIsEditorOpen(false)} />
+            {/* Backdrop — click does NOT close, to prevent accidentally
+                discarding unsaved canvas edits. Use the editor's own ✕
+                button (or Esc) which goes through its unsaved-changes guard. */}
+            <div className="absolute inset-0 bg-black/50" />
             <div className={`relative size-full overflow-hidden ${isDarkMode ? 'bg-slate-800' : 'bg-white'}`}>
               <Suspense
                 fallback={

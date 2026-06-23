@@ -142,8 +142,189 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true; // Keep the message channel open for async response
   }
 
+  // Inject the element-picker overlay into a chosen tab. The page enters a
+  // mode where hovering highlights elements and clicking sends back the
+  // selector + xpath of the picked element. Used by the workflow editor's
+  // "拾取元素" helper for selector / xpath fields.
+  if (message.type === 'pick_element_start') {
+    const tabId: number | undefined = message.tabId;
+    if (typeof tabId !== 'number') {
+      sendResponse({ success: false, error: 'Missing tabId' });
+      return false;
+    }
+    handlePickElementStart(tabId)
+      .then(result => sendResponse(result))
+      .catch(error =>
+        sendResponse({ success: false, error: error instanceof Error ? error.message : 'Pick element failed' }),
+      );
+    return true;
+  }
+
   return false;
 });
+
+// ============ Pick Element (workflow editor helper) ============
+
+/**
+ * Inject a transient element-picker overlay into the target tab and wait for
+ * the user to click an element. Returns the resolved selector + xpath.
+ */
+async function handlePickElementStart(
+  tabId: number,
+): Promise<{ success: boolean; selector?: string; xpath?: string; text?: string; error?: string }> {
+  // Activate the target tab so the user immediately sees where to click.
+  try {
+    await chrome.tabs.update(tabId, { active: true });
+    const tab = await chrome.tabs.get(tabId);
+    if (tab.windowId !== undefined) {
+      await chrome.windows.update(tab.windowId, { focused: true });
+    }
+  } catch {
+    /* ignore — focusing is best-effort */
+  }
+
+  return new Promise(resolve => {
+    let settled = false;
+    const finish = (result: Parameters<typeof resolve>[0]) => {
+      if (settled) return;
+      settled = true;
+      chrome.runtime.onMessage.removeListener(onMsg);
+      resolve(result);
+    };
+    const onMsg = (msg: { type?: string; selector?: string; xpath?: string; text?: string; error?: string }) => {
+      if (!msg || typeof msg !== 'object') return;
+      if (msg.type === 'pick_element_done') {
+        finish({ success: true, selector: msg.selector, xpath: msg.xpath, text: msg.text });
+      } else if (msg.type === 'pick_element_cancel') {
+        finish({ success: false, error: 'cancelled' });
+      }
+    };
+    chrome.runtime.onMessage.addListener(onMsg);
+
+    chrome.scripting
+      .executeScript({
+        target: { tabId, frameIds: [0] },
+        func: injectedElementPicker,
+      })
+      .catch(err => {
+        finish({ success: false, error: err instanceof Error ? err.message : 'Injection failed' });
+      });
+
+    // Safety timeout — 2 minutes — so a forgotten picker doesn't leak.
+    setTimeout(() => finish({ success: false, error: 'timeout' }), 120_000);
+  });
+}
+
+/**
+ * The element picker that runs INSIDE the target page. Self-contained.
+ */
+function injectedElementPicker() {
+  const w = window as unknown as { __nb_picker_active__?: boolean };
+  if (w.__nb_picker_active__) return;
+  w.__nb_picker_active__ = true;
+
+  const overlay = document.createElement('div');
+  overlay.style.cssText =
+    'position:fixed;pointer-events:none;z-index:2147483647;border:2px solid #2563eb;background:rgba(37,99,235,0.12);transition:all 60ms;box-sizing:border-box;border-radius:2px;';
+  const label = document.createElement('div');
+  label.style.cssText =
+    'position:fixed;z-index:2147483647;background:#1e293b;color:white;padding:4px 8px;font:12px/1.4 -apple-system,Segoe UI,Roboto,sans-serif;border-radius:4px;pointer-events:none;max-width:480px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;';
+  label.textContent = '将鼠标移到目标元素上 → 点击拾取（Esc 取消）';
+  document.documentElement.append(overlay, label);
+
+  let current: Element | null = null;
+  const move = (x: number, y: number) => {
+    label.style.left = `${Math.min(window.innerWidth - 460, Math.max(8, x + 14))}px`;
+    label.style.top = `${Math.max(8, y + 18)}px`;
+  };
+
+  const computeCssSelector = (el: Element): string => {
+    if (el.id && /^[A-Za-z][\w-]*$/.test(el.id)) {
+      return `#${el.id}`;
+    }
+    const parts: string[] = [];
+    let cur: Element | null = el;
+    let depth = 0;
+    while (cur && cur.nodeType === 1 && cur.tagName.toLowerCase() !== 'html' && depth < 6) {
+      let segment = cur.tagName.toLowerCase();
+      if (cur.id && /^[A-Za-z][\w-]*$/.test(cur.id)) {
+        segment = `#${cur.id}`;
+        parts.unshift(segment);
+        break;
+      }
+      const classes = Array.from(cur.classList || []).filter(c => /^[A-Za-z_][\w-]*$/.test(c));
+      if (classes.length > 0) {
+        segment += '.' + classes.slice(0, 2).join('.');
+      } else if (cur.parentElement) {
+        const siblings = Array.from(cur.parentElement.children).filter(c => c.tagName === (cur as Element).tagName);
+        if (siblings.length > 1) {
+          segment += `:nth-of-type(${siblings.indexOf(cur) + 1})`;
+        }
+      }
+      parts.unshift(segment);
+      cur = cur.parentElement;
+      depth++;
+    }
+    return parts.join(' > ');
+  };
+
+  const computeXpath = (el: Element): string => {
+    if (el.id) return `//*[@id="${el.id}"]`;
+    const parts: string[] = [];
+    let cur: Element | null = el;
+    while (cur && cur.nodeType === 1 && cur.tagName.toLowerCase() !== 'html') {
+      let idx = 1;
+      let sib = cur.previousElementSibling;
+      while (sib) {
+        if (sib.tagName === cur.tagName) idx++;
+        sib = sib.previousElementSibling;
+      }
+      parts.unshift(`${cur.tagName.toLowerCase()}[${idx}]`);
+      cur = cur.parentElement;
+    }
+    return '/html/' + parts.join('/');
+  };
+
+  const onMove = (e: MouseEvent) => {
+    const target = e.target as Element | null;
+    if (!target || target === overlay || target === label) return;
+    current = target;
+    const r = target.getBoundingClientRect();
+    overlay.style.left = `${r.left}px`;
+    overlay.style.top = `${r.top}px`;
+    overlay.style.width = `${r.width}px`;
+    overlay.style.height = `${r.height}px`;
+    label.textContent = `${target.tagName.toLowerCase()}${target.id ? '#' + target.id : ''} — 点击拾取（Esc 取消）`;
+    move(e.clientX, e.clientY);
+  };
+  const cleanup = () => {
+    document.removeEventListener('mousemove', onMove, true);
+    document.removeEventListener('click', onClick, true);
+    document.removeEventListener('keydown', onKey, true);
+    overlay.remove();
+    label.remove();
+    w.__nb_picker_active__ = false;
+  };
+  const onClick = (e: MouseEvent) => {
+    if (!current) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const selector = computeCssSelector(current);
+    const xpath = computeXpath(current);
+    const text = (current.textContent || '').trim().slice(0, 200);
+    chrome.runtime.sendMessage({ type: 'pick_element_done', selector, xpath, text });
+    cleanup();
+  };
+  const onKey = (e: KeyboardEvent) => {
+    if (e.key === 'Escape') {
+      chrome.runtime.sendMessage({ type: 'pick_element_cancel' });
+      cleanup();
+    }
+  };
+  document.addEventListener('mousemove', onMove, true);
+  document.addEventListener('click', onClick, true);
+  document.addEventListener('keydown', onKey, true);
+}
 
 /**
  * Build a prioritized list of selectors from workflow action parameters.

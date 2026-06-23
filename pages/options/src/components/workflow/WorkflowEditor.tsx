@@ -59,6 +59,7 @@ import {
   newWorkflowId,
   newNodeId,
   newEdgeId,
+  applyEdgeStyle,
 } from './utils';
 
 // ============ Default workflow scaffold ============
@@ -72,23 +73,26 @@ function buildDefaultNodes(): FlowNode[] {
 
 // ============ Inner Editor (requires ReactFlowProvider) ============
 
-// Friendly relative time for the save indicator.
-// "刚刚" / "N 分钟前" within an hour; "今天 HH:mm" same day;
-// "MM-DD HH:mm" same year; "YYYY-MM-DD" older.
+// Format the "last saved at" timestamp shown under the Save button.
+// Always returns an explicit clock time so the user can map it to their
+// session activity — never vague phrases like "刚刚" / "just now".
+// Same day  → "今天 HH:mm"
+// Same year → "MM-DD HH:mm"
+// Older     → "YYYY-MM-DD HH:mm"
 function formatRelativeTime(ts: number): string {
-  const now = Date.now();
-  const diff = now - ts;
-  if (diff < 60_000) return '刚刚';
-  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)} 分钟前`;
   const d = new Date(ts);
   const today = new Date();
+  const hh = String(d.getHours()).padStart(2, '0');
+  const mm = String(d.getMinutes()).padStart(2, '0');
   if (d.getFullYear() === today.getFullYear() && d.getMonth() === today.getMonth() && d.getDate() === today.getDate()) {
-    return `今天 ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+    return `今天 ${hh}:${mm}`;
   }
+  const MM = String(d.getMonth() + 1).padStart(2, '0');
+  const DD = String(d.getDate()).padStart(2, '0');
   if (d.getFullYear() === today.getFullYear()) {
-    return `${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+    return `${MM}-${DD} ${hh}:${mm}`;
   }
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  return `${d.getFullYear()}-${MM}-${DD} ${hh}:${mm}`;
 }
 
 function WorkflowEditorInner({
@@ -141,10 +145,15 @@ function WorkflowEditorInner({
     () => (initialWorkflow?.nodes?.length ? initialWorkflow.nodes.map(toFlowNode) : buildDefaultNodes()),
     [initialWorkflow],
   );
-  const initialEdges = useMemo(
-    () => (initialWorkflow?.edges?.length ? initialWorkflow.edges.map(toFlowEdge) : []),
-    [initialWorkflow],
-  );
+  const initialEdges = useMemo(() => {
+    if (!initialWorkflow?.edges?.length) return [];
+    // Style edges based on the source node's type — only OUTGOING edges from
+    // a loop node get the special continue/exit bezier styling. Incoming
+    // edges (left side) stay on the default smoothstep, identical to any
+    // ordinary main-flow connection.
+    const nodeTypeById = new Map((initialWorkflow.nodes || []).map(n => [n.id, n.type as WorkflowNodeType]));
+    return initialWorkflow.edges.map(e => applyEdgeStyle(toFlowEdge(e), nodeTypeById.get(e.source)));
+  }, [initialWorkflow]);
 
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
@@ -154,6 +163,39 @@ function WorkflowEditorInner({
 
   // ============ Variables ============
   const [variables, setVariables] = useState<WorkflowVariable[]>(initialWorkflow?.variables || []);
+
+  /**
+   * Set of variable names actually referenced anywhere in the workflow.
+   * We scan every node's prompt / content / parameters for both read
+   * (`{{name}}`) and write (`${name}`) templates so the variable manager
+   * can mark declared-but-unused variables.
+   */
+  const usedVariableNames = useMemo(() => {
+    const names = new Set<string>();
+    const RE = /\{\{\s*([a-zA-Z_][\w]*)\s*(?:\.[^}]+)?\}\}|\$\{([a-zA-Z_][\w]*)\}/g;
+    const scan = (s: unknown) => {
+      if (typeof s !== 'string' || !s) return;
+      let m: RegExpExecArray | null;
+      while ((m = RE.exec(s)) !== null) {
+        names.add(m[1] || m[2]);
+      }
+    };
+    const walkParams = (v: unknown) => {
+      if (typeof v === 'string') scan(v);
+      else if (Array.isArray(v)) v.forEach(walkParams);
+      else if (v && typeof v === 'object') Object.values(v).forEach(walkParams);
+    };
+    for (const n of nodes) {
+      const d = (n.data ?? {}) as Record<string, unknown>;
+      scan(d.prompt);
+      scan(d.content);
+      walkParams(d.parameters);
+      // Subflow input bindings reference parent variables in their values
+      walkParams(d.subflowInputs);
+    }
+    return names;
+  }, [nodes]);
+
   // Right panel mode: 'node' for node/edge editing, 'variables' for variable mgmt, 'logs' for execution log
   const [rightPanelMode, setRightPanelMode] = useState<'node' | 'variables' | 'logs'>('node');
 
@@ -221,19 +263,22 @@ function WorkflowEditorInner({
   // ============ Connection ============
   const onConnect = useCallback(
     (params: Connection) => {
-      setEdges(eds =>
-        addEdge(
-          {
-            ...params,
-            id: newEdgeId(),
-            type: 'smoothstep',
-            markerEnd: { type: MarkerType.ArrowClosed, width: 16, height: 16 },
-          },
-          eds,
-        ),
+      // Only outgoing edges from a loop node get special styling — incoming
+      // edges to a loop node stay on the default smoothstep, identical to
+      // any other ordinary main-flow connection.
+      const sourceType = nodes.find(n => n.id === params.source)?.type as WorkflowNodeType | undefined;
+      const styled = applyEdgeStyle(
+        {
+          ...params,
+          id: newEdgeId(),
+          type: 'smoothstep',
+          markerEnd: { type: MarkerType.ArrowClosed, width: 16, height: 16 },
+        } as FlowEdge,
+        sourceType,
       );
+      setEdges(eds => addEdge(styled, eds));
     },
-    [setEdges],
+    [setEdges, nodes],
   );
 
   const isValidConnection = useCallback(
@@ -255,9 +300,21 @@ function WorkflowEditorInner({
       const position = screenToFlowPosition({ x: e.clientX, y: e.clientY });
       const nodeId = newNodeId();
       const defaultData = getDefaultNodeData(type);
-      const name = type === 'output' ? '输出' : t(getNodeTypeLabelKey(type));
+      // Loop / output / note / subflow share their i18n key with other node
+      // types as a fallback (no dedicated locale entries yet) — give them an
+      // explicit Chinese name on drop so the canvas card doesn't show "条件".
+      const name =
+        type === 'output'
+          ? '输出'
+          : type === 'loop'
+            ? '循环节点'
+            : type === 'note'
+              ? '备注'
+              : type === 'subflow'
+                ? '子流程'
+                : t(getNodeTypeLabelKey(type));
       setNodes(nds => nds.concat({ id: nodeId, type, position, data: { ...defaultData, type, name } }));
-      if (['ai', 'automation', 'condition', 'output'].includes(type)) {
+      if (['ai', 'automation', 'condition', 'loop', 'output', 'note', 'subflow'].includes(type)) {
         setSelectedNode({ id: nodeId, type, name, position, data: { ...defaultData, type, name } });
         setSelectedEdge(null);
       }
@@ -268,7 +325,7 @@ function WorkflowEditorInner({
   // ============ Selection ============
   const onNodeClick = useCallback((_: React.MouseEvent, node: FlowNode) => {
     const nodeType = node.type as WorkflowNodeType;
-    if (['ai', 'automation', 'condition', 'output'].includes(nodeType)) {
+    if (['ai', 'automation', 'condition', 'loop', 'output', 'note', 'subflow'].includes(nodeType)) {
       setSelectedNode({
         id: node.id,
         type: nodeType,
@@ -409,8 +466,52 @@ function WorkflowEditorInner({
   // "when it was last saved" right away, not just after the user saves again.
   const [lastSavedAt, setLastSavedAt] = useState<number | null>(initialWorkflow?.updatedAt ?? null);
 
+  // JSON snapshot of the last successfully saved workflow shape. We diff
+  // against the current buildWorkflow() output to know if there are unsaved
+  // changes — used to gate the close-confirmation dialog.
+  // Computed lazily so the initial render doesn't pay the cost.
+  const [lastSavedSnapshot, setLastSavedSnapshot] = useState<string>(() => {
+    if (!initialWorkflow) return '';
+    return JSON.stringify({
+      nodes: initialWorkflow.nodes,
+      edges: initialWorkflow.edges,
+      variables: initialWorkflow.variables,
+      name: initialWorkflow.name,
+      description: initialWorkflow.description,
+    });
+  });
+
   const handleSave = useCallback(() => {
-    const workflow = buildWorkflow();
+    // Sanitize the variable list before persisting:
+    //  - drop entries with empty names (user added a blank row but never
+    //    filled it in — saving it would yield a `""` variable that nothing
+    //    can reference)
+    //  - on duplicate names, keep only the first occurrence and surface a
+    //    validation error so the user resolves the conflict
+    const seen = new Set<string>();
+    const dupNames = new Set<string>();
+    const cleanedVars: WorkflowVariable[] = [];
+    for (const v of variables) {
+      const name = (v.name || '').trim();
+      if (!name) continue;
+      if (seen.has(name)) {
+        dupNames.add(name);
+        continue;
+      }
+      seen.add(name);
+      cleanedVars.push({ ...v, name });
+    }
+    if (cleanedVars.length !== variables.filter(v => (v.name || '').trim()).length || dupNames.size > 0) {
+      // The cleaned list differs from input — reflect it back to the panel
+      // so the visible rows match what's about to be saved.
+      setVariables(cleanedVars);
+    }
+    if (dupNames.size > 0) {
+      setValidationErrors([`变量名重复：${[...dupNames].join(', ')}（每个名称已只保留首个）`]);
+      return;
+    }
+
+    const workflow = { ...buildWorkflow(), variables: cleanedVars };
     const validation = validateWorkflowStructure(workflow);
     if (!validation.valid) {
       setValidationErrors(validation.errors);
@@ -419,7 +520,47 @@ function WorkflowEditorInner({
     setValidationErrors([]);
     onSave(workflow);
     setLastSavedAt(Date.now());
-  }, [buildWorkflow, onSave]);
+    // Record the just-saved shape so subsequent dirty checks compare against it.
+    setLastSavedSnapshot(
+      JSON.stringify({
+        nodes: workflow.nodes,
+        edges: workflow.edges,
+        variables: workflow.variables,
+        name: workflow.name,
+        description: workflow.description,
+      }),
+    );
+  }, [buildWorkflow, onSave, variables]);
+
+  /**
+   * True iff the current canvas state differs from what was last persisted.
+   * Recomputed on every render — cheap JSON.stringify of in-memory data.
+   */
+  const isDirty = useMemo(() => {
+    const wf = buildWorkflow();
+    const current = JSON.stringify({
+      nodes: wf.nodes,
+      edges: wf.edges,
+      variables: wf.variables,
+      name: wf.name,
+      description: wf.description,
+    });
+    return current !== lastSavedSnapshot;
+  }, [buildWorkflow, lastSavedSnapshot]);
+
+  /**
+   * Wrap the parent-provided close handler with an unsaved-changes guard.
+   * The native confirm dialog is intentional — it blocks input until the
+   * user picks an answer, which is the safest pattern for "you might lose
+   * work" prompts. Falls through silently when there's nothing to lose.
+   */
+  const attemptClose = useCallback(() => {
+    if (isDirty) {
+      const ok = window.confirm('当前修改尚未保存，确认关闭吗？\n\n点"取消"返回继续编辑，点"确定"丢弃修改并关闭。');
+      if (!ok) return;
+    }
+    onCancel();
+  }, [isDirty, onCancel]);
 
   // Copy selected nodes to internal clipboard
   const handleCopy = useCallback(() => {
@@ -988,7 +1129,7 @@ function WorkflowEditorInner({
             <div className={`mx-1 h-5 w-px ${isDarkMode ? 'bg-slate-600' : 'bg-gray-300'}`} />
             <button
               type="button"
-              onClick={onCancel}
+              onClick={attemptClose}
               className={`rounded-lg p-2 transition-colors ${isDarkMode ? 'text-gray-300 hover:bg-slate-600' : 'text-gray-600 hover:bg-gray-100'}`}
               title="关闭编辑器">
               <FiX className="size-4" />
@@ -1163,7 +1304,12 @@ function WorkflowEditorInner({
                       <FiX className="size-4" />
                     </button>
                   </div>
-                  <VariablesPanel variables={variables} onChange={setVariables} isDarkMode={isDarkMode} />
+                  <VariablesPanel
+                    variables={variables}
+                    onChange={setVariables}
+                    isDarkMode={isDarkMode}
+                    usedVariableNames={usedVariableNames}
+                  />
                 </>
               ) : (
                 <>
@@ -1209,6 +1355,7 @@ function WorkflowEditorInner({
                       onSave={handleUpdateNode}
                       isDarkMode={isDarkMode}
                       variables={variables}
+                      onAddVariable={v => setVariables(prev => [...prev, v])}
                     />
                   )}
                   {selectedEdge && (

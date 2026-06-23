@@ -20,7 +20,9 @@ export function isValidConnectionFor(conn: Connection | FlowEdge, nodes: FlowNod
   if (!src || !tgt) return false;
   if (src.type === 'end') return false;
   if (src.type === 'output') return false;
+  if (src.type === 'note') return false;
   if (tgt.type === 'start') return false;
+  if (tgt.type === 'note') return false;
 
   // Connections TO an output node are "side branches" — always allowed
   // (no single-edge limit, since they don't affect main execution flow).

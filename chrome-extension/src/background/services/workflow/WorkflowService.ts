@@ -87,6 +87,33 @@ class WorkflowExecutionContextImpl implements WorkflowExecutionContext {
       await this.eventEmitter(event);
     }
   }
+
+  /**
+   * Load another saved workflow by id — wired through for the `subflow` node.
+   * Reads from the same store the Options page uses; conversion to the runtime
+   * Workflow shape is straightforward since both share node/edge structure.
+   */
+  async loadWorkflowById(workflowId: string): Promise<Workflow | null> {
+    try {
+      const config = await userWorkflowsStore.getWorkflow(workflowId);
+      if (!config) return null;
+      return {
+        id: config.id,
+        name: config.name,
+        description: config.description,
+        version: config.version,
+        nodes: config.nodes,
+        edges: config.edges,
+        variables: config.variables,
+        executionConfig: config.executionConfig,
+        createdAt: config.createdAt,
+        updatedAt: config.updatedAt,
+      };
+    } catch (err) {
+      logger.error('Failed to load subflow workflow:', err);
+      return null;
+    }
+  }
 }
 
 /**

@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { WorkflowNode } from './workflow';
+import type { Workflow, WorkflowNode } from './workflow';
 
 /**
  * Workflow execution context
@@ -21,6 +21,18 @@ export interface WorkflowExecutionContext {
   // Get/set workflow variables
   getVariable: (name: string) => unknown;
   setVariable: (name: string, value: unknown) => void;
+  /**
+   * Resolve another saved workflow by id (for subflow node).
+   * Host (background) injects a function that reads from the workflow store.
+   * Returning `null` is interpreted as "not found" and surfaces a node-level error.
+   */
+  loadWorkflowById?: (workflowId: string) => Promise<Workflow | null>;
+  /**
+   * Stack of workflow ids the executor is currently inside of, including the
+   * top-level workflow. Used to detect subflow cycles (A → B → A).
+   * Internal — populated by the executor itself when recursing.
+   */
+  _subflowStack?: string[];
   // Emit execution event
   emitEvent?: (event: WorkflowEvent) => Promise<void>;
   // Current execution state

@@ -15,7 +15,7 @@ import { getStatusRingClass, StatusBadge, areNodePropsEqual } from './statusOver
 function LoopNodeImpl({ data, selected }: NodeProps<FlowNode>) {
   const status = data._executionStatus as NodeStatus | undefined;
   const statusRing = getStatusRingClass(status);
-  const name = (data.name as string) || '循环';
+  const name = (data.name as string) || '循环节点';
   const mode = (data.loopMode as 'fixed' | 'ai_judge' | undefined) ?? 'fixed';
   const max = (data.maxIterations as number | undefined) ?? 0;
   const subtitle = mode === 'fixed' ? `固定 ${max} 次` : `AI 判定 · 兜底 ${max}`;
