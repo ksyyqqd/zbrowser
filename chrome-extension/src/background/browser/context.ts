@@ -16,6 +16,8 @@ export default class BrowserContext {
   private _config: BrowserContextConfig;
   private _currentTabId: number | null = null;
   private _attachedPages: Map<number, Page> = new Map();
+  /** 任务期间通过 openTab 创建的 tab id 集合（用于任务结束时清理） */
+  private _tabsOpenedThisTask: Set<number> = new Set();
 
   constructor(config: Partial<BrowserContextConfig>) {
     this._config = { ...DEFAULT_BROWSER_CONTEXT_CONFIG, ...config };
@@ -53,7 +55,11 @@ export default class BrowserContext {
     return new Page(tab.id, tab.url || '', tab.title || '', this._config);
   }
 
-  public async cleanup(): Promise<void> {
+  /**
+   * 清理浏览器上下文。
+   * @param closeOpenedTabs 为 true 时会同时关闭任务期间通过 openTab 创建的标签页
+   */
+  public async cleanup(closeOpenedTabs: boolean = false): Promise<void> {
     const currentPage = await this.getCurrentPage();
     currentPage?.removeHighlight();
     // detach all pages
@@ -62,6 +68,20 @@ export default class BrowserContext {
     }
     this._attachedPages.clear();
     this._currentTabId = null;
+
+    // 关闭任务期间新开的 tab
+    if (closeOpenedTabs && this._tabsOpenedThisTask.size > 0) {
+      const tabIds = Array.from(this._tabsOpenedThisTask);
+      this._tabsOpenedThisTask.clear();
+      try {
+        await chrome.tabs.remove(tabIds);
+      } catch (err) {
+        // 部分 tab 可能已被用户手动关闭，忽略错误
+        logger.warning('Failed to close some tabs opened during task:', err);
+      }
+    } else {
+      this._tabsOpenedThisTask.clear();
+    }
   }
 
   public async attachPage(page: Page): Promise<boolean> {
@@ -270,6 +290,8 @@ export default class BrowserContext {
     if (!tab.id) {
       throw new Error('No tab ID available');
     }
+    // 记录任务期间新开的 tab，便于任务结束统一清理
+    this._tabsOpenedThisTask.add(tab.id);
     // Wait for tab events
     await this.waitForTabEvents(tab.id);
 

@@ -1,5 +1,5 @@
 /**
- * 球球遮罩层 - 页面注入脚本（纯 JS 版）
+ * 皮蛋遮罩层 - 页面注入脚本（纯 JS 版）
  * 在任意网页上覆盖 Canvas 遮罩，支持写字 + 放烟花
  */
 (function () {
@@ -351,13 +351,13 @@
         })(ts[i], i);
     },
     celebrate: function (msg) {
-      msg = msg || '球球好开心！';
+      msg = msg || '皮蛋好开心！';
       _wt(msg, { type: 'calligraphy', fontSize: 36, duration: 5000 });
       setTimeout(function () {
         window.__spirit_overlay__.showFireworksShow(4000);
       }, 800);
       setTimeout(function () {
-        window.__spirit_overlay__.writeBlessings(['好棒~', '球球最可爱', '求摸摸']);
+        window.__spirit_overlay__.writeBlessings(['好棒~', '皮蛋最可爱', '求摸摸']);
       }, 1200);
     },
     destroy: _destroy,

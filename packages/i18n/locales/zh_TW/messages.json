@@ -1,11 +1,11 @@
 {
   "app_metadata_description": {
     "description": "Extension description",
-    "message": "遇見球球——你的 AI 萌寵網頁助手！一款開放原始碼瀏覽器擴充功能，能幫你自動瀏覽、點擊、探索網頁，還能撒嬌賣萌~"
+    "message": "皮蛋——你的 AI 網頁夥伴。一款開放原始碼瀏覽器擴充功能，能幫你自動瀏覽、點擊、探索網頁。"
   },
   "app_metadata_name": {
     "description": "Extension name",
-    "message": "养个球：AI 寵物網頁夥伴"
+    "message": "皮蛋"
   },
   "errors_unknown": {
     "message": "發生未知錯誤"
@@ -38,7 +38,7 @@
     "message": "回到對話"
   },
   "welcome_title": {
-    "message": "歡迎使用养个球！"
+    "message": "歡迎使用皮蛋！"
   },
   "welcome_instruction": {
     "message": "開始使用前，請先完成 API 金鑰的設定。"
@@ -53,7 +53,7 @@
     "message": "第一步：安裝擴充功能"
   },
   "welcome_step1_desc": {
-    "message": "從 Chrome 網上應用店搜尋「Ball」或「养个球」，點選新增到 Chrome 即可。開發者模式：解壓後載入 dist 目錄。"
+    "message": "從 Chrome 網上應用店搜尋「皮蛋」，點選新增到 Chrome 即可。開發者模式：解壓後載入 dist 目錄。"
   },
   "welcome_step2_title": {
     "message": "第二步：設定模型"
@@ -65,7 +65,7 @@
     "message": "第三步：開始對話"
   },
   "welcome_step3_desc": {
-    "message": "在輸入框告訴球球你想做什麼——「幫我查一下天氣」「整理這個表格」「截圖翻譯這段文字」，球球會自動幫你完成！"
+    "message": "在輸入框告訴皮蛋你想做什麼——「幫我查一下天氣」「整理這個表格」「截圖翻譯這段文字」，皮蛋會自動幫你完成！"
   },
   "welcome_joinCommunity": {
     "message": "加入我們的社群"
@@ -188,7 +188,7 @@
     "message": "啟用語音輸入"
   },
   "permissions_microphone_description": {
-    "message": "Nanobrowser 需要麥克風存取權限，才能將語音轉換為文字。"
+    "message": "皮蛋 需要麥克風存取權限，才能將語音轉換為文字。"
   },
   "permissions_microphone_grantButton": {
     "message": "授予麥克風權限"
@@ -595,7 +595,7 @@
     "message": "匯出"
   },
   "options_skills_description": {
-    "message": "技能是預先定義的任務範本，用於自動化常見工作流程。內建技能由 Nanobrowser 提供，自訂技能可從 JSON 檔案匯入。"
+    "message": "技能是預先定義的任務範本，用於自動化常見工作流程。內建技能由 皮蛋 提供，自訂技能可從 JSON 檔案匯入。"
   },
   "options_skills_builtin": {
     "message": "內建技能"

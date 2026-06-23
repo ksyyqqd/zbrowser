@@ -2,8 +2,8 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 
 /* ================================================
-   宠物球球 BallPet
-   浏览器宠物 — 圆滚滚的小球球，会蹦跳、撒娇、捣乱
+   宠物皮蛋 BallPet
+   浏览器宠物 — 圆滚滚的小皮蛋，会蹦跳、撒娇、捣乱
 
    表情状态：
    idle      → 静待指令，悠闲弹跳
@@ -51,67 +51,67 @@ interface SpiritDollProps {
 
 // 手动模式配置
 const MODE_CONFIG: Record<ManualMode, { label: string; icon: string; desc: string; mood: SpiritMood }> = {
-  auto: { label: '自动', icon: '◈', desc: '球球自主玩耍~', mood: 'idle' },
-  mischief: { label: '捣乱', icon: '✦', desc: '球球要捣蛋啦！', mood: 'mischief' },
-  sleepy: { label: '睡觉', icon: '☾', desc: '球球困了想睡...', mood: 'sleepy' },
-  curious: { label: '探索', icon: '◎', desc: '球球到处嗅嗅~', mood: 'curious' },
-  farmer: { label: '农场主', icon: '🌾', desc: '球球去各个AI农场采集信息~', mood: 'farmer' },
+  auto: { label: '自动', icon: '◈', desc: '皮蛋自主玩耍~', mood: 'idle' },
+  mischief: { label: '捣乱', icon: '✦', desc: '皮蛋要捣蛋啦！', mood: 'mischief' },
+  sleepy: { label: '睡觉', icon: '☾', desc: '皮蛋困了想睡...', mood: 'sleepy' },
+  curious: { label: '探索', icon: '◎', desc: '皮蛋到处嗅嗅~', mood: 'curious' },
+  farmer: { label: '农场主', icon: '🌾', desc: '皮蛋去各个AI农场采集信息~', mood: 'farmer' },
 };
 
-// 宠物球球闲聊/撒娇语料库 — 按场景分类
+// 宠物皮蛋闲聊/撒娇语料库 — 按场景分类
 const SPIRIT_LINES: Record<SpiritMood, string[]> = {
   idle: [
-    '主人主人，今天要带球球去哪里玩呀？',
-    '球球已经准备好了！弹跳中~',
-    '这方寸屏幕，就是球球的游乐场！',
-    '等主人的指令哦，球球随时待命~',
+    '主人主人，今天要带皮蛋去哪里玩呀？',
+    '皮蛋已经准备好了！弹跳中~',
+    '这方寸屏幕，就是皮蛋的游乐场！',
+    '等主人的指令哦，皮蛋随时待命~',
     '嗯...今天的屏幕好像特别亮呢~',
   ],
   thinking: [
-    '球球在想...主人到底想要什么呢...',
-    '让球球转一转小脑袋想想...',
+    '皮蛋在想...主人到底想要什么呢...',
+    '让皮蛋转一转小脑袋想想...',
     '嗯...这里面一定有玄机！',
-    '球球思考中...咕噜咕噜转圈...',
+    '皮蛋思考中...咕噜咕噜转圈...',
   ],
   working: [
-    '球球努力干活中！💪',
-    '正在滚动页面...球球滚得好快！',
+    '皮蛋努力干活中！💪',
+    '正在滚动页面...皮蛋滚得好快！',
     '执行任务ing... ⚡',
-    '莫急莫急，球球手脚麻利着呢~',
+    '莫急莫急，皮蛋手脚麻利着呢~',
     '翻山越岭只为主人所托~',
   ],
   happy: [
     '太棒啦！任务完成！🎉',
-    '嘿嘿，球球果然是最棒的！',
+    '嘿嘿，皮蛋果然是最棒的！',
     '求摸摸！求夸奖！✨',
     '主人快看，成果出来啦！',
     '今日份的乖巧已送达~ 🐾',
   ],
   mischief: [
     '哎呀，手滑了一下~ 😜',
-    '这个页面...球球觉得该滚一滚了',
-    '让球球来点小小的"意外"~',
+    '这个页面...皮蛋觉得该滚一滚了',
+    '让皮蛋来点小小的"意外"~',
     '嘘...主人没看见吧？👀',
     '这个按钮看起来很好滚的样子...',
   ],
   sleepy: [
     'zzZ... 主人...还在吗...',
-    '(小声) 好困啊...球球眼皮打架了...',
-    '...呼...球球打个盹...',
+    '(小声) 好困啊...皮蛋眼皮打架了...',
+    '...呼...皮蛋打个盹...',
     '💤 ...梦到骨头在天上飞...',
   ],
   curious: [
     '咦？这是什么有趣的地方？',
-    '哦豁！球球发现新大陆！',
-    '让球球仔细嗅嗅这里...',
+    '哦豁！皮蛋发现新大陆！',
+    '让皮蛋仔细嗅嗅这里...',
     '有意思...主人可知此处有何宝藏？',
   ],
   farmer: [
-    '球球出发啦！去DeepSeek挖点宝藏~',
-    '千问农场有好货！球球去看看...',
-    'GLM这块地不错，球球来嗅嗅~',
+    '皮蛋出发啦！去DeepSeek挖点宝藏~',
+    '千问农场有好货！皮蛋去看看...',
+    'GLM这块地不错，皮蛋来嗅嗅~',
     'Kimi的农场真热闹！',
-    '球球要把各个AI农场的精华都带回来！',
+    '皮蛋要把各个AI农场的精华都带回来！',
   ],
 };
 
@@ -382,7 +382,7 @@ const SpiritDoll: React.FC<SpiritDollProps> = ({
 
       if (mode === 'auto') {
         // 回到自动模式，显示切换提示
-        showSpiritMessage('idle', '球球恢复自动玩耍~');
+        showSpiritMessage('idle', '皮蛋恢复自动玩耍~');
         return;
       }
 
@@ -422,7 +422,7 @@ const SpiritDoll: React.FC<SpiritDollProps> = ({
   const triggerAutonomousBehavior = useCallback(() => {
     if (!autonomousEnabledRef.current || isExecuting || currentStep || manualMode !== 'auto') return;
 
-    // 自动模式：仅做表情/气泡动画，不发射球球实体（实体仅在捣乱模式下触发）
+    // 自动模式：仅做表情/气泡动画，不发射皮蛋实体（实体仅在捣乱模式下触发）
     const actions = [
       () => showSpiritMessage('idle'),
       () => showSpiritMessage('curious'),
@@ -549,8 +549,8 @@ const SpiritDoll: React.FC<SpiritDollProps> = ({
     <div className="relative">
       {/* 主栏：器灵头像 + 气泡 + 状态切换按钮 */}
       <div className="flex items-center gap-3 py-1.5 px-3">
-        {/* 球球头像 — 点击展开/收起面板 */}
-        <div onClick={() => setShowPanel(!showPanel)} className="cursor-pointer relative" title="点击切换球球状态">
+        {/* 皮蛋头像 — 点击展开/收起面板 */}
+        <div onClick={() => setShowPanel(!showPanel)} className="cursor-pointer relative" title="点击切换皮蛋状态">
           <SpiritAvatar mood={mood} isDarkMode={isDarkMode} isBlinking={isBlinking} eyeLookDir={eyeLookDir} />
           {/* 当前模式小指示点 */}
           {manualMode !== 'auto' && (
@@ -617,7 +617,7 @@ const SpiritDoll: React.FC<SpiritDollProps> = ({
           <div
             className="text-[10px] font-medium mb-1.5 px-1"
             style={{ color: isDarkMode ? '#95D5B2' : '#78716C', letterSpacing: '0.05em' }}>
-            · 球球状态 ·
+            · 皮蛋状态 ·
           </div>
           {/* 模式按钮网格 */}
           <div className="grid grid-cols-4 gap-1">

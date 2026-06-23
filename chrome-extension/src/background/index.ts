@@ -2197,11 +2197,19 @@ async function subscribeToExecutorEvents(executor: Executor) {
       logger.error('Failed to send message to side panel:', error);
     }
 
-    // Do NOT cleanup the executor on task completion — the user may send follow-up messages
-    // that reuse the same executor (same browser context, same conversation history).
-    // Cleanup happens when:
-    //  1. A new_task is initiated (overwrites currentExecutor)
-    //  2. The side-panel port disconnects
-    //  3. The user explicitly cancels
+    // 任务到达终态时清理 browser context：断开 puppeteer（去掉浏览器顶部的"调试"黄条）
+    // 并关闭任务期间通过 openTab 新开的 tab。
+    // 注：不调 executor.cleanup()，以便 follow-up 时复用对话历史。
+    if (
+      event.state === ExecutionState.TASK_OK ||
+      event.state === ExecutionState.TASK_FAIL ||
+      event.state === ExecutionState.TASK_CANCEL
+    ) {
+      try {
+        await browserContext.cleanup(true);
+      } catch (err) {
+        logger.warning('Failed to cleanup browser context after task end:', err);
+      }
+    }
   });
 }

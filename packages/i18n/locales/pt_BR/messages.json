@@ -1,11 +1,11 @@
 {
   "app_metadata_description": {
     "description": "Descrição da extensão",
-    "message": "Conheça Ball — seu mascote de IA fofo! Uma extensão de navegador de código aberto que navega, clica e explora por você."
+    "message": "Pidan — seu parceiro de IA para a web. Uma extensão de navegador de código aberto que navega, clica e explora por você."
   },
   "app_metadata_name": {
     "description": "Nome da extensão",
-    "message": "Ball: Mascote Web de IA e Companheiro"
+    "message": "Pidan"
   },
   "errors_unknown": {
     "message": "Ocorreu um erro desconhecido"
@@ -38,7 +38,7 @@
     "message": "Voltar para o chat"
   },
   "welcome_title": {
-    "message": "Bem-vindo ao Ball!"
+    "message": "Bem-vindo ao Pidan!"
   },
   "welcome_instruction": {
     "message": "Para começar, por favor, configure suas chaves de API na página de configurações."
@@ -53,7 +53,7 @@
     "message": "Passo 1: Instalar Extensão"
   },
   "welcome_step1_desc": {
-    "message": "Pesquise \"Ball\" na Chrome Web Store e clique em Adicionar ao Chrome. Modo dev: carregue a pasta dist."
+    "message": "Pesquise \"Pidan\" na Chrome Web Store e clique em Adicionar ao Chrome. Modo dev: carregue a pasta dist."
   },
   "welcome_step2_title": {
     "message": "Passo 2: Configurar Modelo"
@@ -65,7 +65,7 @@
     "message": "Passo 3: Começar a Conversar"
   },
   "welcome_step3_desc": {
-    "message": "Diga ao Ball o que precisa — \"Verificar o tempo\", \"Organizar esta tabela\", \"Traduzir este texto\" — ele vai te ajudar!"
+    "message": "Diga ao Pidan o que precisa — \"Verificar o tempo\", \"Organizar esta tabela\", \"Traduzir este texto\" — ele vai te ajudar!"
   },
   "welcome_joinCommunity": {
     "message": "Junte-se à Nossa Comunidade"
@@ -188,7 +188,7 @@
     "message": "Ativar Entrada de Voz"
   },
   "permissions_microphone_description": {
-    "message": "O Nanobrowser precisa de acesso ao microfone para converter sua fala em texto."
+    "message": "O Pidan precisa de acesso ao microfone para converter sua fala em texto."
   },
   "permissions_microphone_grantButton": {
     "message": "Conceder Permissão ao Microfone"
@@ -600,7 +600,7 @@
     "message": "Exportar"
   },
   "options_skills_description": {
-    "message": "Skills são templates de tarefas predefinidas que automatizam fluxos de trabalho comuns. Skills embutidos são fornecidos pelo Nanobrowser, enquanto skills customizados podem ser importados de arquivos JSON."
+    "message": "Skills são templates de tarefas predefinidas que automatizam fluxos de trabalho comuns. Skills embutidos são fornecidos pelo Pidan, enquanto skills customizados podem ser importados de arquivos JSON."
   },
   "options_skills_builtin": {
     "message": "Skills Embutidos"

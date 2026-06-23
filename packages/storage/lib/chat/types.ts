@@ -27,7 +27,7 @@ export interface ChatSessionMetadata {
   createdAt: number; // Unix timestamp in milliseconds
   updatedAt: number; // Unix timestamp in milliseconds
   messageCount: number;
-  /** 会话发起者：user = 用户主动发起，ball = 球球自主行为（捣乱等） */
+  /** 会话发起者：user = 用户主动发起，ball = 皮蛋自主行为（捣乱等） */
   source?: SessionSource;
 }
 

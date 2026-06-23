@@ -436,14 +436,10 @@ ${skillList}
       if (import.meta.env.DEV) {
         logger.debug('Executor history', JSON.stringify(this.context.history, null, 2));
       }
-      // store the history only if replay is enabled
-      if (this.generalSettings?.replayHistoricalTasks) {
-        const historyString = JSON.stringify(this.context.history);
-        logger.info(`Executor history size: ${historyString.length}`);
-        await chatHistoryStore.storeAgentStepHistory(this.context.taskId, this.tasks[0], historyString);
-      } else {
-        logger.info('Replay historical tasks is disabled, skipping history storage');
-      }
+      // 始终保存 agent step history，供「重播」功能回放使用
+      const historyString = JSON.stringify(this.context.history);
+      logger.info(`Executor history size: ${historyString.length}`);
+      await chatHistoryStore.storeAgentStepHistory(this.context.taskId, this.tasks[0], historyString);
     }
   }
 

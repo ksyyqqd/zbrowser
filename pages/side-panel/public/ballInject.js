@@ -1,8 +1,8 @@
 /**
- * 球球网页实体 v1 — 页面注入脚本（纯 JS 版）
+ * 皮蛋网页实体 v1 — 页面注入脚本（纯 JS 版）
  *
- * 将球球的 SVG 形象注入到目标网页中，带物理引擎和碰撞系统。
- * 捣乱模式：球球从侧边飞入，撞向按钮后弹开，触发按钮悬浮效果。
+ * 将皮蛋的 SVG 形象注入到目标网页中，带物理引擎和碰撞系统。
+ * 捣乱模式：皮蛋从侧边飞入，撞向按钮后弹开，触发按钮悬浮效果。
  *
  * 通过 chrome.scripting.executeScript({ files: [...] }) 注入，符合 CSP 规范
  */
@@ -11,7 +11,7 @@
   if (window.__ball_entity_inited__) return;
   window.__ball_entity_inited__ = true;
 
-  var _container = null; // 球球 DOM 容器
+  var _container = null; // 皮蛋 DOM 容器
   var _svgNS = 'http://www.w3.org/2000/svg';
   var _active = false;
   var _rafId = null;
@@ -24,7 +24,7 @@
     _vy = 0; // 速度 (px/s)
   var _ax = 0,
     _ay = 400; // 加速度 — 重力向下
-  var _radius = 30; // 球球半径 (px)
+  var _radius = 30; // 皮蛋半径 (px)
   var _scale = 1.2; // 渲染缩放 (比面板中的大一点)
   var _rotation = 0; // 旋转角度 (rad)
   var _rotationSpeed = 0; // 角速度
@@ -47,7 +47,7 @@
     spawnSide: 'random', // 随机选择入场边: left/right/top/bottom
   };
 
-  // ===== 球球颜色配置 =====
+  // ===== 皮蛋颜色配置 =====
   var BALL_COLORS = {
     bodyFill: '#FFFDF9', // 身体填充 (浅白)
     bodyStroke: '#F59E0B', // 边框色 (琥珀金)
@@ -100,7 +100,7 @@
     _active = false;
   }
 
-  // ==================== 球球 SVG 构建 ====================
+  // ==================== 皮蛋 SVG 构建 ====================
 
   function _buildSVG() {
     var size = _radius * 2 * _scale;
@@ -514,7 +514,7 @@
     // 排除遮罩层自身及内部元素
     if (el.id && (el.id.indexOf('__spotlight') >= 0 || el.id.indexOf('__ball') >= 0 || el.id.indexOf('__entity') >= 0))
       return false;
-    // 排除球球自己的 DOM 子树
+    // 排除皮蛋自己的 DOM 子树
     var n = el;
     while (n && n !== document.body) {
       if (n.id && n.id.indexOf('__ball_entity_container__') >= 0) return false;
@@ -913,7 +913,7 @@
       el.style.transform = 'scale(1.03)';
       el.setAttribute('__ball_hit__', 'true');
     } catch (err) {
-      console.warn('[球球] 悬浮效果触发失败:', err);
+      console.warn('[皮蛋] 悬浮效果触发失败:', err);
     }
   }
 
@@ -1001,7 +1001,7 @@
   // ==================== 公开 API ====================
 
   /**
-   * 让球球进入网页捣乱
+   * 让皮蛋进入网页捣乱
    * @param {Object} [opts]
    * @param {string} [opts.targetSelector] - 目标选择器（可选，指定则优先撞向该元素）
    * @param {number} [opts.duration] - 存活时长 ms
@@ -1036,7 +1036,7 @@
       // 启动物理循环
       _rafId = requestAnimationFrame(_gameLoop);
     } catch (err) {
-      console.error('[球球实体] 启动失败:', err);
+      console.error('[皮蛋实体] 启动失败:', err);
     }
   }
 

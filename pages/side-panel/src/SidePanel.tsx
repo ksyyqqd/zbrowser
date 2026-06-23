@@ -32,7 +32,7 @@ import './SidePanel.css';
 import '@extension/ui/global.css';
 
 // 声明Chrome API类型
-/** 球球遮罩层 API（烟花/写字/庆祝） */
+/** 皮蛋遮罩层 API（烟花/写字/庆祝） */
 interface SpiritOverlayAPI {
   showFireworksShow?: (duration?: number) => void;
   writeText?: (text: string) => void;
@@ -41,7 +41,7 @@ interface SpiritOverlayAPI {
   isActive?: () => boolean;
 }
 
-/** 球球接管遮罩 API（全屏半透明 + 科幻呼吸灯） */
+/** 皮蛋接管遮罩 API（全屏半透明 + 科幻呼吸灯） */
 interface BallSpotlightAPI {
   show?: (opts?: { mode?: 'planning' | 'executing'; label?: string }) => void;
   hide?: () => void;
@@ -51,7 +51,7 @@ interface BallSpotlightAPI {
   destroy?: () => void;
 }
 
-/** 球球网页实体 API（物理碰撞 + 捣乱） */
+/** 皮蛋网页实体 API（物理碰撞 + 捣乱） */
 interface BallEntityAPI {
   launch?: (opts?: { targetSelector?: string; duration?: number }) => void;
   isActive?: () => boolean;
@@ -126,8 +126,6 @@ const SidePanel = () => {
   const [isReplaying, setIsReplaying] = useState(false);
   // 快速入门步骤展开状态
   const [showSteps, setShowSteps] = useState(false);
-  // 重播功能开关（从设置获取）
-  const [replayEnabled, setReplayEnabled] = useState(true);
   // AI接管遮罩开关
   const [showSpotlightEnabled, setShowSpotlightEnabled] = useState(true);
   // 工作流遮罩开关
@@ -150,7 +148,7 @@ const SidePanel = () => {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   // 设置输入文本的引用
   const setInputTextRef = useRef<((text: string) => void) | null>(null);
-  // 当前球球模式引用（用于在发送任务时包装内容）
+  // 当前皮蛋模式引用（用于在发送任务时包装内容）
   const spiritModeRef = useRef<'auto' | 'mischief' | 'sleepy' | 'curious' | 'farmer'>('auto');
 
   // 检查暗色模式偏好（从 localStorage 恢复，默认跟随系统）
@@ -203,7 +201,6 @@ const SidePanel = () => {
       setShowSpotlightEnabled(settings.showSpotlight);
       setShowWorkflowSpotlightEnabled(settings.showWorkflowSpotlight ?? false);
       setShowImageGeneration(settings.showImageGeneration ?? false);
-      setReplayEnabled(settings.replayHistoricalTasks ?? true);
     } catch (error) {
       console.error('加载遮罩设置时出错:', error);
       setShowSpotlightEnabled(true); // 默认开启
@@ -274,7 +271,7 @@ const SidePanel = () => {
     }
   }, []);
 
-  // ===== 球球接管遮罩（全屏半透明 + 科幻呼吸灯）=====
+  // ===== 皮蛋接管遮罩（全屏半透明 + 科幻呼吸灯）=====
   const spotlightActiveRef = useRef(false);
   /** 捣乱模式标记 — 捣乱时不显示遮罩 */
   const isMischiefModeRef = useRef(false);
@@ -871,19 +868,8 @@ const SidePanel = () => {
 
   // 处理重播命令
   const handleReplay = async (historySessionId: string): Promise<void> => {
-    console.log('[重播] 开始', { historySessionId, replayEnabled });
+    console.log('[重播] 开始', { historySessionId });
     try {
-      // 检查设置中是否启用了重播
-      if (!replayEnabled) {
-        console.warn('[重播] ❌ 重播功能未启用');
-        appendMessage({
-          actor: Actors.SYSTEM,
-          content: t('chat_replay_disabled'),
-          timestamp: Date.now(),
-        });
-        return;
-      }
-
       // 检查历史记录是否存在，使用loadAgentStepHistory
       const historyData = await chatHistoryStore.loadAgentStepHistory(historySessionId);
       console.log('[重播] 历史数据:', historyData ? '有数据' : 'null');
@@ -991,6 +977,89 @@ const SidePanel = () => {
         content: t('chat_replay_failed', errorMessage),
         timestamp: Date.now(),
       });
+    }
+  };
+
+  // 重跑：拿历史会话的原始任务文本，作为新任务重新让 LLM 决策
+  const handleRerunTask = async (historySessionId: string): Promise<void> => {
+    try {
+      const fullSession = await chatHistoryStore.getSession(historySessionId);
+      const firstUserMsg = fullSession?.messages.find(m => m.actor === Actors.USER);
+      const taskText = firstUserMsg?.content?.trim();
+      if (!taskText) {
+        appendMessage({
+          actor: Actors.SYSTEM,
+          content: '⚠️ 该历史会话没有可重跑的任务内容',
+          timestamp: Date.now(),
+        });
+        return;
+      }
+
+      // 取目标 tab
+      const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+      const tabId = tabs[0]?.id;
+      if (!tabId) {
+        appendMessage({
+          actor: Actors.SYSTEM,
+          content: '⚠️ 未找到活动标签页',
+          timestamp: Date.now(),
+        });
+        return;
+      }
+      targetTabIdRef.current = tabId;
+
+      // 确保连接已建立
+      if (!portRef.current) {
+        setupConnection();
+        await new Promise<void>(resolve => {
+          const check = () => (portRef.current ? resolve() : setTimeout(check, 50));
+          check();
+        });
+      }
+
+      // 新会话
+      const titleText = taskText.length > 50 ? taskText.slice(0, 50) + '...' : taskText;
+      const newSession = await chatHistoryStore.createSession(`重跑: ${titleText}`);
+      const newTaskId = newSession.id;
+      setCurrentSessionId(newTaskId);
+      sessionIdRef.current = newTaskId;
+      setMessages([]);
+      setIsHistoricalSession(false);
+      setIsFollowUpMode(false);
+      setShowHistory(false);
+
+      // UI 上记一条用户消息
+      const userMessage = {
+        actor: Actors.USER,
+        content: taskText,
+        timestamp: Date.now(),
+      };
+      appendMessage(userMessage, newTaskId);
+
+      // 锁输入 + 显示停止按钮
+      setInputEnabled(false);
+      setShowStopButton(true);
+
+      // 走标准 new_task 让 LLM 重新决策
+      await sendMessage({
+        type: 'new_task',
+        task: taskText,
+        taskId: newTaskId,
+        tabId,
+      });
+      console.log('[重跑] 已发送 new_task', { from: historySessionId, to: newTaskId });
+
+      await loadChatSessions();
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      console.error('[重跑] 失败:', errorMessage);
+      appendMessage({
+        actor: Actors.SYSTEM,
+        content: `⚠️ 重跑失败: ${errorMessage}`,
+        timestamp: Date.now(),
+      });
+      setInputEnabled(true);
+      setShowStopButton(false);
     }
   };
 
@@ -1507,6 +1576,14 @@ ${trimmedText}`;
       // 第六步：发送成功后，更新UI状态为"执行中"
       setInputEnabled(false);
       setShowStopButton(true);
+      // 立即追加一条进度占位消息，给用户「AI 思考中」的反馈；
+      // progressMessage 在 appendMessage 内部不会被持久化（只用于 UI 动画），
+      // 后续后台事件到达时会自动覆盖这条占位。
+      appendMessage({
+        actor: Actors.PLANNER,
+        content: progressMessage,
+        timestamp: Date.now(),
+      });
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : String(err);
       console.error('任务错误', errorMessage);
@@ -1584,18 +1661,37 @@ ${trimmedText}`;
     }
   };
 
-  // 处理会话选择
+  // 处理会话选择 —— 将历史消息复制到新会话作为继续对话的起点
   const handleSessionSelect = async (sessionId: string) => {
     try {
       const fullSession = await chatHistoryStore.getSession(sessionId);
-      if (fullSession && fullSession.messages.length > 0) {
-        setCurrentSessionId(fullSession.id);
-        setMessages(fullSession.messages);
-        setIsFollowUpMode(false);
-        setIsHistoricalSession(true); // 标记为历史会话
-        console.log('历史会话已选择', sessionId);
+      if (!fullSession || fullSession.messages.length === 0) {
+        setShowHistory(false);
+        return;
       }
+
+      // 以历史会话标题为基础创建新会话
+      const titleText = fullSession.title || '继续对话';
+      const newSession = await chatHistoryStore.createSession(
+        `继续: ${titleText.length > 40 ? titleText.slice(0, 40) + '...' : titleText}`,
+      );
+
+      // 将历史消息持久化到新会话
+      for (const msg of fullSession.messages) {
+        await chatHistoryStore.addMessage(newSession.id, msg);
+      }
+
+      // 切到新会话 + 进入跟进模式（输入框可用，下一句作为 follow-up）
+      setCurrentSessionId(newSession.id);
+      sessionIdRef.current = newSession.id;
+      setMessages(fullSession.messages);
+      setIsHistoricalSession(false);
+      setIsFollowUpMode(true);
       setShowHistory(false);
+
+      // 重新加载会话列表以反映新条目
+      await loadChatSessions();
+      console.log('已从历史会话继续对话', { from: sessionId, to: newSession.id });
     } catch (error) {
       console.error('加载会话失败:', error);
     }
@@ -1887,11 +1983,8 @@ ${trimmedText}`;
               onSessionDelete={handleSessionDelete}
               onSessionBookmark={handleSessionBookmark}
               bookmarkedSessionIds={bookmarkedSessionIds}
-              onFillInputFromHistory={content => {
-                if (setInputTextRef.current) setInputTextRef.current(content);
-                setShowHistory(false); // 填充后关闭历史面板，回到聊天
-              }}
               onReplay={handleReplay}
+              onRerunTask={handleRerunTask}
               visible={true}
               isDarkMode={isDarkMode}
             />
@@ -2031,7 +2124,7 @@ ${trimmedText}`;
                     isExecuting={showStopButton}
                     currentStep={currentStep}
                     onAutonomousAction={async (action: string, data?: string) => {
-                      console.log('[球球自主行为]', action);
+                      console.log('[皮蛋自主行为]', action);
                       // 获取当前活动标签页（公共前置步骤，所有动作都需要 tabId）
                       const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
                       const tabId = tabs[0]?.id;
@@ -2042,7 +2135,7 @@ ${trimmedText}`;
                           // 标记捣乱模式（不显示遮罩）
                           isMischiefModeRef.current = true;
 
-                          // ===== 球球实体进入网页！=====
+                          // ===== 皮蛋实体进入网页！=====
                           try {
                             const mTabs = await chrome.tabs.query({ active: true, currentWindow: true });
                             const mt = mTabs[0];
@@ -2053,13 +2146,13 @@ ${trimmedText}`;
                               !mt.url.startsWith('edge://') &&
                               !mt.url.startsWith('about:')
                             ) {
-                              // 注入球球实体脚本
+                              // 注入皮蛋实体脚本
                               await chrome.scripting.executeScript({
                                 target: { tabId: mt.id },
                                 files: ['side-panel/ballInject.js'],
                               });
 
-                              // 发射球球到页面中！（固定右上角飞入）
+                              // 发射皮蛋到页面中！（固定右上角飞入）
                               await chrome.scripting.executeScript({
                                 target: { tabId: mt.id },
                                 func: () => {
@@ -2074,17 +2167,17 @@ ${trimmedText}`;
                               });
                             }
                           } catch (ballErr) {
-                            console.warn('球球进入网页失败:', ballErr);
+                            console.warn('皮蛋进入网页失败:', ballErr);
                           }
 
                           // 不再创建会话和发送任务 — 只发射实体捣乱，不触发 AI 执行流程
 
-                          // 7秒后重置捣乱标记（球球存活6s + 1s缓冲）
+                          // 7秒后重置捣乱标记（皮蛋存活6s + 1s缓冲）
                           setTimeout(() => {
                             isMischiefModeRef.current = false;
                           }, 7000);
                         } catch (err) {
-                          console.error('球球捣乱失败:', err);
+                          console.error('皮蛋捣乱失败:', err);
                         }
                       } else if (action.startsWith('overlay-')) {
                         // 遮罩层效果：通过 files 注入脚本 + 直接函数调用（兼容 CSP，不使用 eval/new Function）
@@ -2123,7 +2216,7 @@ ${trimmedText}`;
                               },
                             });
                           } else if (overlayAction === 'write') {
-                            const text = data || '球球来啦~';
+                            const text = data || '皮蛋来啦~';
                             await chrome.scripting.executeScript({
                               target: { tabId },
                               func: t => {
@@ -2132,7 +2225,7 @@ ${trimmedText}`;
                               args: [text],
                             });
                           } else if (overlayAction === 'celebrate') {
-                            const msg = data || '球球好开心！';
+                            const msg = data || '皮蛋好开心！';
                             await chrome.scripting.executeScript({
                               target: { tabId },
                               func: m => {
@@ -2145,10 +2238,10 @@ ${trimmedText}`;
                             actor: Actors.SYSTEM,
                             content:
                               overlayAction === 'fireworks'
-                                ? '\u{1F386} 球球在页面上放烟花啦~'
+                                ? '\u{1F386} 皮蛋在页面上放烟花啦~'
                                 : overlayAction === 'write'
-                                  ? '\u270F\uFE0F 球球在留字...'
-                                  : '\u{1F389} 球球庆祝中！',
+                                  ? '\u270F\uFE0F 皮蛋在留字...'
+                                  : '\u{1F389} 皮蛋庆祝中！',
                             timestamp: Date.now(),
                           });
                         } catch (err) {
@@ -2157,7 +2250,7 @@ ${trimmedText}`;
                       }
                     }}
                     onModeChange={mode => {
-                      console.log('[球球模式变化]', mode);
+                      console.log('[皮蛋模式变化]', mode);
                       spiritModeRef.current = mode;
                     }}
                   />
@@ -2178,8 +2271,6 @@ ${trimmedText}`;
                             setInputTextRef.current = setter;
                           }}
                           isDarkMode={isDarkMode}
-                          historicalSessionId={isHistoricalSession && replayEnabled ? currentSessionId : null}
-                          onReplay={handleReplay}
                           onExecuteSkill={handleExecuteSkill}
                           onExecuteWorkflow={handleExecuteWorkflow}
                         />
@@ -2213,8 +2304,6 @@ ${trimmedText}`;
                             setInputTextRef.current = setter;
                           }}
                           isDarkMode={isDarkMode}
-                          historicalSessionId={isHistoricalSession && replayEnabled ? currentSessionId : null}
-                          onReplay={handleReplay}
                           onExecuteSkill={handleExecuteSkill}
                           onExecuteWorkflow={handleExecuteWorkflow}
                         />

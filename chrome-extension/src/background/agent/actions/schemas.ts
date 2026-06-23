@@ -10,7 +10,7 @@ export const doneActionSchema: ActionSchema = {
   name: 'done',
   description: 'Complete task',
   schema: z.object({
-    text: z.string(),
+    text: z.string().default('').describe('summary or final answer to report to the user'),
     success: z.boolean(),
   }),
 };

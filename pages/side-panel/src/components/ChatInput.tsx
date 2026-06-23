@@ -19,8 +19,6 @@ interface ChatInputProps {
   showStopButton: boolean;
   setContent?: (setter: (text: string) => void) => void;
   isDarkMode?: boolean;
-  historicalSessionId?: string | null;
-  onReplay?: (sessionId: string) => void;
   onExecuteSkill?: (skillId: string, params: Record<string, unknown>) => void;
   onExecuteWorkflow?: (workflowId: string) => void;
 }
@@ -50,8 +48,6 @@ export default function ChatInput({
   showStopButton,
   setContent,
   isDarkMode = false,
-  historicalSessionId,
-  onReplay,
   onExecuteSkill,
   onExecuteWorkflow,
 }: ChatInputProps) {
@@ -158,10 +154,6 @@ export default function ChatInput({
     },
     [handleSubmit],
   );
-
-  const handleReplay = useCallback(() => {
-    if (historicalSessionId && onReplay) onReplay(historicalSessionId);
-  }, [historicalSessionId, onReplay]);
 
   const handleFileSelect = useCallback(() => fileInputRef.current?.click(), []);
   const handleFileChange = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -518,15 +510,6 @@ export default function ChatInput({
               onClick={onStopTask}
               className="jade-btn jade-btn-danger rounded-lg px-4 py-1.5 text-xs">
               {t('chat_buttons_stop')}
-            </button>
-          ) : historicalSessionId ? (
-            <button
-              type="button"
-              onClick={handleReplay}
-              disabled={!historicalSessionId}
-              aria-disabled={!historicalSessionId}
-              className={`jade-btn jade-btn-success rounded-lg px-4 py-1.5 text-xs ${!historicalSessionId ? '!opacity-45 cursor-not-allowed' : ''}`}>
-              {t('chat_buttons_replay')}
             </button>
           ) : (
             <button

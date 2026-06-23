@@ -1,8 +1,10 @@
 /* eslint-disable react/prop-types */
 import { useState, useEffect, useRef } from 'react';
-import { FaTrash, FaChevronLeft, FaPlus, FaRedo } from 'react-icons/fa';
+import { FaTrash, FaChevronLeft, FaRedo, FaPlay } from 'react-icons/fa';
 import { BsBookmark } from 'react-icons/bs';
 import { t } from '@extension/i18n';
+import type { Message } from '@extension/storage';
+import MessageList from './MessageList';
 
 interface ChatSession {
   id: string;
@@ -25,10 +27,10 @@ interface ChatHistoryListProps {
   onSessionBookmark: (sessionId: string) => void;
   /** 已收藏的会话ID集合（用于显示收藏/取消收藏状态） */
   bookmarkedSessionIds?: Set<string>;
-  /** 用历史会话的第一条用户消息内容填充输入框 */
-  onFillInputFromHistory?: (content: string) => void;
-  /** 触发重播 */
+  /** 触发重播（action 序列回放） */
   onReplay?: (sessionId: string) => void;
+  /** 触发重跑（拿原始任务文本重新让 LLM 决策） */
+  onRerunTask?: (sessionId: string) => void;
   visible: boolean;
   isDarkMode?: boolean;
 }
@@ -36,16 +38,8 @@ interface ChatHistoryListProps {
 // Tab 配置
 const TABS = [
   { key: 'user' as const, label: '主人的对话', icon: '\u{1F4AC}' }, // 💬
-  { key: 'ball' as const, label: '球球的行动', icon: '\u{1F43E}' }, // 🐾
+  { key: 'ball' as const, label: '皮蛋的行动', icon: '\u{1F43E}' }, // 🐾
 ] as const;
-
-const ACTORS: Record<string, { label: string; color: string }> = {
-  system: { label: '系统', color: '#8B5CF6' },
-  user: { label: '用户', color: '#40916C' },
-  planner: { label: '规划师', color: '#0EA5E9' },
-  navigator: { label: '导航员', color: '#F59E0B' },
-  validator: { label: '验证员', color: '#EC4899' },
-};
 
 const ChatHistoryList: React.FC<ChatHistoryListProps> = ({
   sessions,
@@ -53,8 +47,8 @@ const ChatHistoryList: React.FC<ChatHistoryListProps> = ({
   onSessionDelete,
   onSessionBookmark,
   bookmarkedSessionIds,
-  onFillInputFromHistory,
   onReplay,
+  onRerunTask,
   visible,
   isDarkMode = false,
 }) => {
@@ -82,8 +76,6 @@ const ChatHistoryList: React.FC<ChatHistoryListProps> = ({
 
   const formatDate = (ts: number) =>
     new Date(ts).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
-
-  const formatTime = (ts: number) => new Date(ts).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
 
   // 当前 Tab 的会话列表（按时间倒序）
   const currentItems = sessions.filter(s => s.source === activeTab).sort((a, b) => b.createdAt - a.createdAt);
@@ -183,41 +175,14 @@ const ChatHistoryList: React.FC<ChatHistoryListProps> = ({
           </button>
         </div>
 
-        {/* 消息列表 */}
-        <div className="min-h-0 flex-1 overflow-y-auto px-3 py-2 space-y-1.5">
+        {/* 消息列表 — 复用聊天面板的 MessageList 样式 */}
+        <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
           {detailMessages.length === 0 ? (
             <div className="empty-state py-12 text-center text-sm" style={{ color: 'var(--text-muted)' }}>
               该会话暂无消息内容
             </div>
           ) : (
-            detailMessages.map((msg, idx) => {
-              const actorInfo = ACTORS[msg.actor] || { label: msg.actor, color: 'var(--text-muted)' };
-              return (
-                <div
-                  key={msg.id || idx}
-                  className="rounded-lg px-3 py-2"
-                  style={{
-                    background: isDarkMode ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)',
-                    borderLeft: `3px solid ${actorInfo.color}`,
-                  }}>
-                  <div className="mb-0.5 flex items-center gap-2">
-                    <span
-                      className="inline-block rounded-full px-1.5 py-px text-[9px] font-bold uppercase tracking-wider"
-                      style={{ color: actorInfo.color, background: `${actorInfo.color}15` }}>
-                      {actorInfo.label}
-                    </span>
-                    <span className="text-[9px]" style={{ color: 'var(--text-muted)' }}>
-                      {formatTime(msg.timestamp)}
-                    </span>
-                  </div>
-                  <p
-                    className="text-xs leading-relaxed whitespace-pre-wrap break-words"
-                    style={{ color: 'var(--text-primary)' }}>
-                    {msg.content || '\u00A0'}
-                  </p>
-                </div>
-              );
-            })
+            <MessageList messages={detailMessages as Message[]} isDarkMode={isDarkMode} disableStepFiltering />
           )}
         </div>
 
@@ -234,56 +199,42 @@ const ChatHistoryList: React.FC<ChatHistoryListProps> = ({
               className="jade-btn flex-1 py-2 text-xs font-medium tracking-wide text-center">
               继续对话 ↗
             </button>
-            {/* 重播 — 仅用户会话显示 */}
+            {/* 重播 — 按动作序列回放，仅用户会话显示 */}
             {onReplay && session?.source === 'user' && (
               <button
                 type="button"
                 onClick={async () => {
-                  // 先执行重播（异步），完成后切回聊天页
                   await onReplay(detailSessionId);
-                  // 重播已创建新会话并设置 sessionIdRef，用 select 切到聊天视图
-                  onSessionSelect(detailSessionId);
+                  handleBackToList();
                 }}
-                className="px-3 py-2 rounded-lg text-xs font-medium tracking-wide transition-all duration-200"
+                className="px-3 py-2 rounded-lg text-xs font-medium tracking-wide transition-all duration-200 flex items-center"
                 style={{
                   color: '#0EA5E9',
                   background: isDarkMode ? 'rgba(14,165,233,0.15)' : 'rgba(14,165,233,0.10)',
                   border: '1px solid rgba(14,165,233,0.25)',
                 }}
-                title="重播此任务">
-                <FaRedo size={12} />
+                title="按上次的动作序列回放">
+                <FaRedo size={11} />
                 <span className="ml-1">重播</span>
               </button>
             )}
-            {/* 填充输入框 — 仅用户会话显示 */}
-            {onFillInputFromHistory && session?.source === 'user' && (
+            {/* 重跑 — 拿原始任务文本让 LLM 重新决策，仅用户会话显示 */}
+            {onRerunTask && session?.source === 'user' && (
               <button
                 type="button"
                 onClick={async () => {
-                  try {
-                    const store = storeRef.current || (await import('@extension/storage')).chatHistoryStore;
-                    if (!store) return;
-                    const full = await store.getSession(detailSessionId);
-                    if (full?.messages) {
-                      const firstUserMsg = full.messages.find((m: ChatMessage) => m.actor === 'user');
-                      if (firstUserMsg?.content) {
-                        onFillInputFromHistory(firstUserMsg.content);
-                        handleBackToList();
-                      }
-                    }
-                  } catch {
-                    /* ignore */
-                  }
+                  await onRerunTask(detailSessionId);
+                  handleBackToList();
                 }}
-                className="px-3 py-2 rounded-lg text-xs font-medium tracking-wide transition-all duration-200"
+                className="px-3 py-2 rounded-lg text-xs font-medium tracking-wide transition-all duration-200 flex items-center"
                 style={{
                   color: '#40916C',
                   background: isDarkMode ? 'rgba(64,145,108,0.15)' : 'rgba(64,145,108,0.10)',
                   border: '1px solid rgba(64,145,108,0.25)',
                 }}
-                title="将任务命令填入对话框">
-                <FaPlus size={11} />
-                <span className="ml-1">填入</span>
+                title="用原始任务让 AI 重新执行">
+                <FaPlay size={10} />
+                <span className="ml-1">重跑</span>
               </button>
             )}
           </div>
@@ -373,9 +324,9 @@ const ChatHistoryList: React.FC<ChatHistoryListProps> = ({
                     className="relative z-10 w-full text-left cursor-pointer"
                     type="button">
                     <div className="flex items-center gap-2">
-                      {/* 球球来源的小标记 */}
+                      {/* 皮蛋来源的小标记 */}
                       {activeTab === 'ball' && (
-                        <span className="shrink-0 text-sm" title="球球发起">
+                        <span className="shrink-0 text-sm" title="皮蛋发起">
                           🐾
                         </span>
                       )}

@@ -3,7 +3,7 @@
  * Monitors user actions and sends to background when recording is active
  */
 
-console.log('Nanobrowser content script loaded');
+console.log('Pidan content script loaded');
 
 // Recording state
 let isRecording = false;

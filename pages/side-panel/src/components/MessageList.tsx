@@ -8,6 +8,8 @@ import { MarkdownRenderer, MessageExportButton, MessageContentExportButton } fro
 interface MessageListProps {
   messages: Message[];
   isDarkMode?: boolean;
+  /** 禁用执行步骤的过滤/折叠/最新预览，全部消息平铺展示（如历史详情视图） */
+  disableStepFiltering?: boolean;
 }
 
 // 判断消息是否为"执行步骤"类消息（默认隐藏）
@@ -28,13 +30,17 @@ function isExecutionStepMessage(msg: Message): boolean {
   return false;
 }
 
-export default memo(function MessageList({ messages, isDarkMode = false }: MessageListProps) {
+export default memo(function MessageList({
+  messages,
+  isDarkMode = false,
+  disableStepFiltering = false,
+}: MessageListProps) {
   const [showSteps, setShowSteps] = useState(false);
   const [previewImage, setPreviewImage] = useState<{ base64: string; name?: string } | null>(null);
 
-  // 分离关键消息和执行步骤
-  const keyMessages = messages.filter(m => !isExecutionStepMessage(m));
-  const stepMessages = messages.filter(m => isExecutionStepMessage(m));
+  // 分离关键消息和执行步骤（disableStepFiltering 时全部消息当作非步骤平铺）
+  const keyMessages = disableStepFiltering ? messages : messages.filter(m => !isExecutionStepMessage(m));
+  const stepMessages = disableStepFiltering ? [] : messages.filter(m => isExecutionStepMessage(m));
   // 最新一条折叠消息（用于在折叠状态下展示）
   const latestStepMsg = stepMessages.length > 0 ? stepMessages[stepMessages.length - 1] : null;
   const displayMessages = showSteps ? messages : keyMessages;
