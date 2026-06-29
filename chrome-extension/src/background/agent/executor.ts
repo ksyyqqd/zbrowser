@@ -12,7 +12,14 @@ import MessageManager from './messages/service';
 import type BrowserContext from '../browser/context';
 import { ActionBuilder } from './actions/builder';
 import { EventManager } from './event/manager';
-import { Actors, type EventCallback, EventType, ExecutionState } from './event/types';
+import {
+  Actors,
+  type EventCallback,
+  EventType,
+  ExecutionState,
+  type ClarifyResponse,
+  type AskUserPayload,
+} from '@extension/shared';
 import {
   ChatModelAuthError,
   ChatModelBadRequestError,
@@ -29,6 +36,7 @@ import type { GeneralSettingsConfig } from '@extension/storage';
 import { analytics } from '../services/analytics';
 import type { ToolExecutionResult, MCPTool } from '@extension/mcp-client';
 import type { Skill, SkillExecutionResult } from '@extension/skills';
+import { summarizeClarifyResponse } from './clarify';
 
 const logger = createLogger('Executor');
 
@@ -376,6 +384,17 @@ ${skillList}
           navigatorDone = false;
           latestPlanOutput = await this.runPlanner();
 
+          // 若 Planner 主动提出要问用户，弹窗等回应；用户回应后会作为新的 HumanMessage 注入
+          // 下一轮的 message history，让 Planner 在下次迭代里能基于回答继续。
+          if (latestPlanOutput?.result?.ask_user) {
+            const handled = await this.handlePlannerAskUser(latestPlanOutput.result.ask_user);
+            if (handled === 'abort') {
+              break;
+            }
+            // 不立即 checkTaskCompletion —— 用户的回答可能让 done 失效；让下轮 planner 重新评估
+            continue;
+          }
+
           // Check if task is complete after planner run
           if (this.checkTaskCompletion(latestPlanOutput)) {
             break;
@@ -567,6 +586,55 @@ ${skillList}
     } catch (error) {
       logger.error(`Failed to cleanup browser context: ${error}`);
     }
+  }
+
+  /**
+   * 把 side-panel 发回来的澄清回应转发到 AgentContext。
+   * 由 background port handler 调用。
+   */
+  resolveClarification(requestId: string, response: ClarifyResponse): boolean {
+    return this.context.resolveClarification(requestId, response);
+  }
+
+  /**
+   * Planner 主动要求向用户澄清时的处理：
+   * 1) 发 ASK_USER 事件让 side-panel 弹窗
+   * 2) pause executor
+   * 3) await 用户回应
+   * 4) resume + 把回答塞回 message history（Planner 下轮能看到）
+   * 返回 'abort' 表示用户选了"终止任务"，调用方应跳出主循环
+   */
+  private async handlePlannerAskUser(ask: NonNullable<PlannerOutput['ask_user']>): Promise<'continue' | 'abort'> {
+    const requestId = crypto.randomUUID();
+    const payload: AskUserPayload = {
+      requestId,
+      source: 'planner',
+      question: ask.question,
+      context: ask.context || undefined,
+      options: ask.options?.length ? ask.options : undefined,
+      allowFreeText: ask.allow_free_text,
+      allowElementPick: ask.allow_element_pick,
+    };
+    this.context.emitEvent(Actors.PLANNER, ExecutionState.ASK_USER, JSON.stringify(payload));
+    await this.context.pause();
+    let resp: ClarifyResponse;
+    try {
+      resp = await this.context.waitForClarification(requestId);
+    } finally {
+      await this.context.resume();
+    }
+    const summary = summarizeClarifyResponse(resp);
+    // 注入消息历史，让下一轮 Planner 看到用户的回答
+    this.context.messageManager.addMessageWithTokens(
+      new HumanMessage({ content: `[User clarification] ${summary}` }),
+      'clarify',
+    );
+    this.context.emitEvent(Actors.PLANNER, ExecutionState.ASK_USER_RESOLVED, summary);
+    if (resp.abortTask) {
+      await this.context.stop();
+      return 'abort';
+    }
+    return 'continue';
   }
 
   async getCurrentTaskId(): Promise<string> {

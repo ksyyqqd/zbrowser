@@ -1,9 +1,12 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { FaImage } from 'react-icons/fa';
-import { FiStar } from 'react-icons/fi';
+import { FiStar, FiAtSign } from 'react-icons/fi';
 import { t } from '@extension/i18n';
 import SkillQuickSelect, { SkillTag } from './SkillQuickSelect';
 import WorkflowQuickSelect from './WorkflowQuickSelect';
+import { ElementRefPanel } from './ElementRefPanel';
+import { RefChip } from './RefChip';
+import { refToToken, type ElementRef } from '@src/types/elementRef';
 import type { Skill } from '@extension/skills';
 
 interface ChatInputProps {
@@ -17,10 +20,16 @@ interface ChatInputProps {
   onGenerateImage?: () => void;
   disabled: boolean;
   showStopButton: boolean;
-  setContent?: (setter: (text: string) => void) => void;
+  setContent?: (setter: React.Dispatch<React.SetStateAction<string>>) => void;
   isDarkMode?: boolean;
   onExecuteSkill?: (skillId: string, params: Record<string, unknown>) => void;
   onExecuteWorkflow?: (workflowId: string) => void;
+  /** 已引用元素列表（SidePanel 持有） */
+  referencedElements?: ElementRef[];
+  /** SidePanel 提供：往 refs 加一条；同时本组件负责把 token 插到 textarea 光标处 */
+  onAddRef?: (ref: ElementRef) => void;
+  /** SidePanel 提供：移除第 i 条 ref（仅删 chip，textarea 里的可见 token 不自动删） */
+  onRemoveRef?: (index: number) => void;
 }
 
 interface AttachedFile {
@@ -50,12 +59,16 @@ export default function ChatInput({
   isDarkMode = false,
   onExecuteSkill,
   onExecuteWorkflow,
+  referencedElements = [],
+  onAddRef,
+  onRemoveRef,
 }: ChatInputProps) {
   const [text, setText] = useState('');
   const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([]);
   const [attachedImages, setAttachedImages] = useState<AttachedImage[]>([]);
   const [selectedSkill, setSelectedSkill] = useState<Skill | null>(null);
   const [isPasteHintVisible, setIsPasteHintVisible] = useState(false);
+  const [showRefPanel, setShowRefPanel] = useState(false);
 
   const isSendButtonDisabled = useMemo(
     () => disabled || (text.trim() === '' && attachedFiles.length === 0 && attachedImages.length === 0),
@@ -86,6 +99,55 @@ export default function ChatInput({
       ta.style.height = `${Math.min(ta.scrollHeight, 100)}px`;
     }
   }, []);
+
+  /**
+   * 在 textarea 当前光标位置插入一段可见 token（[purpose] / [purpose #idx]）。
+   * 仿 NodeEditorPanel 的 token 工具栏写法。
+   */
+  const insertTokenAtCursor = useCallback(
+    (token: string) => {
+      const ta = textareaRef.current;
+      const current = text;
+      let next: string;
+      let caretPos: number;
+      if (ta) {
+        const start = ta.selectionStart ?? current.length;
+        const end = ta.selectionEnd ?? start;
+        // 自动在 token 前后补空格，避免和已有文字粘连（除非已经是空格/换行/起始）
+        const prefix = current.slice(0, start);
+        const suffix = current.slice(end);
+        const needLeft = prefix.length > 0 && !/\s$/.test(prefix);
+        const needRight = suffix.length > 0 && !/^\s/.test(suffix);
+        const left = (needLeft ? ' ' : '') + token + (needRight ? ' ' : '');
+        next = prefix + left + suffix;
+        caretPos = start + left.length;
+      } else {
+        next = current ? `${current} ${token} ` : `${token} `;
+        caretPos = next.length;
+      }
+      setText(next);
+      requestAnimationFrame(() => {
+        const t = textareaRef.current;
+        if (t) {
+          t.focus();
+          t.selectionStart = t.selectionEnd = caretPos;
+          // 同步高度（可能因换行变了）
+          t.style.height = 'auto';
+          t.style.height = `${Math.min(t.scrollHeight, 100)}px`;
+        }
+      });
+    },
+    [text],
+  );
+
+  /** @ 面板里点元素后：父级 onAddRef + 本地插 token */
+  const handlePickRef = useCallback(
+    (ref: ElementRef) => {
+      if (onAddRef) onAddRef(ref);
+      insertTokenAtCursor(refToToken(ref));
+    },
+    [onAddRef, insertTokenAtCursor],
+  );
 
   const handleSubmit = useCallback(
     (e: React.FormEvent) => {
@@ -403,6 +465,15 @@ export default function ChatInput({
           </div>
         )}
 
+        {/* 引用元素 chip 行 */}
+        {referencedElements.length > 0 && (
+          <div className="flex flex-wrap gap-1 px-3 pt-2">
+            {referencedElements.map((r, i) => (
+              <RefChip key={`${r.label}-${i}`} refItem={r} onRemove={() => onRemoveRef?.(i)} />
+            ))}
+          </div>
+        )}
+
         {/* 输入框 */}
         <textarea
           ref={textareaRef}
@@ -436,6 +507,21 @@ export default function ChatInput({
             isDarkMode ? 'border-jade-border/15' : 'border-[var(--border-color)]'
           }`}>
           <div className="flex gap-0.5" style={{ color: `var(--text-muted)` }}>
+            {/* @ 引用元素按钮 + 弹出面板 */}
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setShowRefPanel(p => !p)}
+                disabled={disabled}
+                aria-label="引用页面元素"
+                title="@ 引用页面元素：从已记的元素或现场拾取"
+                className={`icon-btn rounded-md ${disabled ? '!opacity-35 cursor-not-allowed' : ''} ${
+                  showRefPanel ? '!bg-[var(--accent-glow)] !text-[var(--accent-color)]' : ''
+                }`}>
+                <FiAtSign className="size-4" />
+              </button>
+              {showRefPanel && <ElementRefPanel onPick={handlePickRef} onClose={() => setShowRefPanel(false)} />}
+            </div>
             {/* 图片上传按钮 */}
             <button
               type="button"

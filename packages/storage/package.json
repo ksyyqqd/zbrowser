@@ -21,6 +21,7 @@
     "type-check": "tsc --noEmit"
   },
   "devDependencies": {
+    "@extension/shared": "workspace:*",
     "@extension/skills": "workspace:*",
     "@extension/tsconfig": "workspace:*",
     "@extension/workflow": "workspace:*"

@@ -5,7 +5,7 @@ import { DEFAULT_INCLUDE_ATTRIBUTES } from '../browser/dom/views';
 import type { DOMHistoryElement } from '../browser/dom/history/view';
 import type MessageManager from './messages/service';
 import type { EventManager } from './event/manager';
-import { type Actors, type ExecutionState, AgentEvent } from './event/types';
+import { type Actors, type ExecutionState, AgentEvent, type ClarifyResponse } from '@extension/shared';
 import { AgentStepHistory } from './history';
 import type { ToolExecutionResult, MCPTool } from '@extension/mcp-client';
 import type { Skill, SkillExecutionResult } from '@extension/skills';
@@ -70,6 +70,29 @@ export class AgentContext {
   listSkills?: (category?: string) => Promise<Skill[]>;
   getSkillInfo?: (skillId: string) => Promise<Skill | undefined>;
 
+  // 用户澄清等待回调表：ask_user action / planner.ask_user 调用时挂一项，
+  // background 端收到 side-panel 的回应后路由到这里 resolve 对应 promise。
+  pendingClarifications: Map<string, (response: ClarifyResponse) => void> = new Map();
+
+  // 用户拾取的待落库元素提示。askUser handler 收到 ClarifyResponse 时若带 pickedSelector/Xpath，
+  // 暂存一条到这里；下一个 click_element / input_text / select_dropdown_option 成功执行后，
+  // 由 builder 调 elementHintsStore.addHint 落库并清空。
+  // 不立刻落库 = 规避「拾取了但是错的」污染事实库（用户拾取后 AI 试了报错则丢弃）。
+  pendingPickedHints: Array<{
+    purpose: string;
+    selector?: string;
+    xpath?: string;
+    textContent?: string;
+  }> = [];
+
+  /**
+   * 当前 LLM 决策中声明的元素用途（来自 current_state.element_purpose）。
+   * Navigator 在执行动作前从 modelOutput.current_state 抓一份放这里，
+   * builder.ts 的 persistHintOnSuccess 用作落库时的 purpose 字段。
+   * 每次 Navigator step 结束清空。
+   */
+  currentElementPurpose: string = '';
+
   constructor(
     taskId: string,
     browserContext: BrowserContext,
@@ -128,6 +151,28 @@ export class AgentContext {
   async stop() {
     this.stopped = true;
     setTimeout(() => this.controller.abort(), 300);
+  }
+
+  /**
+   * 等待 side-panel 那边针对给定 requestId 的回应。
+   * 配合 ask_user action / planner ask_user 使用：调用方负责先发 ASK_USER 事件并 pause。
+   */
+  waitForClarification(requestId: string): Promise<ClarifyResponse> {
+    return new Promise(resolve => {
+      this.pendingClarifications.set(requestId, resolve);
+    });
+  }
+
+  /**
+   * Background port 收到 clarify_response 后调用，转发到对应 promise。
+   * 返回是否匹配成功，未匹配时由调用方记日志（任务可能已经被取消或 service worker 被回收）。
+   */
+  resolveClarification(requestId: string, response: ClarifyResponse): boolean {
+    const cb = this.pendingClarifications.get(requestId);
+    if (!cb) return false;
+    this.pendingClarifications.delete(requestId);
+    cb(response);
+    return true;
   }
 }
 
@@ -189,6 +234,16 @@ export const agentBrainSchema = z
     evaluation_previous_goal: z.string(),
     memory: z.string(),
     next_goal: z.string(),
+    // 元素把握度自评：本步打算操作的元素你有多大把握选对了？
+    // 0.0 = 几乎在猜；0.7 = 比较有把握；0.9+ = 几乎肯定（如已知元素事实库里能直接匹）。
+    // 当本步动作包含 click_element / input_text / select_dropdown_option 但分数 < 0.7 时，
+    // executor 会自动把动作丢弃并转为 ask_user with allow_element_pick=true。
+    // 不操作元素的步骤（go_to_url / scroll / wait 等）可留默认 1.0。
+    element_confidence: z.number().min(0).max(1).default(1),
+    // 你打算操作的元素是干什么用的，2-12 个字：「提交按钮」/「搜索框」/「展开评论」。
+    // 用于 ask_user 弹窗中显示问题、以及拾取成功后持久化到元素事实库的 purpose 字段。
+    // 不操作元素的步骤可留空。
+    element_purpose: z.string().default(''),
   })
   .describe('Current state of the agent');
 

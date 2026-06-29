@@ -1,10 +1,7 @@
-export enum Actors {
-  SYSTEM = 'system',
-  USER = 'user',
-  PLANNER = 'planner',
-  NAVIGATOR = 'navigator',
-  VALIDATOR = 'validator',
-}
+// Actors enum 已迁移到 @extension/shared 作为唯一定义来源。
+// 这里仅重新导出以保持向后兼容（避免侵入式修改 storage 现有消费者）。
+export { Actors } from '@extension/shared';
+import { Actors } from '@extension/shared';
 
 export interface Message {
   actor: Actors;

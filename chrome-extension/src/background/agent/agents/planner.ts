@@ -2,8 +2,8 @@ import { BaseAgent, type BaseAgentOptions, type ExtraAgentOptions } from './base
 import { createLogger } from '@src/background/log';
 import { z } from 'zod';
 import type { AgentOutput } from '../types';
-import { HumanMessage } from '@langchain/core/messages';
-import { Actors, ExecutionState } from '../event/types';
+import { HumanMessage, SystemMessage, type BaseMessage } from '@langchain/core/messages';
+import { Actors, ExecutionState } from '@extension/shared';
 import {
   ChatModelAuthError,
   ChatModelBadRequestError,
@@ -19,9 +19,27 @@ import { filterExternalContent } from '../messages/utils';
 const logger = createLogger('PlannerAgent');
 
 // Define Zod schema for planner output
+// 注：某些 LLM（如 qwen3.5-flash）会把多行内容输出成 string[] 而不是 string；
+// 这里把所有"自然语言段落"字段都做宽容转换，避免格式不严导致整个规划失败。
+const lenientText = z
+  .union([
+    z.string(),
+    z.array(z.union([z.string(), z.number(), z.boolean(), z.null(), z.undefined()])).transform(arr =>
+      arr
+        .filter(v => v !== null && v !== undefined)
+        .map(v => String(v))
+        .join('\n'),
+    ),
+    z.number().transform(String),
+    z.boolean().transform(String),
+    z.null().transform(() => ''),
+    z.undefined().transform(() => ''),
+  ])
+  .default('');
+
 export const plannerOutputSchema = z.object({
-  observation: z.string(),
-  challenges: z.string(),
+  observation: lenientText,
+  challenges: lenientText,
   done: z.union([
     z.boolean(),
     z.string().transform(val => {
@@ -30,9 +48,9 @@ export const plannerOutputSchema = z.object({
       throw new Error('Invalid boolean string');
     }),
   ]),
-  next_steps: z.string(),
-  final_answer: z.string(),
-  reasoning: z.string(),
+  next_steps: lenientText,
+  final_answer: lenientText,
+  reasoning: lenientText,
   web_task: z.union([
     z.boolean(),
     z.string().transform(val => {
@@ -41,6 +59,26 @@ export const plannerOutputSchema = z.object({
       throw new Error('Invalid boolean string');
     }),
   ]),
+  // 可选：当 Planner 觉得"必须先问用户"才能继续时，结构化地表达提问。
+  // 见 executor.runPlanner() 后的分支处理：触发时会暂停任务、弹窗、等用户回答。
+  ask_user: z
+    .object({
+      question: z.string().describe('the question shown to the user'),
+      context: z.string().default('').describe('optional extra context'),
+      options: z
+        .array(
+          z.object({
+            id: z.string(),
+            label: z.string(),
+            description: z.string().default(''),
+          }),
+        )
+        .default([]),
+      allow_free_text: z.boolean().default(true),
+      allow_element_pick: z.boolean().default(false),
+    })
+    .nullable()
+    .optional(),
 });
 
 export type PlannerOutput = z.infer<typeof plannerOutputSchema>;
@@ -75,6 +113,20 @@ export class PlannerAgent extends BaseAgent<typeof plannerOutputSchema, PlannerO
         }
 
         plannerMessages[plannerMessages.length - 1] = new HumanMessage(newMsg);
+      }
+
+      // === 流式推理 ===
+      // 先用一次轻量调用流出一段「自然语言推理」给用户看（边收边 emit STREAM_DELTA）
+      // 之后再走原有 structured output 拿决策 JSON
+      // 失败不阻塞主决策流程
+      try {
+        await this.streamReasoning(plannerMessages);
+      } catch (streamErr) {
+        // 用户主动取消时直接抛出，让主流程感知
+        if (isAbortedError(streamErr)) {
+          throw streamErr;
+        }
+        logger.warning('[stream] failed, falling back to silent planning:', streamErr);
       }
 
       const modelOutput = await this.invoke(plannerMessages);
@@ -127,5 +179,60 @@ export class PlannerAgent extends BaseAgent<typeof plannerOutputSchema, PlannerO
         error: errorMessage,
       };
     }
+  }
+
+  /**
+   * 让 planner 先吐一段「自然语言推理」给用户看，逐 token 流出。
+   * 这次调用不影响后续的 structured output 决策；只是为了让用户在等待时
+   * 能看到 AI 在「打字」，提升等待体感。
+   *
+   * 用一个轻量的 system prompt + 复用主对话的 messages（让模型看到上下文）
+   * 但限制只输出 2-4 句话观察+计划，避免拖长延迟。
+   */
+  private async streamReasoning(plannerMessages: BaseMessage[]): Promise<void> {
+    const reasoningSystem = new SystemMessage(
+      [
+        '你正在帮助用户完成一项浏览器任务。',
+        '在做出正式决策之前，请用 2-4 句中文简要说出：',
+        '1) 你当前观察到的页面状态或上下文重点；',
+        '2) 你打算下一步做什么。',
+        '不要输出任何 JSON 或代码块，只输出自然语言。不要客套，不要重复用户的原话，直奔主题。',
+      ].join('\n'),
+    );
+
+    // 复用主消息列表的非系统消息部分，让模型有同样的上下文
+    const restMessages = plannerMessages.slice(1);
+    const streamMessages = [reasoningSystem, ...restMessages];
+
+    let buffer = '';
+    let chunkCount = 0;
+    let nonEmptyCount = 0;
+    const stream = await this.chatLLM.stream(streamMessages, {
+      signal: this.context.controller.signal,
+      ...this.callOptions,
+    });
+
+    for await (const chunk of stream) {
+      chunkCount++;
+      // chunk.content 可能是 string，也可能是 ContentComplex[]（多模态时）
+      let delta = '';
+      if (typeof chunk.content === 'string') {
+        delta = chunk.content;
+      } else if (Array.isArray(chunk.content)) {
+        for (const part of chunk.content) {
+          if (typeof part === 'object' && part !== null && 'type' in part && part.type === 'text' && 'text' in part) {
+            delta += (part as { text: string }).text;
+          }
+        }
+      }
+      if (!delta) continue;
+      nonEmptyCount++;
+      buffer += delta;
+      this.context.emitEvent(Actors.PLANNER, ExecutionState.STREAM_DELTA, delta);
+    }
+
+    // 标记一段流结束（前端可据此关闭"打字中"指示）
+    this.context.emitEvent(Actors.PLANNER, ExecutionState.STREAM_END, '');
+    logger.info(`[Planner stream] total=${chunkCount} chunks, nonEmpty=${nonEmptyCount}, ${buffer.length} chars`);
   }
 }

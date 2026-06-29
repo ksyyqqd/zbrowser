@@ -129,6 +129,13 @@ Manifest V3 强制 service worker,扩展启动后所有"长生命周期"逻辑�
 - **Background ↔ Target Tab**:`chrome.tabs.sendMessage` + `chrome.scripting.executeScript`(按需注入)
 - **跨页同步状态**(主题等):`localStorage` + `storage` 事件 / chrome.storage 订阅
 
+关键 port 消息(非穷举):
+- `new_task` / `follow_up_task` / `cancel_task` / `pause_task` / `resume_task`:任务生命周期
+- `clarify_response` ↔ `clarify_ack`:`ask_user` 弹窗回应路由(见 §4.4)
+- `replay` / `start_recording` / `stop_recording`:重放与录制
+- `execute_workflow` / `execute_skill`:工具调用
+- `pick_element_start`(runtime msg, 非 port):侧边栏/工作流编辑器 → 注入页面 picker overlay → 拿 selector/xpath
+
 ---
 
 ## 4. 多 Agent 系统(`background/agent/`)
@@ -169,6 +176,57 @@ USER PROMPT
 - 浏览器原子动作集中在 `actions/`,Navigator 通过工具调用接口(每个 action 都有 zod schema)
 - Skill 可以被 Navigator 当作"高层动作"调用,实现"AI 用 skill 完成事"
 - MCP tool 同样作为可调用工具,通过 `services/mcp/` 桥接
+
+### 4.4 用户澄清与把握度闸门
+
+为了让 Agent 在不确定时**主动停下问用户**而不是猜,系统在 Agent 协作循环之上叠加了一套澄清机制。
+
+**组成部分:**
+
+| 组件 | 文件 | 作用 |
+|---|---|---|
+| `ask_user` action | `actions/schemas.ts` + `actions/builder.ts` | Navigator 的可调用动作:暂停任务、向 SidePanel 发 `ASK_USER` 事件、等待 `ClarifyResponse` 后 resume |
+| Planner 的 `ask_user` 字段 | `agents/planner.ts` 的 `plannerOutputSchema` | Planner 可直接在 plan JSON 里输出结构化提问,executor 走相同的 pause/await 流程 |
+| 把握度闸门 | `agents/navigator.ts` 的 `maybeGateOnLowConfidence` | LLM 输出 `current_state.element_confidence < 0.7` 且本步有元素交互动作时,**丢弃动作**自动转 `ask_user(allow_element_pick=true)` |
+| `ClarifyDialog` 弹窗 | `pages/side-panel/src/components/ClarifyDialog.tsx` | 单选项 + 自由文本 + 🎯 元素拾取入口 + 终止任务 |
+| `ClarifyResponse` 路由 | `background/index.ts` port `clarify_response` case → `AgentContext.resolveClarification` | 唤醒 Navigator/Planner 那边 `await waitForClarification(requestId)` 的 promise |
+| 元素事实库 | `elementHintsStore`(见 §10) | 用户拾取后**接下来的动作执行成功**才落库,按 hostname 索引;state message 里自动拼"已知该站元素"段供 LLM 复用 |
+| 手动标记入口 | `pages/side-panel/src/components/MarkElementDialog.tsx` | SidePanel 顶栏 `FiTarget` 按钮触发,**与 ask_user 路径解耦**——用户主动拾取 → 填 purpose → 直接 `elementHintsStore.addHint(source='user_pick')`,无需触发任务 |
+| 教导模式入口 | `pages/side-panel/src/components/TeachingDialog.tsx` + background port `get_interactive_elements`/`infer_element_purposes`/`highlight_element` | SidePanel 顶栏 `FiBookOpen` 按钮触发,**一次性批量教**——拉当前页 selectorMap → LLM 批量推测每个元素 purpose+confidence → 用户审阅/编辑/勾选/补充 → `elementHintsStore.addHints` 批量入库;编辑过 purpose 的标 `user_pick`,未改的标 `ai_inferred` |
+| 聊天框 @ 引用 | `pages/side-panel/src/components/ElementRefPanel.tsx` + `RefChip.tsx` + `types/elementRef.ts` | ChatInput 工具栏 `FiAtSign` 按钮 → 弹出小面板列出当前 hostname 事实库 / 现场拾取一个新的;选中后在 textarea 光标处插入可见 `[purpose #N]` token + 上方加一个 chip。**TeachingDialog 的行 `[index]` 也可点**,落到同一引用机制。<br/>发送时 SidePanel 把 `referencedElements` 拼成 `<nano_referenced_elements>` XML 块追加到 task 字符串末尾,Agent prompts 第 14 节识别 → 直接复用 xpath,confidence 设 0.95+,**绕过把握度闸门**(用户已亲手指过) |
+| Picker 通用 hook | `pages/side-panel/src/hooks/useElementPicker.ts` + `components/PickerCard.tsx` | 三个弹窗(Clarify/Mark/Teaching)共用的元素拾取状态机和卡片 UI |
+| 页面高亮 overlay | `pages/side-panel/public/highlightOverlayInject.js` | TeachingDialog 列表里"在页面上看"按钮 → background 用 `chrome.scripting.executeScript` 注入 → 在目标元素位置画 2 秒红色脉冲框 |
+
+**闭环示意:**
+
+```
+LLM 输出 element_confidence + element_purpose
+    │
+    ▼
+navigator.maybeGateOnLowConfidence (阈值 0.7)
+    ├─ ≥0.7 → 放行 doMultiAction
+    └─ <0.7 → emit ASK_USER (allow_element_pick=true)
+              → context.pause()
+              → await waitForClarification(requestId)
+                 ↑
+                 │ SidePanel ClarifyDialog → port 'clarify_response'
+                 │   ├─ choiceId / text
+                 │   ├─ pickedSelector/pickedXpath (来自 picker overlay)
+                 │   └─ cancelled / abortTask
+              → context.resume()
+              → resp 暂存到 context.pendingPickedHints
+              → 下一轮 Navigator 看到 [User clarification] 摘要 + 已知元素段
+              → 决策执行 click/input/select 成功
+                 → persistHintOnSuccess → elementHintsStore.addHint (source='user_pick')
+              → 下次访问同 hostname → prompts/base.ts 自动拼 [Known elements on xxx]
+                 → LLM confidence ≥ 0.9,不再触发闸门
+```
+
+**仅用户拾取后真的成功执行的元素才入库**(`pendingPickedHints` → `persistHintOnSuccess`),避免错拾取污染事实库。AI 自主选择并成功的元素也会以 `source='ai_success'` 入库,但 UI 上明确区分。
+
+### 4.5 流式推理事件
+
+Planner 在决策前会先用一次轻量调用流出"自然语言推理"给用户看(`Actors.PLANNER` + `ExecutionState.STREAM_DELTA` / `STREAM_END`),由 SidePanel 的 `MessageList` 实时追加。失败不阻塞主决策流程。
 
 ---
 
@@ -465,6 +523,12 @@ returns {
 - `firewallStore`:URL/操作白名单
 - `imageProviderStore`:图片生成 provider
 - `mcpServersStore`:MCP 服务器列表
+- `farmerSitesStore`:农场主模式 AI 网站清单(`packages/storage/lib/settings/farmerSites.ts`)
+- `elementHintsStore`:元素事实库,按 hostname 索引(`packages/storage/lib/settings/elementHints.ts`)
+  - schema:`{ buckets: { [hostname]: { hostname, hints: ElementHint[], updatedAt } } }`
+  - `ElementHint { id, purpose, selector?, xpath?, textContent?, source: 'user_pick' | 'ai_success' | 'manual', createdAt, lastUsedAt, useCount }`
+  - 由 Navigator/Planner 的 `ask_user` 闭环写入(见 §4.4),不允许 UI 手动添加
+  - 同 selector+xpath 已存在则 `touchHint`(useCount + 1),不重复
 - 各类 `chatStore` / `promptStore` / `favoritesStore`
 
 ---
@@ -568,6 +632,23 @@ pnpm -F chrome-extension test       # Vitest 单测
 - 显式 `subflowInputs` / `subflowOutputs` 映射 = 明确的接口契约
 - 默认隔离 + 显式穿透,Skill 系统的参数 schema 思路一致
 
+### 15.7 为何把握度评估是「闸门」而非「提示词劝说」
+
+**问题**:让 Agent 在不确定时问用户,而不是猜。
+
+**两种方案权衡**:
+
+| 方案 | 实现 | 问题 |
+|---|---|---|
+| 软推动:prompt 里加"不确定时调用 ask_user" | 改 navigator 提示词,LLM 自己决定何时问 | 模型有"完成任务"的训练偏好,会倾向硬猜而不是问;阈值不可控 |
+| **硬闸门**(选用) | LLM 必须在 `current_state` 输出 `element_confidence` 分数,executor 在执行前根据 0.7 阈值**强制拦截**元素动作 | LLM 仍可虚报高分,但**门槛在系统侧而非模型侧**,行为可预测 |
+
+**为何不做"二步确认"**(所有元素动作前都问):
+- 太烦扰,会严重拖慢任务,与"自动化"目标矛盾
+- 大多数元素操作是没歧义的(页面只有一个登录按钮),没必要问
+
+**事实库的位置**:闸门拦截 → 用户拾取 → 落库后下次访问同 hostname 自动注入到 state message → LLM 直接复用,confidence 自然提到 0.9+ → 不再触发闸门。**形成正反馈,每次拾取换永久免问。**
+
 ---
 
 ## 16. 安全与隐私
@@ -604,4 +685,4 @@ pnpm -F chrome-extension test       # Vitest 单测
 ---
 
 **最后更新人**:代码助手(基于 commit / 工作区当前状态自动生成)
-**最后更新日期**:2026-06-23
+**最后更新日期**:2026-06-29(教导模式)

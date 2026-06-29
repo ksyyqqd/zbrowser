@@ -1,4 +1,4 @@
-import type { AgentEvent, EventType, EventCallback } from './types';
+import type { AgentEvent, EventType, EventCallback } from '@extension/shared';
 import { createLogger } from '../../log';
 
 const logger = createLogger('event-manager');

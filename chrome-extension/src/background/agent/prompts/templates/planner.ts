@@ -66,8 +66,23 @@ ${commonSecurityRules}
     "next_steps": "[字符串类型]，列出2-3个要采取的高层级下一步骤（当done=true时必须为空）",
     "final_answer": "[字符串类型]，完整用户友好的任务答案（当done=true时必须提供，否则为空）",
     "reasoning": "[字符串类型]，解释建议下一步骤或完成决定的推理",
-    "web_task": "[布尔类型]，终极任务是否与浏览网页相关"
+    "web_task": "[布尔类型]，终极任务是否与浏览网页相关",
+    "ask_user": "[可选对象]，仅当你判断必须先得到用户澄清才能继续时填写，否则省略或设为 null"
 }
+
+# 用户澄清 (ask_user) 字段使用规则:
+- 仅在以下情况使用：用户原始任务存在多个合理解读、缺少关键参数（如账号/数量/地址）、即将执行不可逆动作需要确认
+- 不要用 ask_user 来回避思考——能从上下文推断的不要问
+- 填写时 done 必须保持 false，next_steps/final_answer 可留空（弹窗回来后会重新规划）
+- ask_user 对象格式:
+  {
+    "question": "[简短一句话问题]",
+    "context": "[可选，解释你为什么不确定]",
+    "options": [{"id": "stable_id", "label": "选项文案", "description": "可选灰色补充"}, ...],  // 0-4 个候选
+    "allow_free_text": true,
+    "allow_element_pick": false   // 仅当不确定是哪个 DOM 元素时设为 true
+  }
+- 用户回答后会作为 [User clarification] ... 的 HumanMessage 注入下轮上下文，你应该基于回答重新规划。
 
 # 重要字段关系:
 - 当done=false时：next_steps应包含操作项，final_answer应为空

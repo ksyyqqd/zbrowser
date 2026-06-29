@@ -23,16 +23,96 @@ import {
   scrollToTopActionSchema,
   scrollToBottomActionSchema,
   getFullHtmlActionSchema,
+  askUserActionSchema,
 } from './schemas';
 import { mcpToolActionSchema, mcpListToolsActionSchema, mcpGetStatusActionSchema } from './mcpSchemas';
 import { skillInvokeActionSchema, skillListActionSchema, skillGetInfoActionSchema } from './skillSchemas';
 import { z } from 'zod';
 import { createLogger } from '@src/background/log';
-import { ExecutionState, Actors } from '../event/types';
+import { ExecutionState, Actors, type AskUserPayload, type ClarifyResponse } from '@extension/shared';
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models';
 import { wrapUntrustedContent } from '../messages/utils';
+import { summarizeClarifyResponse } from '../clarify';
+import { elementHintsStore, getHostnameFromUrl } from '@extension/storage';
+import type { DOMElementNode } from '@src/background/browser/dom/views';
 
 const logger = createLogger('Action');
+
+/**
+ * 把 context.pendingPickedHints 中"未落库"的拾取结果落库到 elementHintsStore。
+ *
+ * 触发：click_element / input_text / select_dropdown_option 成功后调用。
+ * 匹配逻辑：
+ *  1. 如果有任意 pending hint 的 xpath 跟当前 elementNode 的 xpath 一样 → 这就是用户拾取后真正被用上的，落库
+ *  2. 如果都不匹配（用户拾取了一个但 LLM 最终点了别的）→ 落库"AI 实际用的元素"作为 ai_success 来源
+ *  3. 落库后清空 pendingPickedHints（一次拾取 → 一次落库；避免多次入库噪音）
+ *
+ * 设计取舍：
+ *  - 不匹配时仍记 ai_success 是为了让"AI 自己摸索成功"的元素也能积累事实库
+ *  - 但是 source = 'ai_success' 而非 'user_pick'，UI 侧可以按来源区分置信度
+ */
+async function persistHintOnSuccess(
+  context: AgentContext,
+  elementNode: DOMElementNode,
+  fallbackPurpose: string,
+): Promise<void> {
+  try {
+    const page = await context.browserContext.getCurrentPage();
+    const hostname = getHostnameFromUrl(page.url());
+    if (!hostname) return;
+
+    const nodeXpath = elementNode.xpath || undefined;
+    const nodeText = elementNode.getAllTextTillNextClickableElement(2)?.trim().slice(0, 200);
+
+    if (context.pendingPickedHints.length > 0) {
+      // 优先匹配 pending 里的用户拾取
+      const matched = context.pendingPickedHints.find(p => p.xpath && nodeXpath && p.xpath === nodeXpath);
+      if (matched) {
+        const stored = await elementHintsStore.addHint(hostname, {
+          purpose: matched.purpose || fallbackPurpose,
+          selector: matched.selector,
+          xpath: matched.xpath,
+          textContent: matched.textContent || nodeText,
+          source: 'user_pick',
+        });
+        logger.info(
+          `[hint] saved user_pick on ${hostname}: purpose="${stored.purpose}" xpath="${stored.xpath || ''}" useCount=${stored.useCount}`,
+        );
+      } else {
+        // 用户拾取了但 LLM 最终选了别的元素 → 落 LLM 实际用的那个
+        const stored = await elementHintsStore.addHint(hostname, {
+          purpose: fallbackPurpose,
+          xpath: nodeXpath,
+          textContent: nodeText,
+          source: 'ai_success',
+        });
+        logger.info(
+          `[hint] user picked but LLM chose another, saved ai_success on ${hostname}: purpose="${stored.purpose}" xpath="${stored.xpath || ''}" useCount=${stored.useCount}`,
+        );
+      }
+      // 一次澄清 → 一次落库，无论是否匹配都清空，避免后续动作重复入库
+      context.pendingPickedHints = [];
+    } else if (fallbackPurpose && nodeXpath) {
+      // 无 pending：LLM 自己摸索成功的元素也累积；但要求 purpose 非空避免无意义记录
+      const stored = await elementHintsStore.addHint(hostname, {
+        purpose: fallbackPurpose,
+        xpath: nodeXpath,
+        textContent: nodeText,
+        source: 'ai_success',
+      });
+      logger.info(
+        `[hint] saved ai_success on ${hostname}: purpose="${stored.purpose}" xpath="${stored.xpath || ''}" useCount=${stored.useCount}`,
+      );
+    } else {
+      logger.debug(
+        `[hint] skip persist: no pending pick and no element_purpose (hostname=${hostname}, hasXpath=${!!nodeXpath})`,
+      );
+    }
+  } catch (err) {
+    // 落库失败不能影响主流程
+    logger.warning('persistHintOnSuccess failed:', err);
+  }
+}
 
 export class InvalidInputError extends Error {
   constructor(message: string) {
@@ -68,8 +148,22 @@ export class Action {
 
     const parsedArgs = this.schema.schema.safeParse(input);
     if (!parsedArgs.success) {
-      const errorMessage = parsedArgs.error.message;
-      throw new InvalidInputError(errorMessage);
+      // 把 Zod 错误转成 LLM 看得懂、用户看着也不像 bug 的人话
+      // 例如：[{code:"invalid_type", expected:"number", received:"undefined", path:["tab_id"]}]
+      //   ->  "Action 'switch_tab' missing required parameter 'tab_id' (expected number)"
+      const issues = parsedArgs.error.issues
+        .map(issue => {
+          const field = issue.path.length > 0 ? issue.path.join('.') : '<root>';
+          if (issue.code === 'invalid_type' && (issue as any).received === 'undefined') {
+            return `missing required parameter '${field}' (expected ${(issue as any).expected})`;
+          }
+          if (issue.code === 'invalid_type') {
+            return `parameter '${field}' has wrong type (expected ${(issue as any).expected}, got ${(issue as any).received})`;
+          }
+          return `parameter '${field}': ${issue.message}`;
+        })
+        .join('; ');
+      throw new InvalidInputError(`Action '${this.schema.name}' invalid input: ${issues}`);
     }
     return await this.handler(parsedArgs.data);
   }
@@ -265,6 +359,7 @@ export class ActionBuilder {
             }
           }
           this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_OK, msg);
+          await persistHintOnSuccess(this.context, elementNode, this.context.currentElementPurpose);
           return new ActionResult({ extractedContent: msg, includeInMemory: true });
         } catch (error) {
           const msg = t('act_errors_elementNoLongerAvailable', [input.index.toString()]);
@@ -295,6 +390,7 @@ export class ActionBuilder {
         await page.inputTextElementNode(this.context.options.useVision, elementNode, input.text);
         const msg = t('act_inputText_ok', [input.text, input.index.toString()]);
         this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_OK, msg);
+        await persistHintOnSuccess(this.context, elementNode, this.context.currentElementPurpose);
         return new ActionResult({ extractedContent: msg, includeInMemory: true });
       },
       inputTextActionSchema,
@@ -685,6 +781,7 @@ export class ActionBuilder {
           const result = await page.selectDropdownOption(input.index, input.text);
           const msg = t('act_selectDropdownOption_ok', [input.text, input.index.toString()]);
           this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_OK, msg);
+          await persistHintOnSuccess(this.context, elementNode, this.context.currentElementPurpose);
           return new ActionResult({
             extractedContent: result,
             includeInMemory: true,
@@ -759,6 +856,47 @@ export class ActionBuilder {
       true, // hasIndex (optional)
     );
     actions.push(getFullHtml);
+
+    // 用户澄清动作 —— 暂停任务、弹窗、等用户回应
+    const askUser = new Action(async (input: z.infer<typeof askUserActionSchema.schema>) => {
+      const requestId = crypto.randomUUID();
+      const payload: AskUserPayload = {
+        requestId,
+        source: 'navigator',
+        question: input.question,
+        context: input.context || undefined,
+        options: input.options && input.options.length ? input.options : undefined,
+        allowFreeText: input.allow_free_text,
+        allowElementPick: input.allow_element_pick,
+      };
+      const intent = input.intent || `Asking user: ${input.question}`;
+      this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_START, intent);
+      this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ASK_USER, JSON.stringify(payload));
+      await this.context.pause();
+      let resp: ClarifyResponse;
+      try {
+        resp = await this.context.waitForClarification(requestId);
+      } finally {
+        await this.context.resume();
+      }
+      const summary = summarizeClarifyResponse(resp, input.options);
+      this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ASK_USER_RESOLVED, summary);
+      if (resp.abortTask) {
+        // 用户选择终止：标记 ActionResult.isDone 让 navigator 不再继续；同时 stop context
+        await this.context.stop();
+        return new ActionResult({
+          extractedContent: summary,
+          includeInMemory: true,
+          isDone: true,
+        });
+      }
+      this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_OK, summary);
+      return new ActionResult({
+        extractedContent: summary,
+        includeInMemory: true,
+      });
+    }, askUserActionSchema);
+    actions.push(askUser);
 
     return actions;
   }

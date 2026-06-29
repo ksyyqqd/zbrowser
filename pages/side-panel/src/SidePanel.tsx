@@ -2,14 +2,15 @@
 // 导入React相关Hook函数
 import { useState, useEffect, useCallback, useRef } from 'react';
 // 导入UI图标组件
-import { FiSettings, FiBookmark, FiSun, FiMoon } from 'react-icons/fi';
+import { FiSettings, FiBookmark, FiSun, FiMoon, FiTarget, FiBookOpen } from 'react-icons/fi';
 // 导入器灵遮罩注入脚本 URL（用于 files 注入）
 /* 注入脚本通过 chrome.scripting.executeScript({ files: ['spiritOverlayInject.js'] }) 加载，
  * 不使用 ?raw import 或 eval，以兼容目标页面的 CSP 策略 */
 import { PiPlusBold } from 'react-icons/pi';
 import { GrHistory } from 'react-icons/gr';
 // 导入消息类型、角色枚举和存储相关功能
-import { type Message, Actors, chatHistoryStore, agentModelStore, generalSettingsStore } from '@extension/storage';
+import { type Message, chatHistoryStore, agentModelStore, generalSettingsStore } from '@extension/storage';
+import { Actors, EventType, type AgentEvent, ExecutionState } from '@extension/shared';
 // 导入收藏提示存储和类型
 import favoritesStorage, { type FavoritePrompt } from '@extension/storage/lib/prompt/favorites';
 // 导入国际化函数
@@ -22,11 +23,13 @@ import ChatInput from './components/ChatInput';
 import ChatHistoryList from './components/ChatHistoryList';
 import BookmarkList from './components/BookmarkList';
 import SpiritDoll from './components/SpiritDoll';
+import { wrapTaskByMode } from './types/spiritModes';
 import ImageGenerationModal, { type ImageGenerationParams } from './components/ImageGenerationModal';
 // 导入录制控制组件
 import RecordingPill from './components/RecordingPill';
-// 导入事件类型和执行状态
-import { EventType, type AgentEvent, ExecutionState } from './types/event';
+import { ClarifyDialog } from './components/ClarifyDialog';
+import { MarkElementDialog } from './components/MarkElementDialog';
+import { TeachingDialog } from './components/TeachingDialog';
 // 导入样式表
 import './SidePanel.css';
 import '@extension/ui/global.css';
@@ -75,6 +78,21 @@ const SidePanel = () => {
 
   // 消息状态：存储聊天消息数组
   const [messages, setMessages] = useState<Message[]>([]);
+  // 用户澄清弹窗：非空时显示 ClarifyDialog，等用户回应后清空
+  const [pendingClarify, setPendingClarify] = useState<import('@extension/shared').AskUserPayload | null>(null);
+  // 手动标记元素弹窗：用户主动从 header 入口打开
+  const [showMarkElement, setShowMarkElement] = useState(false);
+  // 教导模式弹窗：批量推测当前页面元素 purpose
+  const [showTeaching, setShowTeaching] = useState(false);
+  // 用户在聊天框中临时引用的页面元素（@ 面板 / TeachingDialog 点 [index] 添加）
+  // 发送后清空；删 chip 仅删本数组项，textarea 里的可见 token 不动（用户可独立编辑）
+  const [referencedElements, setReferencedElements] = useState<import('./types/elementRef').ElementRef[]>([]);
+  const addElementRef = useCallback((ref: import('./types/elementRef').ElementRef) => {
+    setReferencedElements(prev => [...prev, ref]);
+  }, []);
+  const removeElementRef = useCallback((index: number) => {
+    setReferencedElements(prev => prev.filter((_, i) => i !== index));
+  }, []);
   // 输入启用状态：控制输入框是否可用
   const [inputEnabled, setInputEnabled] = useState(true);
   // 录制进行中标记 — 录制时禁用聊天输入
@@ -147,9 +165,12 @@ const SidePanel = () => {
   // 消息列表底部引用（用于自动滚动到底部）
   const messagesEndRef = useRef<HTMLDivElement>(null);
   // 设置输入文本的引用
-  const setInputTextRef = useRef<((text: string) => void) | null>(null);
+  const setInputTextRef = useRef<React.Dispatch<React.SetStateAction<string>> | null>(null);
   // 当前皮蛋模式引用（用于在发送任务时包装内容）
-  const spiritModeRef = useRef<'auto' | 'mischief' | 'sleepy' | 'curious' | 'farmer'>('auto');
+  const spiritModeRef = useRef<import('./types/spiritModes').SpiritMode>('auto');
+  // 当前正在流式追加的消息标识：用 timestamp 定位 messages 数组里那条
+  // null 表示当前没有进行中的流
+  const streamingTimestampRef = useRef<number | null>(null);
 
   // 检查暗色模式偏好（从 localStorage 恢复，默认跟随系统）
   useEffect(() => {
@@ -503,6 +524,67 @@ const SidePanel = () => {
       const content = data?.details;
       let skip = true;
       let displayProgress = false;
+
+      // === 流式增量事件：在 actor 分支前统一处理 ===
+      // STREAM_DELTA：把 delta 追加到当前流的消息上；没有则新建一条
+      // STREAM_END：标记本段流结束
+      if (state === ExecutionState.STREAM_DELTA) {
+        const delta = content || '';
+        if (!delta) return;
+        const activeTs = streamingTimestampRef.current;
+        if (activeTs === null) {
+          // 首个 delta：把同 actor 最近一条 progressMessage 占位替换为流式消息
+          // 注：STEP_START 也会插一条 progress 占位（actor=planner），需要把它移除
+          // 否则流式新消息插在末尾，progress 占位仍存在 → latestStepMsg 还是 progress
+          streamingTimestampRef.current = timestamp;
+          setMessages(prev => {
+            // 倒序找最后一条同 actor 的 progress 占位
+            const lastProgressIdx = (() => {
+              for (let i = prev.length - 1; i >= 0; i--) {
+                if (prev[i].content === progressMessage && prev[i].actor === actor) return i;
+              }
+              return -1;
+            })();
+            const next =
+              lastProgressIdx >= 0
+                ? [...prev.slice(0, lastProgressIdx), ...prev.slice(lastProgressIdx + 1)]
+                : [...prev];
+            next.push({ actor, content: delta, timestamp });
+            return next;
+          });
+        } else {
+          // 继续追加到那条消息
+          setMessages(prev =>
+            prev.map(m => (m.timestamp === activeTs && m.actor === actor ? { ...m, content: m.content + delta } : m)),
+          );
+        }
+        return;
+      }
+      if (state === ExecutionState.STREAM_END) {
+        streamingTimestampRef.current = null;
+        return;
+      }
+
+      // === 用户澄清事件：弹窗交互 ===
+      // ASK_USER: details 是 JSON.stringify(AskUserPayload) → 解析后驱动 ClarifyDialog 展示
+      // ASK_USER_RESOLVED: 用户已回应，details 是给消息流的人类可读摘要，写入消息列表即可
+      if (state === ExecutionState.ASK_USER) {
+        try {
+          const payload = JSON.parse(content || '{}') as import('@extension/shared').AskUserPayload;
+          if (payload && payload.requestId && payload.question) {
+            setPendingClarify(payload);
+          }
+        } catch (e) {
+          console.error('Failed to parse ASK_USER payload:', e, content);
+        }
+        return;
+      }
+      if (state === ExecutionState.ASK_USER_RESOLVED) {
+        setPendingClarify(null);
+        // 把摘要作为一条 actor 消息记入消息流，便于回看
+        appendMessage({ actor, content: `🙋 用户回应：${content || ''}`, timestamp });
+        return;
+      }
 
       // 根据不同的参与者处理事件
       switch (actor) {
@@ -1467,35 +1549,25 @@ const SidePanel = () => {
         : `⚡ 执行 Skill: ${skill.name}`;
     }
 
-    // 农场主模式：包装用户任务为AI农场优先策略
-    let finalText = skillEnhancedText;
-    let finalDisplayText = skillEnhancedDisplayText;
-
-    if (spiritModeRef.current === 'farmer') {
-      const farmerWrapper = `[农场主模式] 请按以下策略处理用户的任务：
-
-## AI农场优先访问顺序
-1. **DeepSeek** (https://chat.deepseek.com) - 深度推理能力强，适合复杂分析
-2. **通义千问** (https://www.qianwen.com) - 阿里云AI，中文理解优秀
-
-## 执行策略
-- 首先打开第一个可访问的AI网站，在输入框中输入用户问题
-- 发送完成后，检查是否发送成功（确认输入框已清空或有回复出现）
-- 如果提交失败，可尝试其他提交方式
-- 等待AI回复，记录关键信息
-- 继续访问下一个AI网站获取不同视角
-- 最后汇总各个AI的回答，形成综合对比报告
-- 如果某个网站需要登录，跳过继续下一个
-
----
-
-## 用户任务
-${trimmedText}`;
-
-      finalText = farmerWrapper;
-      finalDisplayText = `🌾 [农场主模式] ${trimmedText}`;
-      console.log('[农场主模式] 包装任务完成');
+    // 按当前球球模式包装任务（自动模式不变；农场主/探索 走对应 promptWrapper）
+    // skill 是嵌入在用户文本里的额外指令；模式包装作用于整段（包含 skill 信息）
+    // 把临时引用的页面元素拼成 XML 块，让 Agent 拿到精确 selector/xpath
+    let withRefs = skillEnhancedText;
+    if (referencedElements.length > 0) {
+      const lines = referencedElements.map(r => {
+        const bits: string[] = [];
+        if (r.xpath) bits.push(`xpath=${r.xpath}`);
+        if (r.selector) bits.push(`selector=${r.selector}`);
+        if (r.text) bits.push(`text="${r.text.slice(0, 60).replace(/"/g, "'")}"`);
+        return `- "${r.label}"（${r.purpose}）：${bits.join('，')}`;
+      });
+      const refsBlock = `\n\n<nano_referenced_elements>\n${lines.join('\n')}\n</nano_referenced_elements>`;
+      withRefs = (skillEnhancedText || trimmedText) + refsBlock;
     }
+    const { task: wrappedTask, displayText: wrappedDisplay } = await wrapTaskByMode(spiritModeRef.current, withRefs);
+    const finalText = wrappedTask;
+    // displayText 上：若模式无包装，沿用 skillEnhancedDisplayText；否则使用模式提供的带前缀的展示文本
+    const finalDisplayText = wrappedTask === withRefs ? skillEnhancedDisplayText : wrappedDisplay;
 
     // 检查输入是否为命令（以/开头）
     if (trimmedText.startsWith('/')) {
@@ -1571,6 +1643,11 @@ ${trimmedText}`;
           images, // 传递用户上传的图片
         });
         console.log('新任务已发送', finalText, tabId, sessionIdRef.current);
+      }
+
+      // 发送成功 → 清空临时引用元素（chip 区也跟着空）
+      if (referencedElements.length > 0) {
+        setReferencedElements([]);
       }
 
       // 第六步：发送成功后，更新UI状态为"执行中"
@@ -1887,6 +1964,27 @@ ${trimmedText}`;
 
   return (
     <div className={isDarkMode ? 'dark' : ''}>
+      {/* 用户澄清弹窗：Agent 调 ask_user 时挂载，挡住交互 */}
+      {pendingClarify && (
+        <ClarifyDialog payload={pendingClarify} port={portInstance} onClose={() => setPendingClarify(null)} />
+      )}
+      {/* 手动元素标记弹窗：用户主动从顶栏入口打开 */}
+      {showMarkElement && <MarkElementDialog onClose={() => setShowMarkElement(false)} />}
+      {/* 教导模式弹窗：批量推测当前页面元素 + 多选保存 */}
+      {showTeaching && (
+        <TeachingDialog
+          port={portInstance}
+          onClose={() => setShowTeaching(false)}
+          onPickToChat={ref => {
+            addElementRef(ref);
+            // 同步把可见 token 插到 textarea；用 setInputTextRef 远程写
+            const token = `[${ref.label}]`;
+            const setter = setInputTextRef.current;
+            if (setter) setter(prev => (prev ? `${prev} ${token} ` : `${token} `));
+            setShowTeaching(false);
+          }}
+        />
+      )}
       <div
         className="relative flex h-screen flex-col overflow-hidden border transition-all duration-500 ease-out"
         style={{
@@ -1953,6 +2051,28 @@ ${trimmedText}`;
                   aria-label={t('nav_loadHistory_a11y')}
                   tabIndex={0}>
                   <GrHistory size={17} />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowMarkElement(true)}
+                  onKeyDown={e => e.key === 'Enter' && setShowMarkElement(true)}
+                  className="header-icon"
+                  style={{ color: 'var(--accent-color)' }}
+                  aria-label="标记页面元素到记忆库"
+                  title="标记元素：把当前页面上的元素告诉皮蛋"
+                  tabIndex={0}>
+                  <FiTarget size={17} />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowTeaching(true)}
+                  onKeyDown={e => e.key === 'Enter' && setShowTeaching(true)}
+                  className="header-icon"
+                  style={{ color: 'var(--accent-color)' }}
+                  aria-label="教导模式：批量教 AI 认识当前网站"
+                  title="教导模式：让 AI 推测当前页面所有元素，挑一批入库"
+                  tabIndex={0}>
+                  <FiBookOpen size={17} />
                 </button>
                 {/* Recording Control */}
                 <RecordingPill
@@ -2273,6 +2393,9 @@ ${trimmedText}`;
                           isDarkMode={isDarkMode}
                           onExecuteSkill={handleExecuteSkill}
                           onExecuteWorkflow={handleExecuteWorkflow}
+                          referencedElements={referencedElements}
+                          onAddRef={addElementRef}
+                          onRemoveRef={removeElementRef}
                         />
                       </div>
                       <div className="flex-1 overflow-y-auto px-2 pb-2">
@@ -2306,6 +2429,9 @@ ${trimmedText}`;
                           isDarkMode={isDarkMode}
                           onExecuteSkill={handleExecuteSkill}
                           onExecuteWorkflow={handleExecuteWorkflow}
+                          referencedElements={referencedElements}
+                          onAddRef={addElementRef}
+                          onRemoveRef={removeElementRef}
                         />
                       </div>
                     </>

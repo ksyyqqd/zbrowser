@@ -308,6 +308,9 @@ importers:
 
   packages/storage:
     devDependencies:
+      '@extension/shared':
+        specifier: workspace:*
+        version: link:../shared
       '@extension/skills':
         specifier: workspace:*
         version: link:../skills

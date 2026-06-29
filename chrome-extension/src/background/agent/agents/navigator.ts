@@ -6,7 +6,7 @@ import type { Action } from '../actions/builder';
 import { buildDynamicActionSchema } from '../actions/builder';
 import { agentBrainSchema } from '../types';
 import { type BaseMessage, HumanMessage } from '@langchain/core/messages';
-import { Actors, ExecutionState } from '../event/types';
+import { Actors, ExecutionState, type AskUserPayload, type ClarifyResponse } from '@extension/shared';
 import {
   ChatModelAuthError,
   ChatModelBadRequestError,
@@ -196,9 +196,40 @@ export class NavigatorAgent extends BaseAgent<z.ZodType, NavigatorResult> {
       modelOutput.action = actions;
       modelOutputString = JSON.stringify(modelOutput);
 
+      // ===== 把握度闸门 =====
+      // 若本步动作包含需要 index 的元素交互（click_element / input_text / select_dropdown_option）
+      // 且 LLM 自评 element_confidence < 0.7，则把动作丢弃、转为 ask_user with allow_element_pick=true。
+      // 用户回答后 ClarifyResponse 会写入 context.pendingClarifications 并 resume；下轮 Navigator 重新决策。
+      const gateTriggered = await this.maybeGateOnLowConfidence(modelOutput, actions);
+      if (gateTriggered) {
+        // 已经 emit ASK_USER + 走完 wait clarify 流程。本轮不执行 LLM 决定的动作，
+        // 但把 modelOutput 仍记入 memory（让 LLM 下轮看见"上一步我说要点 X 但 confidence 太低被拦了"）
+        this.removeLastStateMessageFromMemory();
+        this.addModelOutputToMemory(modelOutput);
+        this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.STEP_OK, 'Gated by low confidence, asked user.');
+        agentOutput.result = { done: false };
+        return agentOutput;
+      }
+
       // remove the last state message from memory before adding the model output
       this.removeLastStateMessageFromMemory();
       this.addModelOutputToMemory(modelOutput);
+
+      // 把本步 LLM 声明的元素用途暂存到 context，builder 中 click/input/select 成功后用于 hint 落库 purpose
+      const cs = (modelOutput as { current_state?: { element_purpose?: string; element_confidence?: number } })
+        .current_state;
+      this.context.currentElementPurpose = cs?.element_purpose || '';
+
+      // 一行摘要：方便从 service worker console 直接看 confidence/purpose 走向
+      const confSummary = cs?.element_confidence ?? 1;
+      const purposeSummary = cs?.element_purpose || '(none)';
+      const actionNames = actions
+        .map(a => Object.keys(a)[0])
+        .filter(Boolean)
+        .join(',');
+      logger.info(
+        `[conf] step actions=[${actionNames}] element_confidence=${confSummary} element_purpose="${purposeSummary}"`,
+      );
 
       // take the actions
       actionResults = await this.doMultiAction(actions);
@@ -674,5 +705,205 @@ export class NavigatorAgent extends BaseAgent<z.ZodType, NavigatorResult> {
     }
 
     return action;
+  }
+
+  /**
+   * 把握度闸门：检查本步是否有元素交互动作且 element_confidence < 阈值，是则发 ask_user 并 pause 等用户。
+   * 返回 true 表示已经接管这一步（调用方应 skip doMultiAction）；false 表示放行。
+   *
+   * 设计要点：
+   *  - 阈值固定 0.7（< 0.7 = 不放心；前端无需暴露调参）
+   *  - 仅对 click_element / input_text / select_dropdown_option 三种"要 index"的动作生效
+   *  - allow_element_pick=true：用户可以直接在页面上点正确的元素，picker 已存在
+   *  - 用户回应中的 pickedSelector/Xpath 会暂存到 context.pendingPickedHints
+   *    下一次任何元素动作成功执行后，由 builder.ts 中的成功分支落库到 elementHintsStore
+   *
+   *  - **系统侧硬上限**：即使 LLM 自评 ≥0.7，也要做客观检查：纯 icon（无文本/aria-label）按钮、
+   *    同容器多个相似兄弟等情况会被强制降到 ≤0.6 触发用户澄清，避免 LLM 虚报高分绕过闸门
+   */
+  private async maybeGateOnLowConfidence(
+    modelOutput: this['ModelOutput'],
+    actions: Record<string, unknown>[],
+  ): Promise<boolean> {
+    const ELEMENT_GATE_THRESHOLD = 0.7;
+    const ELEMENT_ACTIONS = new Set(['click_element', 'input_text', 'select_dropdown_option']);
+
+    const currentState = (modelOutput as { current_state?: Record<string, unknown> }).current_state;
+    const llmConf = (currentState?.element_confidence as number | undefined) ?? 1;
+    const purpose = (currentState?.element_purpose as string | undefined) || '';
+    const nextGoal = (currentState?.next_goal as string | undefined) || '';
+
+    // 找到本步第一个 ELEMENT 动作 + 它的 index
+    let elementActionIndex: number | undefined;
+    let elementActionName: string | undefined;
+    for (const a of actions) {
+      const name = Object.keys(a)[0];
+      if (name && ELEMENT_ACTIONS.has(name)) {
+        const args = a[name] as Record<string, unknown> | undefined;
+        const idx = args?.index as number | undefined;
+        if (typeof idx === 'number') {
+          elementActionIndex = idx;
+          elementActionName = name;
+        }
+        break;
+      }
+    }
+    if (elementActionIndex === undefined) return false;
+
+    // === 系统侧硬上限检查 ===
+    // 即使 LLM 给 1.0，也要看客观证据：元素本身有没有文本可识别？同容器有多少相似兄弟？
+    let hardCap = 1.0;
+    const capReasons: string[] = [];
+    try {
+      const cachedState = await this.context.browserContext.getCachedState();
+      const elementNode = cachedState?.selectorMap.get(elementActionIndex);
+      if (elementNode) {
+        // 1. 有可识别文本吗？
+        const text = (elementNode.getAllTextTillNextClickableElement(2) || '').trim();
+        const attrs = elementNode.attributes || {};
+        const ariaLabel = (attrs['aria-label'] || '').trim();
+        const title = (attrs['title'] || '').trim();
+        const placeholder = (attrs['placeholder'] || '').trim();
+        const alt = (attrs['alt'] || '').trim();
+        const value = (attrs['value'] || '').trim();
+        const hasAnyText =
+          text.length > 0 || ariaLabel.length > 0 || title.length > 0 || placeholder.length > 0 || alt.length > 0;
+        if (!hasAnyText) {
+          hardCap = Math.min(hardCap, 0.6);
+          capReasons.push('no_text_or_aria');
+        }
+
+        // 2. 兄弟元素相似性：同父级、同 tag、可交互且都无文本的元素数量
+        const parent = (elementNode as { parent?: { children?: unknown[] } | null }).parent;
+        if (parent?.children && Array.isArray(parent.children)) {
+          let similarSiblings = 0;
+          for (const sib of parent.children) {
+            const s = sib as {
+              tagName?: string | null;
+              isInteractive?: boolean;
+              highlightIndex?: number | null;
+              getAllTextTillNextClickableElement?: (d?: number) => string;
+              attributes?: Record<string, string>;
+            };
+            if (!s || s === (elementNode as unknown)) continue;
+            if (s.tagName !== elementNode.tagName) continue;
+            if (!s.isInteractive) continue;
+            // 兄弟无文本（同样是 icon 按钮组）
+            const sText = (s.getAllTextTillNextClickableElement?.(2) || '').trim();
+            const sAttrs = s.attributes || {};
+            const sHasText =
+              sText.length > 0 ||
+              (sAttrs['aria-label'] || '').trim().length > 0 ||
+              (sAttrs['title'] || '').trim().length > 0;
+            if (!sHasText && !hasAnyText) {
+              // 多个相邻无文字 icon → 极易混淆
+              similarSiblings++;
+            } else if (sHasText && hasAnyText) {
+              // 都有文字也算相似（如多个 "Submit" 并存）
+              similarSiblings++;
+            }
+          }
+          if (similarSiblings >= 1 && !hasAnyText) {
+            // 自己无文字且有同款无文字兄弟 → icon 群陷阱
+            hardCap = Math.min(hardCap, 0.5);
+            capReasons.push(`icon_group_${similarSiblings + 1}`);
+          } else if (similarSiblings >= 2) {
+            hardCap = Math.min(hardCap, 0.7);
+            capReasons.push(`siblings_${similarSiblings + 1}`);
+          }
+        }
+
+        // 3. <button> 但只含 svg/img 且无任何 aria/title/alt → 无文字 icon 按钮
+        if (elementNode.tagName?.toLowerCase() === 'button' && !hasAnyText && Array.isArray(elementNode.children)) {
+          const onlyMediaChildren = elementNode.children.every(c => {
+            const tn = (c as { tagName?: string }).tagName?.toLowerCase();
+            return tn === 'svg' || tn === 'img' || tn === 'i' || !tn;
+          });
+          if (onlyMediaChildren) {
+            hardCap = Math.min(hardCap, 0.6);
+            capReasons.push('svg_only_button');
+          }
+        }
+
+        if (capReasons.length > 0) {
+          logger.info(
+            `[gate] hardCap=${hardCap} for index=${elementActionIndex} action=${elementActionName} reasons=[${capReasons.join(',')}] (llm_conf=${llmConf})`,
+          );
+        }
+      }
+    } catch (err) {
+      // 评估失败不阻塞主流程，沿用 LLM 自评
+      logger.warning('[gate] hardCap check failed:', err);
+    }
+
+    // 最终 confidence = min(LLM 自评, 硬上限)
+    const effectiveConf = Math.min(llmConf, hardCap);
+    if (effectiveConf >= ELEMENT_GATE_THRESHOLD) return false;
+
+    logger.info(
+      `[gate] effective_confidence=${effectiveConf} < ${ELEMENT_GATE_THRESHOLD}` +
+        ` (llm=${llmConf}, cap=${hardCap}${capReasons.length ? ', reasons=' + capReasons.join(',') : ''})` +
+        ` asking user for ${purpose || 'element'}`,
+    );
+
+    const requestId = crypto.randomUUID();
+    const reasonHint =
+      capReasons.length > 0
+        ? `（系统判定：${capReasons.includes('no_text_or_aria') || capReasons.includes('svg_only_button') ? '无文字描述的图标按钮' : capReasons.find(r => r.startsWith('icon_group_')) ? '同区域多个无文字图标，容易选错' : '同区域多个相似元素'}）`
+        : `（confidence=${effectiveConf.toFixed(2)}，AI 不太确定）`;
+    const question = purpose
+      ? `请帮我指认页面上的「${purpose}」${reasonHint}`
+      : `请帮我确认接下来该操作哪个元素${reasonHint}`;
+    const payload: AskUserPayload = {
+      requestId,
+      source: 'navigator',
+      question,
+      context: nextGoal ? `AI 下一步打算：${nextGoal}` : undefined,
+      allowFreeText: true,
+      allowElementPick: true,
+    };
+    this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ASK_USER, JSON.stringify(payload));
+    await this.context.pause();
+    let resp: ClarifyResponse;
+    try {
+      resp = await this.context.waitForClarification(requestId);
+    } finally {
+      await this.context.resume();
+    }
+
+    // 用户拾取了元素 → 暂存到 pendingPickedHints，等下一次元素动作成功后落库
+    if (resp.pickedSelector || resp.pickedXpath) {
+      this.context.pendingPickedHints.push({
+        purpose: purpose || '用户拾取的元素',
+        selector: resp.pickedSelector,
+        xpath: resp.pickedXpath,
+        textContent: resp.pickedText,
+      });
+    }
+
+    // 把摘要广播给前端 + 注入 message manager，让下一轮 Navigator 看到用户的回答
+    const bits: string[] = [];
+    if (resp.choiceId) bits.push(`User chose option id=${resp.choiceId}.`);
+    if (resp.text?.trim()) bits.push(`User typed: ${resp.text.trim()}`);
+    if (resp.pickedSelector || resp.pickedXpath) {
+      const segs: string[] = [];
+      if (resp.pickedSelector) segs.push(`selector=${resp.pickedSelector}`);
+      if (resp.pickedXpath) segs.push(`xpath=${resp.pickedXpath}`);
+      if (resp.pickedText) segs.push(`text="${resp.pickedText.slice(0, 80)}"`);
+      bits.push(`User picked an element: ${segs.join(', ')}.`);
+    }
+    if (resp.cancelled) bits.push('User cancelled the question.');
+    if (resp.abortTask) bits.push('User aborted the task.');
+    const summary = bits.length ? bits.join(' ') : 'User answered with no content.';
+
+    this.context.messageManager.addMessageWithTokens(
+      new HumanMessage({ content: `[User clarification] ${summary}` }),
+      'clarify',
+    );
+    this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ASK_USER_RESOLVED, summary);
+    if (resp.abortTask) {
+      await this.context.stop();
+    }
+    return true;
   }
 }

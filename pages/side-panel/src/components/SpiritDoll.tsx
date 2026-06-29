@@ -30,8 +30,17 @@ const truncateText = (text: string, maxLength: number = MAX_BUBBLE_LENGTH): stri
   return text.slice(0, maxLength) + '...';
 };
 
-export type SpiritMood = 'idle' | 'thinking' | 'working' | 'happy' | 'mischief' | 'sleepy' | 'curious' | 'farmer';
-export type ManualMode = 'auto' | 'mischief' | 'sleepy' | 'curious' | 'farmer';
+export type SpiritMood =
+  | 'idle'
+  | 'thinking'
+  | 'working'
+  | 'happy'
+  | 'mischief'
+  | 'sleepy'
+  | 'curious'
+  | 'farmer'
+  | 'explore';
+export type ManualMode = 'auto' | 'farmer' | 'explore';
 
 // 当前执行步骤信息
 export interface ExecutionStep {
@@ -49,13 +58,13 @@ interface SpiritDollProps {
   onModeChange?: (mode: ManualMode) => void;
 }
 
-// 手动模式配置
+// 手动模式配置（仅显示给用户的"执行风格"选项）
+// mischief / sleepy / curious 这些"装饰性"模式已收敛到自动情绪机里（SpiritMood），
+// 不再作为手动选项给用户切换。
 const MODE_CONFIG: Record<ManualMode, { label: string; icon: string; desc: string; mood: SpiritMood }> = {
-  auto: { label: '自动', icon: '◈', desc: '皮蛋自主玩耍~', mood: 'idle' },
-  mischief: { label: '捣乱', icon: '✦', desc: '皮蛋要捣蛋啦！', mood: 'mischief' },
-  sleepy: { label: '睡觉', icon: '☾', desc: '皮蛋困了想睡...', mood: 'sleepy' },
-  curious: { label: '探索', icon: '◎', desc: '皮蛋到处嗅嗅~', mood: 'curious' },
-  farmer: { label: '农场主', icon: '🌾', desc: '皮蛋去各个AI农场采集信息~', mood: 'farmer' },
+  auto: { label: '自动', icon: '◈', desc: '皮蛋按标准方式执行任务', mood: 'idle' },
+  farmer: { label: '农场主', icon: '🌾', desc: '皮蛋去各个 AI 网站采集答案再汇总', mood: 'farmer' },
+  explore: { label: '探索', icon: '🔍', desc: '皮蛋多源调研后给出对比报告', mood: 'explore' },
 };
 
 // 宠物皮蛋闲聊/撒娇语料库 — 按场景分类
@@ -113,6 +122,12 @@ const SPIRIT_LINES: Record<SpiritMood, string[]> = {
     'Kimi的农场真热闹！',
     '皮蛋要把各个AI农场的精华都带回来！',
   ],
+  explore: [
+    '皮蛋去多个地方调研一圈~',
+    '让皮蛋多方对比，给主人最稳的答案！',
+    '一个来源不够，皮蛋要采集多家信息~',
+    '探索模式启动！打开新世界的大门~',
+  ],
 };
 
 // SVG 器灵形象 — 根据心情变化表情和颜色
@@ -138,6 +153,7 @@ function SpiritAvatar({
     sleepy: { primary: '#A78BFA', glow: 'rgba(167,139,250,0.18)' },
     curious: { primary: '#EC4899', glow: 'rgba(236,72,153,0.2)' },
     farmer: { primary: '#10B981', glow: 'rgba(16,185,129,0.25)', cheek: '#A7F3D033' }, // 翠绿色（农作物）
+    explore: { primary: '#0EA5E9', glow: 'rgba(14,165,233,0.22)', cheek: '#7DD3FC44' }, // 探索蓝
   };
   const c = colorMap[mood];
 
@@ -166,6 +182,7 @@ function SpiritAvatar({
     sleepy: 'M12 21 Q15 21 18 21', // 平淡
     curious: 'M13.5 19.5 A1.5 1.5 0 1 0 16.5 19.5 A1.5 1.5 0 1 0 13.5 19.5', // 小o嘴（用椭圆弧线）
     farmer: 'M12 21 Q15 23 18 21', // 微笑带得意
+    explore: 'M12 20.5 Q15 22 18 20.5', // 探索时浅笑（专注但带兴致）
   };
 
   return (

@@ -13,7 +13,7 @@ import BrowserContext from './browser/context';
 import type Page from './browser/page';
 import { Executor } from './agent/executor';
 import { createLogger } from './log';
-import { ExecutionState } from './agent/event/types';
+import { ExecutionState } from '@extension/shared';
 import { createChatModel } from './agent/helper';
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models';
 import { DEFAULT_AGENT_OPTIONS } from './agent/types';
@@ -1161,6 +1161,129 @@ async function handleExecuteWorkflow(message: {
 }
 
 // Handler functions for MCP/Skills messages
+
+/**
+ * 给一批可交互元素批量推测 purpose 和 confidence。
+ * 由 side-panel 教导模式（TeachingDialog）通过 port 'infer_element_purposes' 触发。
+ *
+ * 直接复用 Navigator 配的 LLM 和 provider。**不走 Agent prompts**——只发一个独立的 prompt
+ * 要求 JSON 输出，避免 Navigator 系统提示词污染推测结果。
+ *
+ * 失败兜底：返回空数组，让 UI 走"无推荐、用户自己挑"分支，不阻塞用户操作。
+ */
+async function inferElementPurposes(
+  elements: Array<{ index: number; tagName: string; text: string; attributes: Record<string, string> }>,
+  url: string,
+): Promise<Array<{ index: number; purpose: string; confidence: number; reasoning?: string }>> {
+  try {
+    const providers = await llmProviderStore.getAllProviders();
+    if (Object.keys(providers).length === 0) {
+      logger.warning('[infer] no LLM provider configured');
+      return [];
+    }
+    const agentModels = await agentModelStore.getAllAgentModels();
+    const navigatorModel = agentModels[AgentNameEnum.Navigator];
+    if (!navigatorModel) {
+      logger.warning('[infer] no Navigator model configured');
+      return [];
+    }
+    const providerConfig = providers[navigatorModel.provider];
+    if (!providerConfig) {
+      logger.warning('[infer] provider config missing');
+      return [];
+    }
+    const llm = createChatModel(providerConfig, navigatorModel);
+
+    // 压缩元素列表，每条只给 LLM 真正有用的字段（去掉空 attrs）
+    const compactList = elements.map(el => {
+      const attrs: Record<string, string> = {};
+      for (const [k, v] of Object.entries(el.attributes || {})) {
+        if (v && v.trim()) attrs[k] = v.trim().slice(0, 80);
+      }
+      return {
+        index: el.index,
+        tag: el.tagName,
+        text: el.text.slice(0, 80),
+        attrs,
+      };
+    });
+
+    const prompt =
+      `你正在帮用户标注一个网站（${url}）上的可交互元素，目的是建立元素事实库供未来的浏览器 Agent 复用。\n\n` +
+      `下面是当前页面所有可交互元素的简化清单（index + 标签 + 可见文本 + 关键属性）。\n` +
+      `请为每个元素推测它的功能用途（purpose），并给出 0-1 的 confidence 分数。\n\n` +
+      `规则：\n` +
+      `1. purpose 用 2-12 个汉字描述（例："提交按钮"/"搜索框"/"附件按钮"/"用户头像菜单"）；尽量具体不要含糊\n` +
+      `2. confidence 严格遵守：\n` +
+      `   - 0.9+：元素有明确的文本/aria-label 与功能强对应（如按钮文字是"登录"）\n` +
+      `   - 0.7-0.89：有一定文本但需上下文推断（如 placeholder 暗示是搜索框）\n` +
+      `   - 0.4-0.69：纯图标无文字 / 多个相似候选 / 只能猜功能\n` +
+      `   - <0.4：完全不知道做什么用的（如纯装饰元素、未知按钮）\n` +
+      `3. 只返回 confidence >= 0.4 的元素\n` +
+      `4. **必须**输出严格 JSON 数组（不要 markdown 代码块，不要解释文字），格式：\n` +
+      `[{"index": 0, "purpose": "...", "confidence": 0.85, "reasoning": "简短理由(可选)"}, ...]\n\n` +
+      `元素清单：\n` +
+      JSON.stringify(compactList);
+
+    const response = await llm.invoke(prompt);
+    const raw = typeof response.content === 'string' ? response.content : JSON.stringify(response.content);
+
+    // 尝试解析 JSON：去掉可能的 markdown fence
+    let cleaned = raw.trim();
+    // 兼容 ```json...```
+    const fenceMatch = cleaned.match(/```(?:json)?\s*([\s\S]+?)\s*```/);
+    if (fenceMatch) cleaned = fenceMatch[1].trim();
+
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(cleaned);
+    } catch {
+      // 再尝试找到第一个 `[` 到最后一个 `]`
+      const start = cleaned.indexOf('[');
+      const end = cleaned.lastIndexOf(']');
+      if (start >= 0 && end > start) {
+        try {
+          parsed = JSON.parse(cleaned.slice(start, end + 1));
+        } catch (e2) {
+          logger.error('[infer] JSON parse failed even after fence/bracket extraction:', e2);
+          return [];
+        }
+      } else {
+        logger.error('[infer] LLM did not return parseable JSON:', cleaned.slice(0, 200));
+        return [];
+      }
+    }
+
+    if (!Array.isArray(parsed)) {
+      logger.error('[infer] LLM returned non-array:', typeof parsed);
+      return [];
+    }
+
+    // 校验 + 兜底每条
+    const validIndices = new Set(elements.map(e => e.index));
+    const out: Array<{ index: number; purpose: string; confidence: number; reasoning?: string }> = [];
+    for (const item of parsed as Array<Record<string, unknown>>) {
+      const idx = Number(item.index);
+      const purpose = String(item.purpose || '').trim();
+      const conf = Number(item.confidence);
+      const reasoning = typeof item.reasoning === 'string' ? item.reasoning : undefined;
+      if (!Number.isFinite(idx) || !validIndices.has(idx)) continue;
+      if (!purpose || !Number.isFinite(conf)) continue;
+      out.push({
+        index: idx,
+        purpose: purpose.slice(0, 30),
+        confidence: Math.max(0, Math.min(1, conf)),
+        reasoning,
+      });
+    }
+    logger.info(`[infer] LLM returned ${out.length}/${elements.length} purposes`);
+    return out;
+  } catch (error) {
+    logger.error('[infer] failed:', error);
+    return [];
+  }
+}
+
 async function handleMCPTestConnection(config: unknown): Promise<{ success: boolean; error?: string }> {
   try {
     const result = await mcpService.testConnection(config as Parameters<typeof mcpService.testConnection>[0]);
@@ -1293,6 +1416,21 @@ chrome.runtime.onConnect.addListener(port => {
             return port.postMessage({ type: 'success' });
           }
 
+          case 'clarify_response': {
+            // side-panel 弹窗用户回应 ask_user 请求
+            const requestId = message.requestId as string | undefined;
+            const response = message.response as { requestId?: string } | undefined;
+            if (!requestId || !response) {
+              return port.postMessage({ type: 'error', error: 'clarify_response: missing requestId/response' });
+            }
+            if (!currentExecutor) {
+              // 任务已结束但弹窗还在 —— 告诉前端 ack 失败，前端会自关并提示
+              return port.postMessage({ type: 'clarify_ack', requestId, ok: false });
+            }
+            const ok = currentExecutor.resolveClarification(requestId, { ...response, requestId });
+            return port.postMessage({ type: 'clarify_ack', requestId, ok });
+          }
+
           case 'screenshot': {
             if (!message.tabId) return port.postMessage({ type: 'error', error: t('bg_errors_noTabId') });
             const page = await browserContext.switchTab(message.tabId);
@@ -1314,6 +1452,110 @@ chrome.runtime.onConnect.addListener(port => {
             } catch (error) {
               logger.error('Failed to get state:', error);
               return port.postMessage({ type: 'error', error: t('bg_cmd_state_failed') });
+            }
+          }
+
+          case 'get_interactive_elements': {
+            // 教导模式用：side-panel 请求当前页面所有可交互元素，做"批量推测 purpose"的输入
+            try {
+              const browserState = await browserContext.getState(true);
+              const items: Array<{
+                index: number;
+                tagName: string;
+                text: string;
+                xpath?: string;
+                attributes: Record<string, string>;
+              }> = [];
+              browserState.selectorMap.forEach((node, index) => {
+                const attrs = node.attributes || {};
+                items.push({
+                  index,
+                  tagName: (node.tagName || '').toLowerCase(),
+                  text: (node.getAllTextTillNextClickableElement(2) || '').trim().slice(0, 200),
+                  xpath: node.xpath || undefined,
+                  attributes: {
+                    'aria-label': attrs['aria-label'] || '',
+                    title: attrs['title'] || '',
+                    placeholder: attrs['placeholder'] || '',
+                    alt: attrs['alt'] || '',
+                    role: attrs['role'] || '',
+                    type: attrs['type'] || '',
+                    name: attrs['name'] || '',
+                    id: attrs['id'] || '',
+                  },
+                });
+              });
+              return port.postMessage({
+                type: 'interactive_elements',
+                url: browserState.url,
+                title: browserState.title,
+                elements: items,
+              });
+            } catch (error) {
+              logger.error('get_interactive_elements failed:', error);
+              return port.postMessage({
+                type: 'error',
+                error: error instanceof Error ? error.message : 'failed to get elements',
+              });
+            }
+          }
+
+          case 'infer_element_purposes': {
+            // 教导模式用：side-panel 把元素列表发给我们，调 LLM 批量推测 purpose+confidence
+            try {
+              const elements = message.elements as
+                | Array<{ index: number; tagName: string; text: string; attributes: Record<string, string> }>
+                | undefined;
+              const url = (message.url as string | undefined) || '';
+              if (!elements || elements.length === 0) {
+                return port.postMessage({ type: 'inferred_purposes', items: [] });
+              }
+              const items = await inferElementPurposes(elements, url);
+              return port.postMessage({ type: 'inferred_purposes', items });
+            } catch (error) {
+              logger.error('infer_element_purposes failed:', error);
+              return port.postMessage({
+                type: 'error',
+                error: error instanceof Error ? error.message : 'inference failed',
+              });
+            }
+          }
+
+          case 'highlight_element': {
+            // TeachingDialog 里"在页面上看"按钮 → 注入红框 2 秒
+            const tabId = message.tabId as number | undefined;
+            const selector = message.selector as string | undefined;
+            const xpath = message.xpath as string | undefined;
+            const duration = (message.duration as number | undefined) ?? 2000;
+            if (typeof tabId !== 'number') {
+              return port.postMessage({ type: 'error', error: 'highlight_element: missing tabId' });
+            }
+            if (!selector && !xpath) {
+              return port.postMessage({ type: 'error', error: 'highlight_element: need selector or xpath' });
+            }
+            try {
+              // 先注入脚本（首次定义 window.__nb_highlight_element__），再调用
+              await chrome.scripting.executeScript({
+                target: { tabId, frameIds: [0] },
+                files: ['side-panel/highlightOverlayInject.js'],
+              });
+              await chrome.scripting.executeScript({
+                target: { tabId, frameIds: [0] },
+                func: (s: string | undefined, x: string | undefined, d: number) => {
+                  const fn = (
+                    window as unknown as { __nb_highlight_element__?: (s?: string, x?: string, d?: number) => void }
+                  ).__nb_highlight_element__;
+                  if (typeof fn === 'function') fn(s, x, d);
+                },
+                args: [selector, xpath, duration],
+              });
+              return port.postMessage({ type: 'success' });
+            } catch (error) {
+              logger.error('highlight_element failed:', error);
+              return port.postMessage({
+                type: 'error',
+                error: error instanceof Error ? error.message : 'highlight failed',
+              });
             }
           }
 

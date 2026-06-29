@@ -19,6 +19,7 @@ import {
   getDefaultDisplayNameFromProviderId,
   getDefaultProviderConfig,
   getDefaultAgentModelParams,
+  fetchProviderModels,
   type ProviderConfig,
 } from '@extension/storage';
 import { t } from '@extension/i18n';
@@ -86,6 +87,9 @@ export const ModelSettings = ({ isDarkMode = false }: ModelSettingsProps) => {
   const [nameErrors, setNameErrors] = useState<Record<string, string>>({});
   // Add state for tracking API key visibility
   const [visibleApiKeys, setVisibleApiKeys] = useState<Record<string, boolean>>({});
+  // 「动态获取模型列表」相关状态
+  const [fetchingModelsFor, setFetchingModelsFor] = useState<string | null>(null);
+  const [fetchModelsError, setFetchModelsError] = useState<Record<string, string>>({});
   // Create a non-async wrapper for use in render functions
   const [availableModels, setAvailableModels] = useState<
     Array<{ provider: string; providerName: string; model: string }>
@@ -370,6 +374,62 @@ export const ModelSettings = ({ isDarkMode = false }: ModelSettingsProps) => {
         },
       };
     });
+  };
+
+  /**
+   * 调用 provider 接口拉取模型列表，成功后覆盖现有列表。
+   * 调用前要求 apiKey 已存在（OpenRouter / Ollama 例外）。
+   */
+  const handleFetchModels = async (providerId: string) => {
+    const providerData = providers[providerId];
+    if (!providerData) return;
+    const providerType = (providerData.type ?? providerId) as ProviderTypeEnum;
+
+    // 简单前置校验：除 OpenRouter / Ollama 外要求有 apiKey
+    const noKeyRequired = providerType === ProviderTypeEnum.OpenRouter || providerType === ProviderTypeEnum.Ollama;
+    if (!noKeyRequired && !providerData.apiKey?.trim()) {
+      setFetchModelsError(prev => ({ ...prev, [providerId]: '请先填写 API Key' }));
+      return;
+    }
+
+    setFetchingModelsFor(providerId);
+    setFetchModelsError(prev => {
+      const next = { ...prev };
+      delete next[providerId];
+      return next;
+    });
+
+    try {
+      const result = await fetchProviderModels(providerType, providerData);
+      if (!result.ok || !result.models) {
+        setFetchModelsError(prev => ({ ...prev, [providerId]: result.error || '获取失败' }));
+        return;
+      }
+      const existing = providerData.modelNames ?? [];
+      const incoming = result.models;
+      const sameLength = existing.length === incoming.length;
+      const sameContent = sameLength && existing.every((m, i) => m === incoming[i]);
+      if (sameContent) {
+        // 列表完全一致，提示用户但不弹覆盖确认
+        setFetchModelsError(prev => ({ ...prev, [providerId]: `已是最新（${incoming.length} 个模型）` }));
+        return;
+      }
+      const ok = window.confirm(
+        `接口返回 ${incoming.length} 个模型。\n确认后将覆盖当前的 ${existing.length} 个模型（请记得点底部保存按钮使更改生效）。`,
+      );
+      if (!ok) return;
+
+      setModifiedProviders(prev => new Set(prev).add(providerId));
+      setProviders(prev => ({
+        ...prev,
+        [providerId]: { ...prev[providerId], modelNames: incoming },
+      }));
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setFetchModelsError(prev => ({ ...prev, [providerId]: msg }));
+    } finally {
+      setFetchingModelsFor(null);
+    }
   };
 
   const handleKeyDown = (e: KeyboardEvent<HTMLInputElement>, provider: string) => {
@@ -1525,6 +1585,41 @@ export const ModelSettings = ({ isDarkMode = false }: ModelSettingsProps) => {
                             </>
                           )}
                           {/* === END: Conditional UI === */}
+
+                          {/* 动态获取模型列表 — 对所有支持的 provider 都显示 */}
+                          {(providerConfig.type as ProviderTypeEnum) !== ProviderTypeEnum.AzureOpenAI &&
+                            (providerConfig.type as ProviderTypeEnum) !== ProviderTypeEnum.Llama && (
+                              <div className="flex items-center gap-2 pt-1">
+                                <button
+                                  type="button"
+                                  onClick={() => handleFetchModels(providerId)}
+                                  disabled={fetchingModelsFor === providerId}
+                                  className={`rounded-md border px-3 py-1.5 text-xs font-medium transition-colors ${
+                                    isDarkMode
+                                      ? 'border-slate-600 bg-slate-700 text-gray-200 hover:bg-slate-600 disabled:opacity-50'
+                                      : 'border-gray-300 bg-white text-gray-700 hover:bg-gray-50 disabled:opacity-50'
+                                  }`}>
+                                  {fetchingModelsFor === providerId ? '获取中…' : '📥 从接口获取模型列表'}
+                                </button>
+                                {fetchModelsError[providerId] && (
+                                  <span
+                                    className={`text-xs ${
+                                      fetchModelsError[providerId].startsWith('已是最新')
+                                        ? isDarkMode
+                                          ? 'text-green-400'
+                                          : 'text-green-600'
+                                        : isDarkMode
+                                          ? 'text-red-400'
+                                          : 'text-red-600'
+                                    }`}
+                                    title={fetchModelsError[providerId]}>
+                                    {fetchModelsError[providerId].length > 80
+                                      ? `${fetchModelsError[providerId].slice(0, 80)}…`
+                                      : fetchModelsError[providerId]}
+                                  </span>
+                                )}
+                              </div>
+                            )}
                         </div>
                       </div>
                     )}

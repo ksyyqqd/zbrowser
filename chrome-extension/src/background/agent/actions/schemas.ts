@@ -67,28 +67,30 @@ export const inputTextActionSchema: ActionSchema = {
 // Tab Management Actions
 export const switchTabActionSchema: ActionSchema = {
   name: 'switch_tab',
-  description: 'Switch to tab by tab id',
+  description:
+    'Switch to a tab by tab id. You MUST include the numeric tab_id parameter — copy it exactly from the "Available tabs" list in the page state. Never call this action without tab_id.',
   schema: z.object({
     intent: z.string().default('').describe('purpose of this action'),
-    tab_id: z.number().int().describe('id of the tab to switch to'),
+    tab_id: z.number().int().describe('numeric id of the tab to switch to (REQUIRED, copy from Available tabs)'),
   }),
 };
 
 export const openTabActionSchema: ActionSchema = {
   name: 'open_tab',
-  description: 'Open URL in new tab',
+  description: 'Open a URL in a new tab. You MUST include the url parameter.',
   schema: z.object({
     intent: z.string().default('').describe('purpose of this action'),
-    url: z.string().describe('url to open'),
+    url: z.string().describe('full URL to open (REQUIRED, must start with http:// or https://)'),
   }),
 };
 
 export const closeTabActionSchema: ActionSchema = {
   name: 'close_tab',
-  description: 'Close tab by tab id',
+  description:
+    'Close a tab by tab id. You MUST include the numeric tab_id parameter — copy it from the "Available tabs" list.',
   schema: z.object({
     intent: z.string().default('').describe('purpose of this action'),
-    tab_id: z.number().int().describe('id of the tab'),
+    tab_id: z.number().int().describe('numeric id of the tab to close (REQUIRED)'),
   }),
 };
 
@@ -228,5 +230,38 @@ export const getFullHtmlActionSchema: ActionSchema = {
       .optional()
       .describe('index of the element to get HTML for (optional, if not provided returns full page HTML)'),
     max_length: z.number().int().default(5000).describe('maximum length of HTML to return (default 5000 chars)'),
+  }),
+};
+
+// User clarification action — pauses the task and asks the user a question.
+export const askUserActionSchema: ActionSchema = {
+  name: 'ask_user',
+  description:
+    'Pause the task and ask the human user a clarifying question. ONLY use this when you genuinely cannot decide on your own — ambiguous user intent, multiple plausible target elements, irreversible/risky action that needs confirmation. ' +
+    'Provide `options` with stable `id`s when there are a small number of plausible choices. ' +
+    "Set `allow_element_pick: true` when the uncertainty is which DOM element to click/use — the user can then point at the element directly and you'll receive its selector/xpath. " +
+    'After the user answers, you receive their choice/text/picked selector in the action result; resume the task using that information. Do NOT call this for trivial steps — guess when you reasonably can.',
+  schema: z.object({
+    intent: z.string().default('').describe('purpose of this action'),
+    question: z.string().describe('the question shown to the user (concise, single sentence preferred)'),
+    context: z
+      .string()
+      .default('')
+      .describe('optional extra context shown under the question (e.g. why you are uncertain)'),
+    options: z
+      .array(
+        z.object({
+          id: z.string().describe('stable id you will receive back as choiceId'),
+          label: z.string().describe('option label shown to the user'),
+          description: z.string().default('').describe('optional grey sub-text for the option'),
+        }),
+      )
+      .default([])
+      .describe('preset choices (empty array = free-text only)'),
+    allow_free_text: z.boolean().default(true).describe('allow the user to also type a free-text answer'),
+    allow_element_pick: z
+      .boolean()
+      .default(false)
+      .describe('show a "pick element on page" button so the user can click a DOM element directly'),
   }),
 };

@@ -14,6 +14,8 @@ import {
   FiShare2,
   FiImage,
 } from 'react-icons/fi';
+import { GiWheat } from 'react-icons/gi';
+import { LuBrain } from 'react-icons/lu';
 import { GeneralSettings } from './components/GeneralSettings';
 import { ModelSettings } from './components/ModelSettings';
 import { FirewallSettings } from './components/FirewallSettings';
@@ -22,8 +24,21 @@ import { MCPSettings } from './components/MCPSettings';
 import { SkillSettings } from './components/SkillSettings';
 import WorkflowSettings from './components/WorkflowSettings';
 import { ImageProvidersSection } from './components/ImageProvidersSection';
+import { FarmerSitesSettings } from './components/FarmerSitesSettings';
+import { ElementMemorySettings } from './components/ElementMemorySettings';
 
-type TabTypes = 'general' | 'models' | 'mcp' | 'skills' | 'workflows' | 'firewall' | 'analytics' | 'help' | 'images';
+type TabTypes =
+  | 'general'
+  | 'models'
+  | 'mcp'
+  | 'skills'
+  | 'workflows'
+  | 'firewall'
+  | 'analytics'
+  | 'help'
+  | 'images'
+  | 'farmer'
+  | 'memory';
 
 const TABS: { id: TabTypes; icon: React.ComponentType<{ className?: string }>; label: string }[] = [
   { id: 'general', icon: FiSettings, label: t('options_tabs_general') },
@@ -32,6 +47,8 @@ const TABS: { id: TabTypes; icon: React.ComponentType<{ className?: string }>; l
   { id: 'mcp', icon: FiServer, label: t('options_tabs_mcp') },
   { id: 'skills', icon: FiCode, label: t('options_tabs_skills') },
   { id: 'workflows', icon: FiShare2, label: t('options_tabs_workflows') },
+  { id: 'farmer', icon: GiWheat, label: '农场主' },
+  { id: 'memory', icon: LuBrain, label: '元素记忆' },
   // { id: 'firewall', icon: FiShield, label: t('options_tabs_firewall') },
   // { id: 'analytics', icon: FiTrendingUp, label: 'Analytics' },
   // { id: 'help', icon: FiHelpCircle, label: t('options_tabs_help') },
@@ -49,6 +66,8 @@ const Options = () => {
       'mcp',
       'skills',
       'workflows',
+      'farmer',
+      'memory',
       'firewall',
       'analytics',
       'help',
@@ -126,6 +145,10 @@ const Options = () => {
         return <SkillSettings isDarkMode={isDarkMode} />;
       case 'workflows':
         return <WorkflowSettings isDarkMode={isDarkMode} />;
+      case 'farmer':
+        return <FarmerSitesSettings isDarkMode={isDarkMode} />;
+      case 'memory':
+        return <ElementMemorySettings isDarkMode={isDarkMode} />;
       case 'firewall':
         return <FirewallSettings isDarkMode={isDarkMode} />;
       case 'analytics':

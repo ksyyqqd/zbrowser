@@ -112,6 +112,7 @@ function LatestStepPreview({
 }) {
   const actor = ACTOR_PROFILES[message.actor as keyof typeof ACTOR_PROFILES];
   const [copied, setCopied] = useState(false);
+  const isProgress = message.content === 'Showing progress...';
 
   const handleCopy = async (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -186,8 +187,31 @@ function LatestStepPreview({
             ))}
           </div>
         )}
-        {/* 完整显示消息内容，自动换行，不截断 */}
-        <MarkdownRenderer content={message.content} isDarkMode={isDarkMode} className="leading-relaxed" />
+        {/* 内容区：思考中（progress 占位）显示三点动画，其它正常渲染 */}
+        {isProgress ? (
+          <div
+            className="mt-0.5 flex items-center gap-1.5 leading-relaxed"
+            style={{ color: 'var(--text-muted)' }}
+            aria-label="thinking">
+            <span>{actor.name} 正在思考</span>
+            <span className="inline-flex gap-0.5">
+              <span
+                className="inline-block size-1 animate-bounce rounded-full"
+                style={{ background: 'currentColor', animationDelay: '0ms' }}
+              />
+              <span
+                className="inline-block size-1 animate-bounce rounded-full"
+                style={{ background: 'currentColor', animationDelay: '150ms' }}
+              />
+              <span
+                className="inline-block size-1 animate-bounce rounded-full"
+                style={{ background: 'currentColor', animationDelay: '300ms' }}
+              />
+            </span>
+          </div>
+        ) : (
+          <MarkdownRenderer content={message.content} isDarkMode={isDarkMode} className="leading-relaxed" />
+        )}
       </div>
     </div>
   );

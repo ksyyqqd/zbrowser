@@ -2,6 +2,7 @@ import { HumanMessage, type SystemMessage } from '@langchain/core/messages';
 import type { AgentContext } from '@src/background/agent/types';
 import { wrapUntrustedContent } from '../messages/utils';
 import { createLogger } from '@src/background/log';
+import { elementHintsStore, getHostnameFromUrl } from '@extension/storage';
 
 const logger = createLogger('BasePrompt');
 
@@ -159,6 +160,33 @@ abstract class BasePrompt {
       formattedElementsText = `${scrollInfo}[Start of page]\n${elementsText}\n[End of page]\n`;
     } else {
       formattedElementsText = 'empty page';
+    }
+
+    // ===== 注入元素事实库 =====
+    // 当前 hostname 在 elementHintsStore 里有历史成功记录时，把它们拼到 state 末尾告诉 LLM。
+    // LLM 在 prompt 第 13 节有指引：能匹到 purpose 时直接复用其 selector/xpath 来挑 index、并把
+    // element_confidence 提到 0.9。失败完全静默，不影响主流程。
+    try {
+      const hostname = getHostnameFromUrl(browserState.url);
+      if (hostname) {
+        const hints = await elementHintsStore.getByHostname(hostname);
+        if (hints && hints.length > 0) {
+          // 限制最多展示 12 条避免污染上下文（按 useCount 倒序，最常用的优先）
+          const top = [...hints].sort((a, b) => b.useCount - a.useCount).slice(0, 12);
+          const lines = top.map(h => {
+            const parts: string[] = [`- purpose: ${h.purpose}`];
+            if (h.selector) parts.push(`selector: ${h.selector}`);
+            if (h.xpath) parts.push(`xpath: ${h.xpath}`);
+            if (h.textContent) parts.push(`text: ${h.textContent.slice(0, 40)}`);
+            parts.push(`source: ${h.source}, used: ${h.useCount}x`);
+            return parts.join(' | ');
+          });
+          formattedElementsText += `\n[Known elements on ${hostname} — previously confirmed working, prefer these to decide index]:\n${lines.join('\n')}\n`;
+          logger.info(`Injected ${top.length} element hints for ${hostname}`);
+        }
+      }
+    } catch (err) {
+      logger.warning('inject element hints failed:', err);
     }
 
     // Debug: 输出格式化后的元素文本
