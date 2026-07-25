@@ -14,7 +14,7 @@ export interface PickerCardProps {
   state: PickerState;
   onPick: () => void;
   onReset: () => void;
-  /** 自定义标题；不传用默认「在页面上手动指给 AI」 */
+  /** 自定义标题；不传用默认「在页面上手动拾取」 */
   title?: string;
   /** 自定义按钮文案 */
   buttonLabel?: string;
@@ -28,7 +28,7 @@ export function PickerCard({
   state,
   onPick,
   onReset,
-  title = '在页面上手动指给 AI',
+  title = '在页面上手动拾取',
   buttonLabel = '🎯 在页面上拾取元素',
   disabled = false,
   compact = false,

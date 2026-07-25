@@ -702,7 +702,7 @@ function WorkflowEditorInner({
         data: { ...JSON.parse(JSON.stringify(n.data || {})), _executionStatus: undefined },
         selected: true, // Highlight just-pasted nodes so user sees where they landed
       }));
-      setNodes(nds => nds.map(n => ({ ...n, selected: false })).concat(newNodes));
+      setNodes(nds => [...nds.map(n => ({ ...n, selected: false })), ...newNodes]);
       if (newNodes.length === 1) {
         const created = newNodes[0];
         setSelectedNode({
@@ -1141,11 +1141,11 @@ function WorkflowEditorInner({
         <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
           {/* Palette */}
           <div
-            className={`flex shrink-0 flex-col overflow-y-auto overflow-x-hidden border-r ${isDarkMode ? 'border-slate-700 bg-slate-800/80' : 'border-gray-200 bg-gray-50/80'}`}
+            className={`flex shrink-0 flex-col overflow-y-auto overflow-x-hidden border-r ${isDarkMode ? 'border-slate-700 bg-slate-800/80' : 'border-gray-200 bg-white'}`}
             style={{ width: 224, minWidth: 224, maxWidth: 224, boxSizing: 'border-box' }}>
             <div className="px-3 pb-1 pt-3">
               <h3
-                className={`mb-2 text-xs font-semibold uppercase tracking-wider ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>
+                className={`mb-2 text-xs font-semibold uppercase tracking-wider ${isDarkMode ? 'text-gray-500' : 'text-gray-500'}`}>
                 {t('workflow_nodePalette')}
               </h3>
               <div className="space-y-1.5">
@@ -1157,7 +1157,7 @@ function WorkflowEditorInner({
             <div
               className={`mt-2 border-t border-dashed px-3 pb-3 pt-3 ${isDarkMode ? 'border-slate-600' : 'border-gray-300'}`}>
               <h3
-                className={`mb-2 text-xs font-semibold uppercase tracking-wider ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>
+                className={`mb-2 text-xs font-semibold uppercase tracking-wider ${isDarkMode ? 'text-gray-500' : 'text-gray-500'}`}>
                 {t('workflow_controlPalette')}
               </h3>
               <div className="space-y-1.5">
@@ -1173,7 +1173,7 @@ function WorkflowEditorInner({
               className={`mt-auto flex items-center gap-1.5 border-t px-3 py-2.5 text-xs transition-colors ${
                 isDarkMode
                   ? 'border-slate-700 text-gray-500 hover:bg-slate-700/50 hover:text-gray-300'
-                  : 'border-gray-200 text-gray-400 hover:bg-gray-100 hover:text-gray-600'
+                  : 'border-gray-200 text-gray-500 hover:bg-gray-100 hover:text-gray-700'
               }`}>
               <kbd
                 className={`rounded border px-1 py-0.5 font-mono text-[10px] ${isDarkMode ? 'border-slate-600 bg-slate-900' : 'border-gray-300 bg-gray-50'}`}>

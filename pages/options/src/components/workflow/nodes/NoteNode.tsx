@@ -38,15 +38,14 @@ function NoteNodeImpl({ id, data, selected }: NodeProps<FlowNode>) {
   // Whenever we enter edit mode, mirror the latest committed content into the
   // draft so external changes (e.g. edits via the side panel) aren't lost.
   useEffect(() => {
-    if (editing) {
-      setDraft(content);
-      // Defer focus until React has actually mounted the textarea
-      const t = setTimeout(() => {
-        textareaRef.current?.focus();
-        textareaRef.current?.select();
-      }, 0);
-      return () => clearTimeout(t);
-    }
+    if (!editing) return;
+    setDraft(content);
+    // Defer focus until React has actually mounted the textarea
+    const t = setTimeout(() => {
+      textareaRef.current?.focus();
+      textareaRef.current?.select();
+    }, 0);
+    return () => clearTimeout(t);
   }, [editing, content]);
 
   const commit = () => {

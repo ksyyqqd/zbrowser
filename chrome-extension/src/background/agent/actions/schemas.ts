@@ -45,22 +45,48 @@ export const goBackActionSchema: ActionSchema = {
 
 export const clickElementActionSchema: ActionSchema = {
   name: 'click_element',
-  description: 'Click element by index',
+  description:
+    'Click element by index. If a remembered or user-provided xpath/selector is available, include it and it must be used before any index fallback.',
   schema: z.object({
     intent: z.string().default('').describe('purpose of this action'),
     index: z.number().int().describe('index of the element'),
-    xpath: z.string().nullable().optional().describe('xpath of the element'),
+    xpath: z
+      .string()
+      .nullable()
+      .optional()
+      .describe('xpath of the element, especially from known/user-referenced elements'),
+    selector: z
+      .string()
+      .nullable()
+      .optional()
+      .describe('css selector of the element, especially from known/user-referenced elements'),
   }),
 };
 
 export const inputTextActionSchema: ActionSchema = {
   name: 'input_text',
-  description: 'Input text into an interactive input element',
+  description:
+    'Input text into an interactive input element. If a remembered or user-provided xpath/selector is available, include it and it must be used before any index fallback.',
   schema: z.object({
     intent: z.string().default('').describe('purpose of this action'),
-    index: z.number().int().describe('index of the element'),
+    index: z
+      .number()
+      .int()
+      .optional()
+      .describe(
+        'index of the element. Omit only if providing xpath for a known element not in the current page summary.',
+      ),
     text: z.string().describe('text to input'),
-    xpath: z.string().nullable().optional().describe('xpath of the element'),
+    xpath: z
+      .string()
+      .nullable()
+      .optional()
+      .describe('xpath of the element, especially from known/user-referenced elements'),
+    selector: z
+      .string()
+      .nullable()
+      .optional()
+      .describe('css selector of the element, especially from known/user-referenced elements'),
   }),
 };
 
@@ -199,11 +225,22 @@ export const getDropdownOptionsActionSchema: ActionSchema = {
 
 export const selectDropdownOptionActionSchema: ActionSchema = {
   name: 'select_dropdown_option',
-  description: 'Select dropdown option for interactive element index by the text of the option you want to select',
+  description:
+    'Select dropdown option for interactive element index by the text of the option you want to select. If a remembered xpath/selector is available, include it and it must be used before any index fallback.',
   schema: z.object({
     intent: z.string().default('').describe('purpose of this action'),
     index: z.number().int().describe('index of the dropdown element'),
     text: z.string().describe('text of the option'),
+    xpath: z
+      .string()
+      .nullable()
+      .optional()
+      .describe('xpath of the dropdown element, especially from known/user-referenced elements'),
+    selector: z
+      .string()
+      .nullable()
+      .optional()
+      .describe('css selector of the dropdown element, especially from known/user-referenced elements'),
   }),
 };
 

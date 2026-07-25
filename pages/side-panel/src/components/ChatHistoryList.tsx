@@ -1,6 +1,6 @@
 /* eslint-disable react/prop-types */
 import { useState, useEffect, useRef } from 'react';
-import { FaTrash, FaChevronLeft, FaRedo, FaPlay } from 'react-icons/fa';
+import { FaTrash, FaChevronLeft, FaPlay, FaRedo } from 'react-icons/fa';
 import { BsBookmark } from 'react-icons/bs';
 import { t } from '@extension/i18n';
 import type { Message } from '@extension/storage';
@@ -52,27 +52,25 @@ const ChatHistoryList: React.FC<ChatHistoryListProps> = ({
   visible,
   isDarkMode = false,
 }) => {
-  if (!visible) return null;
-
   const [activeTab, setActiveTab] = useState<'user' | 'ball'>('user');
   // 详情模式：选中某条历史后，在面板内展示完整消息
   const [detailSessionId, setDetailSessionId] = useState<string | null>(null);
   const [detailMessages, setDetailMessages] = useState<ChatMessage[]>([]);
   // 缓存 store 引用，避免每次动态 import
-  const storeRef = useRef<any>(null);
-  const [storeReady, setStoreReady] = useState(false);
+  const storeRef = useRef<{ getSession: (id: string) => Promise<{ messages: ChatMessage[] } | null> } | null>(null);
 
   // 组件挂载时预加载 storage 模块
   useEffect(() => {
     import('@extension/storage')
       .then(mod => {
         storeRef.current = mod.chatHistoryStore;
-        setStoreReady(true);
       })
       .catch(() => {
-        setStoreReady(false);
+        storeRef.current = null;
       });
   }, []);
+
+  if (!visible) return null;
 
   const formatDate = (ts: number) =>
     new Date(ts).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
@@ -94,7 +92,6 @@ const ChatHistoryList: React.FC<ChatHistoryListProps> = ({
         const mod = await import('@extension/storage');
         store = mod.chatHistoryStore;
         storeRef.current = store;
-        setStoreReady(true);
       }
 
       if (!store) {
@@ -176,7 +173,7 @@ const ChatHistoryList: React.FC<ChatHistoryListProps> = ({
         </div>
 
         {/* 消息列表 — 复用聊天面板的 MessageList 样式 */}
-        <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
+        <div className="min-h-0 flex-1 overflow-y-auto p-3">
           {detailMessages.length === 0 ? (
             <div className="empty-state py-12 text-center text-sm" style={{ color: 'var(--text-muted)' }}>
               该会话暂无消息内容
@@ -196,7 +193,7 @@ const ChatHistoryList: React.FC<ChatHistoryListProps> = ({
                 onSessionSelect(detailSessionId);
                 handleBackToList();
               }}
-              className="jade-btn flex-1 py-2 text-xs font-medium tracking-wide text-center">
+              className="jade-btn flex-1 py-2 text-center text-xs font-medium tracking-wide">
               继续对话 ↗
             </button>
             {/* 重播 — 按动作序列回放，仅用户会话显示 */}
@@ -207,7 +204,7 @@ const ChatHistoryList: React.FC<ChatHistoryListProps> = ({
                   await onReplay(detailSessionId);
                   handleBackToList();
                 }}
-                className="px-3 py-2 rounded-lg text-xs font-medium tracking-wide transition-all duration-200 flex items-center"
+                className="flex items-center rounded-lg px-3 py-2 text-xs font-medium tracking-wide transition-all duration-200"
                 style={{
                   color: '#0EA5E9',
                   background: isDarkMode ? 'rgba(14,165,233,0.15)' : 'rgba(14,165,233,0.10)',
@@ -226,7 +223,7 @@ const ChatHistoryList: React.FC<ChatHistoryListProps> = ({
                   await onRerunTask(detailSessionId);
                   handleBackToList();
                 }}
-                className="px-3 py-2 rounded-lg text-xs font-medium tracking-wide transition-all duration-200 flex items-center"
+                className="flex items-center rounded-lg px-3 py-2 text-xs font-medium tracking-wide transition-all duration-200"
                 style={{
                   color: '#40916C',
                   background: isDarkMode ? 'rgba(64,145,108,0.15)' : 'rgba(64,145,108,0.10)',
@@ -310,7 +307,7 @@ const ChatHistoryList: React.FC<ChatHistoryListProps> = ({
       {/* 会话列表区域 */}
       <div className="min-h-0 flex-1 overflow-y-auto">
         {currentItems.length === 0 ? (
-          <div className="empty-state py-12 text-sm text-center">{t('chat_history_empty')}</div>
+          <div className="empty-state py-12 text-center text-sm">{t('chat_history_empty')}</div>
         ) : (
           <div className="space-y-1.5 pb-4">
             {currentItems.map((session, idx) => {
@@ -321,7 +318,7 @@ const ChatHistoryList: React.FC<ChatHistoryListProps> = ({
                   style={{ animationDelay: `${idx * 50}ms` }}>
                   <button
                     onClick={() => handleEnterDetail(session.id)}
-                    className="relative z-10 w-full text-left cursor-pointer"
+                    className="relative z-10 w-full cursor-pointer text-left"
                     type="button">
                     <div className="flex items-center gap-2">
                       {/* 皮蛋来源的小标记 */}
@@ -330,7 +327,7 @@ const ChatHistoryList: React.FC<ChatHistoryListProps> = ({
                           🐾
                         </span>
                       )}
-                      <h3 className="truncate text-sm font-medium pr-14" style={{ color: `var(--text-primary)` }}>
+                      <h3 className="truncate pr-14 text-sm font-medium" style={{ color: `var(--text-primary)` }}>
                         {session.title}
                       </h3>
                     </div>
@@ -355,7 +352,7 @@ const ChatHistoryList: React.FC<ChatHistoryListProps> = ({
                             e.stopPropagation();
                             onSessionBookmark(session.id);
                           }}
-                          className="absolute right-9 top-2.5 z-20 flex items-center justify-center size-6 rounded-full transition-all duration-200"
+                          className="absolute right-9 top-2.5 z-20 flex size-6 items-center justify-center rounded-full transition-all duration-200"
                           style={{
                             color: isBookmarked ? '#FFF' : isDarkMode ? '#D4A017' : '#B8860B',
                             background: isBookmarked ? 'linear-gradient(135deg, #F59E0B, #D97706)' : undefined,

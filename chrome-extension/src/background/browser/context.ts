@@ -342,12 +342,18 @@ export default class BrowserContext {
     return tabInfos;
   }
 
-  public async getCachedState(useVision = false, cacheClickableElementsHashes = false): Promise<BrowserState> {
+  public async getCachedState(
+    useVision = false,
+    cacheClickableElementsHashes = false,
+    allowLiveRead = true,
+  ): Promise<BrowserState> {
     const currentPage = await this.getCurrentPage();
 
     let pageState = !currentPage ? build_initial_state() : currentPage.getCachedState();
-    if (!pageState) {
+    if (!pageState && allowLiveRead) {
       pageState = await currentPage.getState(useVision, cacheClickableElementsHashes);
+    } else if (!pageState) {
+      pageState = build_initial_state(this._currentTabId ?? undefined);
     }
 
     const tabInfos = await this.getTabInfos();

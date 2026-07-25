@@ -316,6 +316,33 @@
   "options_general_showImageGeneration_desc": {
     "message": "在对话框中显示图片生成按钮（需要配置图片提供者）"
   },
+  "options_general_showRequestLogs": {
+    "message": "显示请求日志"
+  },
+  "options_general_showRequestLogs_desc": {
+    "message": "在侧边栏显示模型请求/响应日志，便于调试（默认关闭）"
+  },
+  "options_general_experimentalSection": {
+    "message": "实验性功能"
+  },
+  "options_general_multiActionEnabled": {
+    "message": "连续动作执行（实验性功能）"
+  },
+  "options_general_multiActionEnabled_desc": {
+    "message": "开启后AI会尝试一次规划多个连续动作并顺序执行，减少AI请求次数从而提升执行速度。关闭后每次只执行一个动作（更稳定但较慢）。"
+  },
+  "options_general_maxMultiActions": {
+    "message": "最大连续动作数"
+  },
+  "options_general_maxMultiActions_desc": {
+    "message": "连续动作模式下，每次最多规划的动作数量（1-10）"
+  },
+  "options_general_autonomousMode": {
+    "message": "自主模式（实验性功能）"
+  },
+  "options_general_autonomousMode_desc": {
+    "message": "开启后AI不会向用户询问澄清问题，遇到不确定的元素时自行判断或自动跳过。适合无人值守的自动化场景。关闭时AI可以主动提问或触发闸门弹窗确认。"
+  },
   "options_models_providers_header": {
     "message": "LLM 提供者"
   },
@@ -725,6 +752,18 @@
         "example": "SKILL.md 文件缺失"
       }
     }
+  },
+  "options_skills_saveError": {
+    "message": "保存失败：$ERROR$",
+    "placeholders": {
+      "error": {
+        "content": "$1",
+        "example": "未知错误"
+      }
+    }
+  },
+  "options_skills_saveSuccess": {
+    "message": "保存成功"
   },
 
   "bg_errors_noTabId": {
@@ -1910,5 +1949,138 @@
   },
   "image_generation_openaiProvider": {
     "message": "OpenAI (DALL-E)"
+  },
+  "workflow_noDescription": {
+    "message": "暂无描述"
+  },
+  "workflow_exportAsJson": {
+    "message": "导出为 JSON"
+  },
+  "workflow_loadingEditor": {
+    "message": "加载编辑器中..."
+  },
+  "workflow_searchCount": {
+    "message": "$FILTERED$ / $TOTAL$",
+    "placeholders": {
+      "filtered": {
+        "content": "$1",
+        "example": "3"
+      },
+      "total": {
+        "content": "$2",
+        "example": "10"
+      }
+    }
+  },
+  "workflow_importInvalidWorkflow": {
+    "message": "无效的工作流: $ERRORS$",
+    "placeholders": {
+      "errors": {
+        "content": "$1",
+        "example": "缺少必要字段"
+      }
+    }
+  },
+  "workflow_nodesCount": {
+    "message": "$COUNT$ 节点",
+    "placeholders": {
+      "count": {
+        "content": "$1",
+        "example": "5"
+      }
+    }
+  },
+  "options_tabs_memory": {
+    "message": "记忆"
+  },
+  "options_sections_common": {
+    "message": "通用设置"
+  },
+  "options_sections_automation": {
+    "message": "自动化"
+  },
+  "options_sections_advanced": {
+    "message": "高级设置"
+  },
+  "spirit_panel_title": {
+    "message": "皮蛋状态"
+  },
+  "spirit_avatar_toggle_a11y": {
+    "message": "切换状态面板"
+  },
+  "spirit_mode_auto_label": {
+    "message": "自动"
+  },
+  "spirit_mode_auto_desc": {
+    "message": "皮蛋以标准模式执行任务"
+  },
+  "spirit_mode_explore_label": {
+    "message": "探索"
+  },
+  "spirit_mode_explore_desc": {
+    "message": "皮蛋会搜索多个来源并返回对比报告"
+  },
+  "spirit_mode_suffix": {
+    "message": "模式"
+  },
+  "spirit_mode_auto_status_idle": {
+    "message": "待命中..."
+  },
+  "spirit_mode_auto_status_thinking": {
+    "message": "思考中..."
+  },
+  "spirit_mode_auto_status_working": {
+    "message": "努力工作中..."
+  },
+  "spirit_mode_auto_status_happy": {
+    "message": "开心摇尾"
+  },
+  "spirit_mode_auto_status_mischief": {
+    "message": "调皮捣蛋"
+  },
+  "spirit_mode_auto_status_sleepy": {
+    "message": "打瞌睡..."
+  },
+  "spirit_mode_auto_status_curious": {
+    "message": "到处闻闻"
+  },
+  "spirit_mode_executing": {
+    "message": "皮蛋正在执行任务"
+  },
+  "spirit_mode_done": {
+    "message": "任务完成！"
+  },
+  "spirit_actor_planner": {
+    "message": "规划者"
+  },
+  "spirit_actor_navigator": {
+    "message": "导航者"
+  },
+  "spirit_actor_validator": {
+    "message": "校验者"
+  },
+  "spirit_actor_user": {
+    "message": "用户"
+  },
+  "spirit_actor_system": {
+    "message": "系统"
+  },
+  "spirit_overlay_fireworks_label": {
+    "message": "烟花"
+  },
+  "spirit_overlay_write_label": {
+    "message": "书写"
+  },
+  "spirit_overlay_celebrate_label": {
+    "message": "庆祝"
+  },
+  "spirit_overlay_fireworks_title": {
+    "message": "烟花效果"
+  },
+  "spirit_overlay_write_title": {
+    "message": "书写效果"
+  },
+  "spirit_overlay_celebrate_title": {
+    "message": "庆祝效果"
   }
 }

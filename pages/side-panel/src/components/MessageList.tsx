@@ -1,31 +1,41 @@
 import type { Message } from '@extension/storage';
 import { ACTOR_PROFILES } from '../types/message';
-import { memo, useState } from 'react';
+import { memo, useEffect, useRef, useState } from 'react';
 import { FiCopy, FiCheck, FiChevronDown, FiChevronRight, FiDownload, FiX, FiZoomIn } from 'react-icons/fi';
 import { t } from '@extension/i18n';
 import { MarkdownRenderer, MessageExportButton, MessageContentExportButton } from '@extension/ui';
 
+interface LiveStreamMessage {
+  actor: Message['actor'];
+  content: string;
+  timestamp: number;
+  isCompleted?: boolean;
+}
+
+type ActorProfile = {
+  icon: string;
+  name: string;
+  iconBackground?: string;
+};
+
+function getActorProfile(actor: Message['actor']): ActorProfile {
+  return ACTOR_PROFILES[actor as keyof typeof ACTOR_PROFILES] as ActorProfile;
+}
+
 interface MessageListProps {
   messages: Message[];
   isDarkMode?: boolean;
-  /** 禁用执行步骤的过滤/折叠/最新预览，全部消息平铺展示（如历史详情视图） */
+  liveStream?: LiveStreamMessage | null;
   disableStepFiltering?: boolean;
 }
 
-// 判断消息是否为"执行步骤"类消息（默认隐藏）
-// Navigator / Planner / Validator / User 的消息全部隐藏，只保留关键回复
-// System 消息：只有带流程前缀（⏳✓✗▶❌✅🔀）的折叠，其他独立展示（如 output 节点输出）
 function isExecutionStepMessage(msg: Message): boolean {
-  // 进度消息
   if (msg.content === 'Showing progress...') return true;
-  // Navigator / Planner / Validator 的所有消息全部隐藏
   if (msg.actor === 'navigator' || msg.actor === 'planner' || msg.actor === 'validator') return true;
-  // 用户发言默认折叠
   if (msg.actor === 'user') return true;
-  // System 消息：带执行流程前缀的折叠，其余保留（如 output 节点的最终输出）
   if (msg.actor === 'system') {
-    const prefixes = ['⏳', '✓', '✗', '▶', '❌', '✅', '🔀'];
-    return prefixes.some(p => msg.content.startsWith(p));
+    const prefixes = ['⚙', '✓', '✎', '▶', '⧗', '⚠', '🚢'];
+    return prefixes.some(prefix => msg.content.startsWith(prefix));
   }
   return false;
 }
@@ -33,21 +43,53 @@ function isExecutionStepMessage(msg: Message): boolean {
 export default memo(function MessageList({
   messages,
   isDarkMode = false,
+  liveStream = null,
   disableStepFiltering = false,
 }: MessageListProps) {
   const [showSteps, setShowSteps] = useState(false);
   const [previewImage, setPreviewImage] = useState<{ base64: string; name?: string } | null>(null);
+  const [isStreamCollapsed, setIsStreamCollapsed] = useState(false);
+  const lastStreamKeyRef = useRef<string | null>(null);
 
-  // 分离关键消息和执行步骤（disableStepFiltering 时全部消息当作非步骤平铺）
+  useEffect(() => {
+    if (!liveStream) {
+      setIsStreamCollapsed(false);
+      lastStreamKeyRef.current = null;
+      return;
+    }
+
+    const streamKey = `${liveStream.actor}-${liveStream.timestamp}`;
+    const isNewStream = lastStreamKeyRef.current !== streamKey;
+
+    if (isNewStream) {
+      lastStreamKeyRef.current = streamKey;
+      setIsStreamCollapsed(false);
+      return;
+    }
+
+    if (liveStream.isCompleted) {
+      setIsStreamCollapsed(true);
+    } else {
+      setIsStreamCollapsed(false);
+    }
+  }, [liveStream]);
+
   const keyMessages = disableStepFiltering ? messages : messages.filter(m => !isExecutionStepMessage(m));
   const stepMessages = disableStepFiltering ? [] : messages.filter(m => isExecutionStepMessage(m));
-  // 最新一条折叠消息（用于在折叠状态下展示）
   const latestStepMsg = stepMessages.length > 0 ? stepMessages[stepMessages.length - 1] : null;
   const displayMessages = showSteps ? messages : keyMessages;
 
   return (
     <div className="max-w-full space-y-3">
-      {/* 执行步骤展开/收起控制 */}
+      {liveStream && (
+        <RawStreamBubble
+          liveStream={liveStream}
+          isDarkMode={isDarkMode}
+          isCollapsed={isStreamCollapsed}
+          onToggleCollapse={() => setIsStreamCollapsed(prev => !prev)}
+        />
+      )}
+
       {stepMessages.length > 0 && (
         <button
           onClick={() => setShowSteps(!showSteps)}
@@ -68,7 +110,6 @@ export default memo(function MessageList({
         </button>
       )}
 
-      {/* 折叠状态下显示最新一条消息 */}
       {!showSteps && latestStepMsg && (
         <LatestStepPreview message={latestStepMsg} isDarkMode={isDarkMode} onImagePreview={setPreviewImage} />
       )}
@@ -84,13 +125,127 @@ export default memo(function MessageList({
         />
       ))}
 
-      {/* Image Preview Modal */}
       {previewImage && (
         <ImagePreviewModal image={previewImage} isDarkMode={isDarkMode} onClose={() => setPreviewImage(null)} />
       )}
     </div>
   );
 });
+
+function RawStreamBubble({
+  liveStream,
+  isDarkMode = false,
+  isCollapsed,
+  onToggleCollapse,
+}: {
+  liveStream: LiveStreamMessage;
+  isDarkMode?: boolean;
+  isCollapsed: boolean;
+  onToggleCollapse: () => void;
+}) {
+  const actor = getActorProfile(liveStream.actor);
+  const isEmpty = liveStream.content.trim().length === 0;
+  const contentRef = useRef<HTMLPreElement | null>(null);
+
+  useEffect(() => {
+    if (isCollapsed) return;
+    const el = contentRef.current;
+    if (!el) return;
+    el.scrollTop = el.scrollHeight;
+  }, [isCollapsed, liveStream.content]);
+
+  return (
+    <div
+      className={`flex max-w-full rounded-xl border px-3 py-2 ${isCollapsed ? 'items-center' : 'gap-3'}`}
+      style={{
+        borderColor: isDarkMode ? 'rgba(116,198,157,0.18)' : 'rgba(139,115,85,0.16)',
+        background: isDarkMode ? 'rgba(255,255,255,0.03)' : 'rgba(255,255,255,0.72)',
+        boxShadow: isDarkMode ? 'inset 0 0 0 1px rgba(116,198,157,0.04)' : 'inset 0 0 0 1px rgba(139,115,85,0.04)',
+      }}>
+      {!isCollapsed && (
+        <div
+          className="shrink-0 size-8 rounded-full overflow-hidden ring-1"
+          style={{
+            borderColor: isDarkMode ? 'rgba(116,198,157,0.22)' : 'rgba(139,115,85,0.25)',
+            background: actor.iconBackground || '#6B7280',
+          }}>
+          <img src={actor.icon} alt={actor.name} className="size-full object-cover" />
+        </div>
+      )}
+
+      <div className="min-w-0 flex-1">
+        <div className={`flex items-center justify-between gap-2 ${isCollapsed ? '' : 'mb-1'}`}>
+          <div className="min-w-0">
+            <div className="flex min-w-0 items-center gap-2">
+              <span className="truncate text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>
+                {actor.name}
+              </span>
+              <span
+                className="rounded-full px-2 py-0.5 text-[10px]"
+                style={{
+                  background: isDarkMode ? 'rgba(116,198,157,0.16)' : 'rgba(64,145,108,0.1)',
+                  color: isDarkMode ? '#95D5B2' : '#40916C',
+                }}>
+                原始流
+              </span>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={onToggleCollapse}
+            className="inline-flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-xs transition-colors hover:bg-black/5"
+            style={{ color: isDarkMode ? '#95D5B2' : '#78716C' }}>
+            <FiChevronDown
+              size={14}
+              className={isCollapsed ? 'rotate-180 transition-transform' : 'transition-transform'}
+            />
+            <span>{isCollapsed ? '展开' : '收起'}</span>
+          </button>
+        </div>
+
+        {!isCollapsed && (
+          <div
+            className="mt-2 flex h-44 min-h-0 flex-col overflow-hidden rounded-lg border px-3 py-2"
+            style={{
+              borderColor: isDarkMode ? 'rgba(116,198,157,0.14)' : 'rgba(139,115,85,0.12)',
+              background: isDarkMode ? 'rgba(255,255,255,0.02)' : 'rgba(255,255,255,0.55)',
+            }}>
+            {isEmpty ? (
+              <div className="flex h-full items-center gap-1 text-sm" style={{ color: 'var(--text-muted)' }}>
+                <span>{actor.name} 正在输出</span>
+                <span className="inline-flex gap-0.5">
+                  <span
+                    className="inline-block size-1 animate-bounce rounded-full"
+                    style={{ background: 'currentColor', animationDelay: '0ms' }}
+                  />
+                  <span
+                    className="inline-block size-1 animate-bounce rounded-full"
+                    style={{ background: 'currentColor', animationDelay: '150ms' }}
+                  />
+                  <span
+                    className="inline-block size-1 animate-bounce rounded-full"
+                    style={{ background: 'currentColor', animationDelay: '300ms' }}
+                  />
+                </span>
+              </div>
+            ) : (
+              <pre
+                ref={contentRef}
+                className="min-h-0 flex-1 overflow-y-auto whitespace-pre-wrap break-words text-sm leading-relaxed"
+                style={{
+                  color: 'var(--text-secondary)',
+                  fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
+                }}>
+                {liveStream.content}
+              </pre>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
 
 interface MessageBlockProps {
   message: Message;
@@ -100,7 +255,6 @@ interface MessageBlockProps {
   onImagePreview?: (img: { base64: string; name?: string }) => void;
 }
 
-// 折叠状态下的最新消息预览 — 显示完整内容
 function LatestStepPreview({
   message,
   isDarkMode = false,
@@ -110,7 +264,7 @@ function LatestStepPreview({
   isDarkMode?: boolean;
   onImagePreview?: (img: { base64: string; name?: string }) => void;
 }) {
-  const actor = ACTOR_PROFILES[message.actor as keyof typeof ACTOR_PROFILES];
+  const actor = getActorProfile(message.actor);
   const [copied, setCopied] = useState(false);
   const isProgress = message.content === 'Showing progress...';
 
@@ -135,17 +289,16 @@ function LatestStepPreview({
       role="button"
       tabIndex={0}
       onClick={() => {
-        /* 点击展开由父级按钮处理 */
+        /* handled by parent button */
       }}
       onKeyDown={e => {
         if (e.key === 'Enter' || e.key === ' ') e.currentTarget.click();
       }}>
-      {/* 小头像 */}
       <div
         className="shrink-0 size-6 rounded-full overflow-hidden ring-1"
         style={{
           borderColor: isDarkMode ? 'rgba(116,198,157,0.25)' : 'rgba(139,115,85,0.3)',
-          background: (actor as any).iconBackground || '#6B7280',
+          background: actor.iconBackground || '#6B7280',
         }}>
         <img src={actor.icon} alt={actor.name} className="size-full object-cover" />
       </div>
@@ -168,7 +321,6 @@ function LatestStepPreview({
             </button>
           </div>
         </div>
-        {/* Render images if present */}
         {message.images && message.images.length > 0 && (
           <div className="flex flex-wrap gap-1 mt-1">
             {message.images.map((img, idx) => (
@@ -187,7 +339,6 @@ function LatestStepPreview({
             ))}
           </div>
         )}
-        {/* 内容区：思考中（progress 占位）显示三点动画，其它正常渲染 */}
         {isProgress ? (
           <div
             className="mt-0.5 flex items-center gap-1.5 leading-relaxed"
@@ -219,11 +370,13 @@ function LatestStepPreview({
 
 function MessageBlock({ message, isSameActor, isDarkMode = false, isStep = false, onImagePreview }: MessageBlockProps) {
   const [copied, setCopied] = useState(false);
+
   if (!message.actor) {
     console.error('No actor found');
     return <div />;
   }
-  const actor = ACTOR_PROFILES[message.actor as keyof typeof ACTOR_PROFILES];
+
+  const actor = getActorProfile(message.actor);
   const isProgress = message.content === 'Showing progress...';
 
   const copyToClipboard = async () => {
@@ -240,18 +393,15 @@ function MessageBlock({ message, isSameActor, isDarkMode = false, isStep = false
     <div
       className={`flex max-w-full gap-3 ${
         !isSameActor
-          ? `mt-4 pt-4 first:mt-0 first:pt-0 ${
-              isDarkMode ? 'border-t border-jade-border/30' : 'border-t border-jade/10'
-            }`
+          ? `mt-4 pt-4 first:mt-0 first:pt-0 ${isDarkMode ? 'border-t border-jade-border/30' : 'border-t border-jade/10'}`
           : ''
       } ${isStep ? 'opacity-70' : ''}`}>
-      {/* 角色头像 - 圆形小头像 */}
       {!isSameActor && (
         <div
           className="shrink-0 size-8 rounded-full overflow-hidden ring-1"
           style={{
             borderColor: isDarkMode ? 'rgba(116,198,157,0.25)' : 'rgba(139,115,85,0.3)',
-            background: (actor as any).iconBackground || '#6B7280',
+            background: actor.iconBackground || '#6B7280',
           }}>
           <img src={actor.icon} alt={actor.name} className="size-full object-cover" />
         </div>
@@ -259,11 +409,10 @@ function MessageBlock({ message, isSameActor, isDarkMode = false, isStep = false
       {isSameActor && <div className="w-8" />}
 
       <div className="min-w-0 flex-1">
-        {/* 角色名称 */}
         {!isSameActor && (
           <div
             className="mb-1.5 flex items-center gap-2 text-sm font-semibold tracking-wide"
-            style={{ color: `var(--text-primary)` }}>
+            style={{ color: 'var(--text-primary)' }}>
             <span>{actor.name}</span>
             {isStep && (
               <span
@@ -282,7 +431,6 @@ function MessageBlock({ message, isSameActor, isDarkMode = false, isStep = false
         )}
 
         <div className="space-y-1">
-          {/* Render images if present */}
           {message.images && message.images.length > 0 && (
             <div className="flex flex-wrap gap-2 mb-2">
               {message.images.map((img, idx) => (
@@ -298,7 +446,6 @@ function MessageBlock({ message, isSameActor, isDarkMode = false, isStep = false
                     className="max-w-full max-h-[300px] object-contain rounded-lg hover:opacity-90 transition-opacity"
                     loading="lazy"
                   />
-                  {/* Zoom icon overlay */}
                   <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover/img:opacity-100 transition-opacity">
                     <FiZoomIn className="h-6 w-6 text-white drop-shadow-lg" />
                   </div>
@@ -330,11 +477,10 @@ function MessageBlock({ message, isSameActor, isDarkMode = false, isStep = false
                 </div>
               </div>
             ) : (
-              <div className="message-scroll text-sm" style={{ color: `var(--text-secondary)` }}>
+              <div className="message-scroll text-sm" style={{ color: 'var(--text-secondary)' }}>
                 <MarkdownRenderer content={message.content} isDarkMode={isDarkMode} />
               </div>
             )}
-            {/* 右侧操作按钮组 */}
             {!isProgress && (
               <div className="absolute right-1 top-2 flex items-center gap-1">
                 <MessageContentExportButton content={message.content} isDarkMode={isDarkMode} />
@@ -349,7 +495,6 @@ function MessageBlock({ message, isSameActor, isDarkMode = false, isStep = false
               </div>
             )}
           </div>
-          {/* 时间戳 */}
           {!isProgress && (
             <div
               className="text-right text-xs tracking-wide"
@@ -363,9 +508,6 @@ function MessageBlock({ message, isSameActor, isDarkMode = false, isStep = false
   );
 }
 
-/**
- * Formats a timestamp (in milliseconds) to a readable time string
- */
 function formatTimestamp(timestamp: number): string {
   const date = new Date(timestamp);
   const now = new Date();
@@ -382,9 +524,6 @@ function formatTimestamp(timestamp: number): string {
   return `${date.toLocaleDateString([], { year: 'numeric', month: 'short', day: 'numeric' })}, ${timeStr}`;
 }
 
-/**
- * Image Preview Modal - full size image display
- */
 function ImagePreviewModal({
   image,
   isDarkMode,
@@ -406,15 +545,12 @@ function ImagePreviewModal({
       className="fixed inset-0 z-[10000] flex items-center justify-center"
       onClick={onClose}
       onKeyDown={e => e.key === 'Escape' && onClose()}>
-      {/* Backdrop */}
       <div
         className={`absolute inset-0 ${isDarkMode ? 'bg-black/80' : 'bg-black/60'} backdrop-blur-sm`}
         aria-hidden="true"
       />
 
-      {/* Modal content */}
       <div className="relative max-w-[90vw] max-h-[90vh] flex flex-col" onClick={e => e.stopPropagation()}>
-        {/* Close button */}
         <button
           type="button"
           onClick={onClose}
@@ -425,14 +561,12 @@ function ImagePreviewModal({
           <FiX className="h-5 w-5" />
         </button>
 
-        {/* Image */}
         <img
           src={`data:image/png;base64,${image.base64}`}
           alt={image.name || 'Preview'}
           className="max-w-full max-h-[85vh] object-contain rounded-lg shadow-2xl"
         />
 
-        {/* Download button */}
         <button
           type="button"
           onClick={handleDownload}

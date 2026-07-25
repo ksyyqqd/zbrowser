@@ -1416,6 +1416,22 @@ chrome.runtime.onConnect.addListener(port => {
             return port.postMessage({ type: 'success' });
           }
 
+          case 'skip_step': {
+            // 用户在 TaskProgressBar 点「跳过此步」→ executor 在下一轮 step 边界消费
+            if (!currentExecutor) return port.postMessage({ type: 'error', error: t('bg_errors_noRunningTask') });
+            currentExecutor.requestSkipStep();
+            return port.postMessage({ type: 'success' });
+          }
+
+          case 'amend_next_step': {
+            // 用户在 AmendNextStepDialog 提交了「修改下一步」文本，executor 注入到 message history
+            // 调用方负责发送前 pause、发送后 resume；这里只管注入消息
+            if (!currentExecutor) return port.postMessage({ type: 'error', error: t('bg_errors_noRunningTask') });
+            const text = (message.text as string | undefined) ?? '';
+            await currentExecutor.amendNextStep(text);
+            return port.postMessage({ type: 'success' });
+          }
+
           case 'clarify_response': {
             // side-panel 弹窗用户回应 ask_user 请求
             const requestId = message.requestId as string | undefined;
@@ -2408,6 +2424,7 @@ async function setupExecutor(
       useVision: generalSettings.useVision,
       useVisionForPlanner: true,
       planningInterval: generalSettings.planningInterval,
+      autonomousMode: generalSettings.autonomousMode,
     },
     generalSettings: generalSettings,
     navigatorProvider: navigatorModel.provider,

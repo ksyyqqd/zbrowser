@@ -316,6 +316,33 @@
   "options_general_showImageGeneration_desc": {
     "message": "在對話框中顯示圖片生成按鈕（需要配置圖片提供者）"
   },
+  "options_general_showRequestLogs": {
+    "message": "顯示請求日誌"
+  },
+  "options_general_showRequestLogs_desc": {
+    "message": "在側邊欄顯示模型請求/回應日誌，方便除錯（預設關閉）"
+  },
+  "options_general_experimentalSection": {
+    "message": "實驗性功能"
+  },
+  "options_general_multiActionEnabled": {
+    "message": "連續動作執行（實驗性功能）"
+  },
+  "options_general_multiActionEnabled_desc": {
+    "message": "開啟後AI會嘗試一次規劃多個連續動作並順序執行，減少AI請求次數從而提升執行速度。關閉後每次只執行一個動作（更穩定但較慢）。"
+  },
+  "options_general_maxMultiActions": {
+    "message": "最大連續動作數"
+  },
+  "options_general_maxMultiActions_desc": {
+    "message": "連續動作模式下，每次最多規劃的動作數量（1-10）"
+  },
+  "options_general_autonomousMode": {
+    "message": "自主模式（實驗性功能）"
+  },
+  "options_general_autonomousMode_desc": {
+    "message": "開啟後AI不會向使用者詢問澄清問題，遇到不確定的元素時自行判斷或自動跳過。適合無人值守的自動化場景。關閉時AI可以主動提問或觸發閘門彈窗確認。"
+  },
   "options_models_providers_header": {
     "message": "LLM 提供者"
   },
@@ -725,6 +752,18 @@
         "example": "SKILL.md 文件缺失"
       }
     }
+  },
+  "options_skills_saveError": {
+    "message": "儲存失敗：$ERROR$",
+    "placeholders": {
+      "error": {
+        "content": "$1",
+        "example": "未知錯誤"
+      }
+    }
+  },
+  "options_skills_saveSuccess": {
+    "message": "儲存成功"
   },
 
   "bg_errors_noTabId": {
@@ -1908,5 +1947,138 @@
   },
   "image_generation_openaiProvider": {
     "message": "OpenAI (DALL-E)"
+  },
+  "workflow_noDescription": {
+    "message": "暫無描述"
+  },
+  "workflow_exportAsJson": {
+    "message": "匯出為 JSON"
+  },
+  "workflow_loadingEditor": {
+    "message": "載入編輯器中..."
+  },
+  "workflow_searchCount": {
+    "message": "$FILTERED$ / $TOTAL$",
+    "placeholders": {
+      "filtered": {
+        "content": "$1",
+        "example": "3"
+      },
+      "total": {
+        "content": "$2",
+        "example": "10"
+      }
+    }
+  },
+  "workflow_importInvalidWorkflow": {
+    "message": "無效的工作流程: $ERRORS$",
+    "placeholders": {
+      "errors": {
+        "content": "$1",
+        "example": "缺少必要欄位"
+      }
+    }
+  },
+  "workflow_nodesCount": {
+    "message": "$COUNT$ 節點",
+    "placeholders": {
+      "count": {
+        "content": "$1",
+        "example": "5"
+      }
+    }
+  },
+  "options_tabs_memory": {
+    "message": "記憶"
+  },
+  "options_sections_common": {
+    "message": "通用設定"
+  },
+  "options_sections_automation": {
+    "message": "自動化"
+  },
+  "options_sections_advanced": {
+    "message": "進階設定"
+  },
+  "spirit_panel_title": {
+    "message": "皮蛋狀態"
+  },
+  "spirit_avatar_toggle_a11y": {
+    "message": "切換狀態面板"
+  },
+  "spirit_mode_auto_label": {
+    "message": "自動"
+  },
+  "spirit_mode_auto_desc": {
+    "message": "皮蛋以標準模式執行任務"
+  },
+  "spirit_mode_explore_label": {
+    "message": "探索"
+  },
+  "spirit_mode_explore_desc": {
+    "message": "皮蛋會搜尋多個來源並返回比較報告"
+  },
+  "spirit_mode_suffix": {
+    "message": "模式"
+  },
+  "spirit_mode_auto_status_idle": {
+    "message": "待命中..."
+  },
+  "spirit_mode_auto_status_thinking": {
+    "message": "思考中..."
+  },
+  "spirit_mode_auto_status_working": {
+    "message": "努力工作中..."
+  },
+  "spirit_mode_auto_status_happy": {
+    "message": "開心搖尾"
+  },
+  "spirit_mode_auto_status_mischief": {
+    "message": "調皮搗蛋"
+  },
+  "spirit_mode_auto_status_sleepy": {
+    "message": "打瞌睡..."
+  },
+  "spirit_mode_auto_status_curious": {
+    "message": "到處聞聞"
+  },
+  "spirit_mode_executing": {
+    "message": "皮蛋正在執行任務"
+  },
+  "spirit_mode_done": {
+    "message": "任務完成！"
+  },
+  "spirit_actor_planner": {
+    "message": "規劃者"
+  },
+  "spirit_actor_navigator": {
+    "message": "導航者"
+  },
+  "spirit_actor_validator": {
+    "message": "校驗者"
+  },
+  "spirit_actor_user": {
+    "message": "使用者"
+  },
+  "spirit_actor_system": {
+    "message": "系統"
+  },
+  "spirit_overlay_fireworks_label": {
+    "message": "煙火"
+  },
+  "spirit_overlay_write_label": {
+    "message": "書寫"
+  },
+  "spirit_overlay_celebrate_label": {
+    "message": "慶祝"
+  },
+  "spirit_overlay_fireworks_title": {
+    "message": "煙火效果"
+  },
+  "spirit_overlay_write_title": {
+    "message": "書寫效果"
+  },
+  "spirit_overlay_celebrate_title": {
+    "message": "慶祝效果"
   }
 }

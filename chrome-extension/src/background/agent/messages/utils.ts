@@ -50,6 +50,11 @@ export function extractJsonFromModelOutput(content: string): Record<string, unkn
   try {
     let processedContent = content;
 
+    const dsmlToolCall = extractDsmlToolCall(processedContent);
+    if (dsmlToolCall) {
+      return dsmlToolCall;
+    }
+
     // Handle Llama's tool call format first
     if (processedContent.includes('<|tool_call_start_id|>')) {
       // Extract content between tool call tags
@@ -128,10 +133,143 @@ export function extractJsonFromModelOutput(content: string): Record<string, unkn
     }
 
     // Parse the cleaned content
-    return JSON.parse(processedContent);
+    try {
+      return JSON.parse(processedContent);
+    } catch {
+      const balanced = extractBalancedJsonSubstring(processedContent);
+      if (balanced) {
+        return JSON.parse(balanced);
+      }
+      throw new Error('Could not parse JSON content');
+    }
   } catch (e) {
     throw new ResponseParseError(`Could not manually extract JSON from model output`);
   }
+}
+
+function extractDsmlToolCall(content: string): Record<string, unknown> | null {
+  if (!content.includes('<｜｜DSML｜｜tool_calls>')) return null;
+
+  const parameterRegex = /<｜｜DSML｜｜parameter name="([^"]+)"[^>]*>([\s\S]*?)<\/｜｜DSML｜｜parameter>/g;
+  const result: Record<string, unknown> = {};
+  let matched = false;
+
+  for (const match of content.matchAll(parameterRegex)) {
+    matched = true;
+    const [, name, rawValue] = match;
+    const trimmedValue = rawValue.trim();
+    result[name] = tryParseJsonValue(trimmedValue);
+  }
+
+  return matched ? result : null;
+}
+
+function tryParseJsonValue(value: string): unknown {
+  if (!value) return '';
+
+  try {
+    return JSON.parse(value);
+  } catch {
+    const balanced = extractBalancedJsonSubstring(value);
+    if (!balanced) return value;
+
+    try {
+      return JSON.parse(balanced);
+    } catch {
+      return value;
+    }
+  }
+}
+
+function extractBalancedJsonSubstring(content: string): string | null {
+  const start = content.indexOf('{');
+  if (start < 0) return null;
+
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+
+  for (let i = start; i < content.length; i++) {
+    const char = content[i];
+
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+
+    if (char === '\\') {
+      escaped = inString;
+      continue;
+    }
+
+    if (char === '"') {
+      inString = !inString;
+      continue;
+    }
+
+    if (inString) continue;
+
+    if (char === '{') {
+      depth++;
+    } else if (char === '}') {
+      depth--;
+      if (depth === 0) {
+        return content.slice(start, i + 1).trim();
+      }
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Shallow-parse JSON string values in an object's top-level fields.
+ * Some LLMs (e.g. Qwen via DashScope) return nested objects/arrays as JSON strings
+ * instead of actual objects (double-encoding). This function parses only the top-level
+ * string fields that look like JSON, but does NOT recursively descend into the parsed
+ * results — inner string values are preserved as-is to avoid over-normalization that
+ * breaks Zod schema validation (e.g. turning a z.string() field's value into an object).
+ *
+ * Example input:  { current_state: '{"evaluation_previous_goal": "...", "memory": "..."}', action: '[{"go_to_url": {...}}]' }
+ * Example output: { current_state: { evaluation_previous_goal: "...", memory: "..." }, action: [{ go_to_url: {...} }] }
+ * Note: inner string fields like "memory" remain strings, not further parsed.
+ */
+export function deepParseJsonStrings(obj: unknown): unknown {
+  // For top-level objects: parse each string value once, do not recurse into parsed results
+  if (obj !== null && typeof obj === 'object' && !Array.isArray(obj)) {
+    const result: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(obj as Record<string, unknown>)) {
+      result[key] = parseJsonStringOnce(value);
+    }
+    return result;
+  }
+
+  // For top-level arrays: parse each string element once
+  if (Array.isArray(obj)) {
+    return obj.map(item => parseJsonStringOnce(item));
+  }
+
+  return obj;
+}
+
+/**
+ * Parse a value that might be a JSON string — only one level deep.
+ * If the value is a string that looks like JSON object/array, parse it once.
+ * If the result is an object or array, do NOT further parse its inner string values.
+ */
+function parseJsonStringOnce(value: unknown): unknown {
+  if (typeof value !== 'string') return value;
+
+  const trimmed = value.trim();
+  if ((trimmed.startsWith('{') && trimmed.endsWith('}')) || (trimmed.startsWith('[') && trimmed.endsWith(']'))) {
+    try {
+      return JSON.parse(trimmed);
+      // Do NOT recursively parse inner strings — they should stay as strings for Zod
+    } catch {
+      return value;
+    }
+  }
+  return value;
 }
 
 /**
@@ -141,16 +279,73 @@ export function extractJsonFromModelOutput(content: string): Record<string, unkn
  * @returns Converted list of messages
  */
 export function convertInputMessages(inputMessages: BaseMessage[], modelName: string | null): BaseMessage[] {
+  const normalizedMessages = normalizeToolCallMessageSequence(inputMessages);
   if (modelName === null) {
-    return inputMessages;
+    return normalizedMessages;
   }
   if (modelName === 'deepseek-reasoner' || modelName.includes('deepseek-r1')) {
-    const convertedInputMessages = convertMessagesForNonFunctionCallingModels(inputMessages);
+    const convertedInputMessages = convertMessagesForNonFunctionCallingModels(normalizedMessages);
     let mergedInputMessages = mergeSuccessiveMessages(convertedInputMessages, HumanMessage);
     mergedInputMessages = mergeSuccessiveMessages(mergedInputMessages, AIMessage);
     return mergedInputMessages;
   }
-  return inputMessages;
+  return normalizedMessages;
+}
+
+/**
+ * Remove invalid assistant tool-call sequences before sending messages to a model.
+ * LangChain requires every assistant tool_calls message to be followed immediately by
+ * matching ToolMessage responses. If the sequence is broken, drop the entire block.
+ */
+export function normalizeToolCallMessageSequence(inputMessages: BaseMessage[]): BaseMessage[] {
+  const normalized: BaseMessage[] = [];
+
+  for (let i = 0; i < inputMessages.length; i++) {
+    const message = inputMessages[i];
+
+    if (message instanceof AIMessage && Array.isArray(message.tool_calls) && message.tool_calls.length > 0) {
+      const expectedIds = message.tool_calls.map(toolCall => String((toolCall as { id?: unknown }).id ?? ''));
+      const blockStart = i + 1;
+      let cursor = blockStart;
+      const blockToolMessages: ToolMessage[] = [];
+      let validBlock = true;
+
+      while (cursor < inputMessages.length && inputMessages[cursor] instanceof ToolMessage) {
+        const toolMessage = inputMessages[cursor] as ToolMessage;
+        const toolCallId = String(toolMessage.tool_call_id ?? '');
+        if (!expectedIds.includes(toolCallId)) {
+          validBlock = false;
+          break;
+        }
+        blockToolMessages.push(toolMessage);
+        cursor++;
+      }
+
+      const matchedIds = new Set(blockToolMessages.map(toolMessage => String(toolMessage.tool_call_id ?? '')));
+      const allMatched = expectedIds.length > 0 && matchedIds.size === expectedIds.length && validBlock;
+
+      if (allMatched) {
+        normalized.push(message, ...blockToolMessages);
+        i = cursor - 1;
+        continue;
+      }
+
+      // Skip the broken assistant tool-call block and any immediately following tool messages.
+      while (cursor < inputMessages.length && inputMessages[cursor] instanceof ToolMessage) {
+        cursor++;
+      }
+      i = cursor - 1;
+      continue;
+    }
+
+    if (message instanceof ToolMessage) {
+      continue;
+    }
+
+    normalized.push(message);
+  }
+
+  return normalized;
 }
 
 /**

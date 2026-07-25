@@ -8,7 +8,7 @@
  * 三个调用方共用：
  *  - ClarifyDialog（被动澄清，confidence 闸门触发）
  *  - MarkElementDialog（主动单个标记）
- *  - TeachingDialog（教导模式里"补充列表外的元素"）
+ *  - TeachingDialog（教导模式里手动拾取元素）
  *
  * 拾取过程中 Agent 一直 pause；本 hook 不关心 pause/resume，只管 pick 流程。
  */

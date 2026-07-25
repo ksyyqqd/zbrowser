@@ -2,7 +2,7 @@ import { BaseAgent, type BaseAgentOptions, type ExtraAgentOptions } from './base
 import { createLogger } from '@src/background/log';
 import { z } from 'zod';
 import type { AgentOutput } from '../types';
-import { HumanMessage, SystemMessage, type BaseMessage } from '@langchain/core/messages';
+import { HumanMessage, ToolMessage } from '@langchain/core/messages';
 import { Actors, ExecutionState } from '@extension/shared';
 import {
   ChatModelAuthError,
@@ -16,6 +16,7 @@ import {
   RequestCancelledError,
 } from './errors';
 import { filterExternalContent } from '../messages/utils';
+import { normalizeLogContent } from '../requestLogs';
 const logger = createLogger('PlannerAgent');
 
 // Define Zod schema for planner output
@@ -94,7 +95,7 @@ export class PlannerAgent extends BaseAgent<typeof plannerOutputSchema, PlannerO
       // get all messages from the message manager, state message should be the last one
       const messages = this.context.messageManager.getMessages();
       // Use full message history except the first one
-      const plannerMessages = [this.prompt.getSystemMessage(), ...messages.slice(1)];
+      const plannerMessages = [this.prompt.getSystemMessage(), ...filterPlannerMessages(messages.slice(1))];
 
       // Remove images from last message if vision is not enabled for planner but vision is enabled
       if (!this.context.options.useVisionForPlanner && this.context.options.useVision) {
@@ -115,23 +116,41 @@ export class PlannerAgent extends BaseAgent<typeof plannerOutputSchema, PlannerO
         plannerMessages[plannerMessages.length - 1] = new HumanMessage(newMsg);
       }
 
-      // === 流式推理 ===
-      // 先用一次轻量调用流出一段「自然语言推理」给用户看（边收边 emit STREAM_DELTA）
-      // 之后再走原有 structured output 拿决策 JSON
-      // 失败不阻塞主决策流程
+      let rawOutput = '';
       try {
-        await this.streamReasoning(plannerMessages);
-      } catch (streamErr) {
-        // 用户主动取消时直接抛出，让主流程感知
-        if (isAbortedError(streamErr)) {
-          throw streamErr;
-        }
-        logger.warning('[stream] failed, falling back to silent planning:', streamErr);
+        rawOutput = await this.streamRawModelOutput(plannerMessages, delta => {
+          this.context.emitEvent(Actors.PLANNER, ExecutionState.STREAM_DELTA, delta);
+        });
+      } finally {
+        this.context.emitEvent(Actors.PLANNER, ExecutionState.STREAM_END, '');
       }
 
-      const modelOutput = await this.invoke(plannerMessages);
+      let modelOutput = this.manuallyParseResponse(rawOutput);
+      if (modelOutput) {
+        await this.recordRequestLog({
+          inputMessages: plannerMessages,
+          phase: 'stream',
+          parseStatus: 'success',
+          responseContent: rawOutput,
+        });
+      } else {
+        await this.recordRequestLog({
+          inputMessages: plannerMessages,
+          phase: 'stream',
+          parseStatus: 'failed',
+          responseContent: rawOutput,
+          error: normalizeLogContent('Failed to parse planner output from streamed response', 4000),
+        });
+        logger.warning('[planner] stream parse failed, retrying with structured invoke');
+        try {
+          modelOutput = await this.invoke(plannerMessages);
+        } catch (retryError) {
+          logger.warning('[planner] structured retry failed', retryError);
+        }
+      }
       if (!modelOutput) {
-        throw new Error('Failed to validate planner output');
+        logger.warning(`[planner] raw output preview: ${rawOutput.slice(0, 400)}`);
+        throw new Error('Failed to parse planner output');
       }
 
       // clean the model output
@@ -180,59 +199,20 @@ export class PlannerAgent extends BaseAgent<typeof plannerOutputSchema, PlannerO
       };
     }
   }
+}
 
-  /**
-   * 让 planner 先吐一段「自然语言推理」给用户看，逐 token 流出。
-   * 这次调用不影响后续的 structured output 决策；只是为了让用户在等待时
-   * 能看到 AI 在「打字」，提升等待体感。
-   *
-   * 用一个轻量的 system prompt + 复用主对话的 messages（让模型看到上下文）
-   * 但限制只输出 2-4 句话观察+计划，避免拖长延迟。
-   */
-  private async streamReasoning(plannerMessages: BaseMessage[]): Promise<void> {
-    const reasoningSystem = new SystemMessage(
-      [
-        '你正在帮助用户完成一项浏览器任务。',
-        '在做出正式决策之前，请用 2-4 句中文简要说出：',
-        '1) 你当前观察到的页面状态或上下文重点；',
-        '2) 你打算下一步做什么。',
-        '不要输出任何 JSON 或代码块，只输出自然语言。不要客套，不要重复用户的原话，直奔主题。',
-      ].join('\n'),
-    );
-
-    // 复用主消息列表的非系统消息部分，让模型有同样的上下文
-    const restMessages = plannerMessages.slice(1);
-    const streamMessages = [reasoningSystem, ...restMessages];
-
-    let buffer = '';
-    let chunkCount = 0;
-    let nonEmptyCount = 0;
-    const stream = await this.chatLLM.stream(streamMessages, {
-      signal: this.context.controller.signal,
-      ...this.callOptions,
-    });
-
-    for await (const chunk of stream) {
-      chunkCount++;
-      // chunk.content 可能是 string，也可能是 ContentComplex[]（多模态时）
-      let delta = '';
-      if (typeof chunk.content === 'string') {
-        delta = chunk.content;
-      } else if (Array.isArray(chunk.content)) {
-        for (const part of chunk.content) {
-          if (typeof part === 'object' && part !== null && 'type' in part && part.type === 'text' && 'text' in part) {
-            delta += (part as { text: string }).text;
-          }
-        }
-      }
-      if (!delta) continue;
-      nonEmptyCount++;
-      buffer += delta;
-      this.context.emitEvent(Actors.PLANNER, ExecutionState.STREAM_DELTA, delta);
+function filterPlannerMessages(
+  messages: ReturnType<typeof Array.prototype.slice>,
+): ReturnType<typeof Array.prototype.slice> {
+  return messages.filter(message => {
+    if (message instanceof ToolMessage) {
+      return false;
     }
 
-    // 标记一段流结束（前端可据此关闭"打字中"指示）
-    this.context.emitEvent(Actors.PLANNER, ExecutionState.STREAM_END, '');
-    logger.info(`[Planner stream] total=${chunkCount} chunks, nonEmpty=${nonEmptyCount}, ${buffer.length} chars`);
-  }
+    if ('tool_calls' in message && Array.isArray((message as { tool_calls?: unknown[] }).tool_calls)) {
+      return false;
+    }
+
+    return true;
+  });
 }

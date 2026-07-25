@@ -4,6 +4,7 @@ import { MessageHistory, MessageMetadata } from '@src/background/agent/messages/
 import { createLogger } from '@src/background/log';
 import {
   filterExternalContent,
+  normalizeToolCallMessageSequence,
   wrapUserRequest,
   splitUserTextAndAttachments,
   wrapAttachments,
@@ -118,7 +119,7 @@ export default class MessageManager {
     ];
 
     const exampleToolCall = new AIMessage({
-      content: '',
+      content: 'Example: Agent responds with structured output and may include separate reasoning text',
       tool_calls: toolCalls,
     });
     this.addMessageWithTokens(exampleToolCall, 'init');
@@ -256,7 +257,7 @@ export default class MessageManager {
    * @param stateMessage - The HumanMessage object containing the state
    */
   public addStateMessage(stateMessage: HumanMessage): void {
-    this.addMessageWithTokens(stateMessage);
+    this.addMessageWithTokens(stateMessage, 'state');
   }
 
   /**
@@ -293,15 +294,17 @@ export default class MessageManager {
   }
 
   public getMessages(): BaseMessage[] {
-    const messages = this.history.messages
-      .filter(m => {
-        if (!m.message) {
-          console.error(`[MessageManager] Filtering out message with undefined message property:`, m);
-          return false;
-        }
-        return true;
-      })
-      .map(m => m.message);
+    const messages = normalizeToolCallMessageSequence(
+      this.history.messages
+        .filter(m => {
+          if (!m.message) {
+            console.error(`[MessageManager] Filtering out message with undefined message property:`, m);
+            return false;
+          }
+          return true;
+        })
+        .map(m => m.message),
+    );
 
     let totalInputTokens = 0;
     logger.debug(`Messages in history: ${this.history.messages.length}:`);
@@ -463,9 +466,9 @@ export default class MessageManager {
     // remove tokens and old long message
     this.history.removeLastStateMessage();
 
-    // new message with updated content
+    // new message with updated content — preserve 'state' messageType
     const msg = new HumanMessage({ content: newContent });
-    this.addMessageWithTokens(msg);
+    this.addMessageWithTokens(msg, 'state');
 
     const finalMsg = this.history.messages[this.history.messages.length - 1];
     logger.debug(

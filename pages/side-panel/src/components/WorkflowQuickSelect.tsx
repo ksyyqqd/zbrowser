@@ -8,6 +8,8 @@ import { FiShare2, FiSearch, FiPlay, FiSettings } from 'react-icons/fi';
 import { t } from '@extension/i18n';
 import { userWorkflowsStore, type UserWorkflowConfig } from '@extension/storage';
 
+const workflowT = t as unknown as (key: string, substitutions?: string | string[]) => string;
+
 interface WorkflowQuickSelectProps {
   isDarkMode?: boolean;
   onExecuteWorkflow: (workflowId: string) => void;
@@ -128,8 +130,8 @@ export default function WorkflowQuickSelect({ onExecuteWorkflow, disabled = fals
         onClick={handleToggleDropdown}
         disabled={disabled}
         className={`icon-btn rounded-md ${disabled ? 'cursor-not-allowed !opacity-35' : ''}`}
-        aria-label={t('workflow_quickselect_title')}
-        title={t('workflow_quickselect_title')}>
+        aria-label={workflowT('workflow_quickselect_title')}
+        title={workflowT('workflow_quickselect_title')}>
         <FiShare2 className="size-4" />
       </button>
 
@@ -161,7 +163,7 @@ export default function WorkflowQuickSelect({ onExecuteWorkflow, disabled = fals
               type="text"
               value={searchQuery}
               onChange={e => setSearchQuery(e.target.value)}
-              placeholder={t('workflow_quickselect_searchPlaceholder')}
+              placeholder={workflowT('workflow_quickselect_searchPlaceholder')}
               className="flex-1 bg-transparent text-sm outline-none"
               style={{ color: 'var(--text-primary)' }}
             />
@@ -174,7 +176,7 @@ export default function WorkflowQuickSelect({ onExecuteWorkflow, disabled = fals
           <div className="overflow-y-auto px-1 py-1 flex-1" style={{ maxHeight: 280, minHeight: 100 }}>
             {workflowsToShow.length === 0 ? (
               <div className="py-4 text-center text-xs" style={{ color: 'var(--text-muted)' }}>
-                {searchQuery ? t('workflow_quickselect_notFound') : t('workflow_quickselect_empty')}
+                {searchQuery ? workflowT('workflow_quickselect_notFound') : workflowT('workflow_quickselect_empty')}
               </div>
             ) : (
               workflowsToShow.map(workflow => (
@@ -212,10 +214,10 @@ export default function WorkflowQuickSelect({ onExecuteWorkflow, disabled = fals
             style={{ borderColor: 'var(--border-color)', color: 'var(--text-muted)' }}>
             <button type="button" onClick={handleManageWorkflows} className="hover:underline flex items-center gap-1">
               <FiSettings size={12} />
-              {t('workflow_quickselect_manage')}
+              {workflowT('workflow_quickselect_manage')}
             </button>
             <button type="button" onClick={() => setShowDropdown(false)} className="hover:underline">
-              {t('workflow_quickselect_close')}
+              {workflowT('workflow_quickselect_close')}
             </button>
           </div>
         </div>

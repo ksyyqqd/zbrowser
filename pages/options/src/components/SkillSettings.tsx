@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { Button } from '@extension/ui';
 import { userSkillsStore, type StoredSkillPackage } from '@extension/storage';
-import type { Skill, SkillPackage, SkillParameter, SkillStep } from '@extension/skills';
+import type { ExecutionMode, Skill, SkillCategory, SkillPackage, SkillParameter, SkillStep } from '@extension/skills';
 import { MarkdownParser, SkillPackageParser } from '@extension/skills';
 import JSZip from 'jszip';
 import {
@@ -36,8 +36,10 @@ export const SkillSettings = ({ isDarkMode = false }: SkillSettingsProps) => {
   const [exportFormat, setExportFormat] = useState<'markdown' | 'json' | 'zip'>('markdown');
   const [viewingFile, setViewingFile] = useState<{ name: string; content: string; type: string } | null>(null);
 
-  // Editing states (text-only editor)
+  // Editing states
   const [isEditing, setIsEditing] = useState(false);
+  const [editMode, setEditMode] = useState<'text' | 'ui'>('text');
+  const [editedSkill, setEditedSkill] = useState<Partial<StoredSkillPackage> | null>(null);
   const [editContent, setEditContent] = useState('');
   const [editTextFormat, setEditTextFormat] = useState<'markdown' | 'json'>('markdown');
 
@@ -46,7 +48,7 @@ export const SkillSettings = ({ isDarkMode = false }: SkillSettingsProps) => {
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const editTextAreaRef = useRef<HTMLInputElement>(null);
+  const editTextAreaRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     loadSkills();
@@ -316,16 +318,22 @@ export const SkillSettings = ({ isDarkMode = false }: SkillSettingsProps) => {
     setEditContent('');
   };
 
-  // Start editing a skill (text-only)
-  const startEditing = () => {
+  // Start editing a skill
+  const startEditing = (mode: 'text' | 'ui') => {
     if (!selectedSkill) return;
 
-    // Generate text content from the current skill definition
-    const parser = new MarkdownParser();
-    const skillObj = convertPackageToSkill(selectedSkill);
-    const markdown = parser.toMarkdown(skillObj);
-    setEditContent(markdown);
-    setEditTextFormat('markdown');
+    setEditMode(mode);
+    if (mode === 'ui') {
+      // Initialize editedSkill with current skill data for UI editing
+      setEditedSkill({ ...selectedSkill });
+    } else {
+      // Generate text content from the current skill definition
+      const parser = new MarkdownParser();
+      const skillObj = convertPackageToSkill(selectedSkill);
+      const markdown = parser.toMarkdown(skillObj);
+      setEditContent(markdown);
+      setEditTextFormat('markdown');
+    }
     setIsEditing(true);
   };
 
@@ -422,7 +430,7 @@ export const SkillSettings = ({ isDarkMode = false }: SkillSettingsProps) => {
   };
 
   // Update edited skill field (UI mode)
-  const updateEditedField = (field: string, value: unknown) => {
+  const updateEditedField = <K extends keyof StoredSkillPackage>(field: K, value: StoredSkillPackage[K]) => {
     if (!editedSkill) return;
     setEditedSkill(prev => {
       if (!prev) return null;
@@ -435,7 +443,7 @@ export const SkillSettings = ({ isDarkMode = false }: SkillSettingsProps) => {
     if (!editedSkill) return;
     setEditedSkill(prev => {
       if (!prev) return null;
-      const params = [...prev.parameters];
+      const params = [...(prev.parameters ?? [])];
       params[index] = { ...params[index], ...updates };
       return { ...prev, parameters: params };
     });
@@ -449,7 +457,7 @@ export const SkillSettings = ({ isDarkMode = false }: SkillSettingsProps) => {
       return {
         ...prev,
         parameters: [
-          ...prev.parameters,
+          ...(prev.parameters ?? []),
           {
             name: 'new_param',
             type: 'string',
@@ -466,7 +474,7 @@ export const SkillSettings = ({ isDarkMode = false }: SkillSettingsProps) => {
     if (!editedSkill) return;
     setEditedSkill(prev => {
       if (!prev) return null;
-      const params = prev.parameters.filter((_, i) => i !== index);
+      const params = (prev.parameters ?? []).filter((_, i) => i !== index);
       return { ...prev, parameters: params };
     });
   };
@@ -476,7 +484,7 @@ export const SkillSettings = ({ isDarkMode = false }: SkillSettingsProps) => {
     if (!editedSkill) return;
     setEditedSkill(prev => {
       if (!prev) return null;
-      const steps = [...prev.steps];
+      const steps = [...(prev.steps ?? [])];
       steps[index] = { ...steps[index], ...updates };
       return { ...prev, steps: steps };
     });
@@ -487,11 +495,12 @@ export const SkillSettings = ({ isDarkMode = false }: SkillSettingsProps) => {
     if (!editedSkill) return;
     setEditedSkill(prev => {
       if (!prev) return null;
-      const newStepId = `step${prev.steps.length + 1}`;
+      const currentSteps = prev.steps ?? [];
+      const newStepId = `step${currentSteps.length + 1}`;
       return {
         ...prev,
         steps: [
-          ...prev.steps,
+          ...currentSteps,
           {
             id: newStepId,
             action: 'wait',
@@ -509,7 +518,7 @@ export const SkillSettings = ({ isDarkMode = false }: SkillSettingsProps) => {
     if (!editedSkill) return;
     setEditedSkill(prev => {
       if (!prev) return null;
-      const steps = prev.steps.filter((_, i) => i !== index);
+      const steps = (prev.steps ?? []).filter((_, i) => i !== index);
       return { ...prev, steps: steps };
     });
   };
@@ -791,7 +800,7 @@ export const SkillSettings = ({ isDarkMode = false }: SkillSettingsProps) => {
               </div>
 
               {/* Edit mode toggle buttons */}
-              {!isEditing && selectedSkill.packageInfo?.source !== 'builtin' && (
+              {!isEditing && !!selectedSkill.packageInfo && (
                 <div className="flex items-center gap-2">
                   <button
                     onClick={() => startEditing('ui')}
@@ -953,7 +962,7 @@ export const SkillSettings = ({ isDarkMode = false }: SkillSettingsProps) => {
                     {isEditing ? (
                       <select
                         value={editedSkill?.category || selectedSkill.category}
-                        onChange={e => updateEditedField('category', e.target.value)}
+                        onChange={e => updateEditedField('category', e.target.value as SkillCategory)}
                         className={`px-2 py-1 rounded ${
                           isDarkMode
                             ? 'bg-slate-700 text-gray-300 border border-slate-600'
@@ -974,7 +983,7 @@ export const SkillSettings = ({ isDarkMode = false }: SkillSettingsProps) => {
                     {isEditing ? (
                       <select
                         value={editedSkill?.executionMode || selectedSkill.executionMode}
-                        onChange={e => updateEditedField('executionMode', e.target.value)}
+                        onChange={e => updateEditedField('executionMode', e.target.value as ExecutionMode)}
                         className={`px-2 py-1 rounded ${
                           isDarkMode
                             ? 'bg-slate-700 text-gray-300 border border-slate-600'
@@ -996,7 +1005,7 @@ export const SkillSettings = ({ isDarkMode = false }: SkillSettingsProps) => {
                 <div>
                   <div className="flex items-center justify-between mb-2">
                     <h4 className={`text-sm font-medium ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>
-                      参数 ({isEditing ? editedSkill?.parameters.length : selectedSkill.parameters.length})
+                      参数 ({isEditing ? (editedSkill?.parameters?.length ?? 0) : selectedSkill.parameters.length})
                     </h4>
                     {isEditing && (
                       <button
@@ -1127,7 +1136,7 @@ export const SkillSettings = ({ isDarkMode = false }: SkillSettingsProps) => {
                 <div>
                   <div className="flex items-center justify-between mb-2">
                     <h4 className={`text-sm font-medium ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>
-                      执行步骤 ({isEditing ? editedSkill?.steps.length : selectedSkill.steps.length})
+                      执行步骤 ({isEditing ? (editedSkill?.steps?.length ?? 0) : selectedSkill.steps.length})
                     </h4>
                     {isEditing && (
                       <button

@@ -2,7 +2,7 @@
 // 导入React相关Hook函数
 import { useState, useEffect, useCallback, useRef } from 'react';
 // 导入UI图标组件
-import { FiSettings, FiBookmark, FiSun, FiMoon, FiTarget, FiBookOpen } from 'react-icons/fi';
+import { FiSettings, FiBookmark, FiSun, FiMoon, FiBookOpen } from 'react-icons/fi';
 // 导入器灵遮罩注入脚本 URL（用于 files 注入）
 /* 注入脚本通过 chrome.scripting.executeScript({ files: ['spiritOverlayInject.js'] }) 加载，
  * 不使用 ?raw import 或 eval，以兼容目标页面的 CSP 策略 */
@@ -10,7 +10,7 @@ import { PiPlusBold } from 'react-icons/pi';
 import { GrHistory } from 'react-icons/gr';
 // 导入消息类型、角色枚举和存储相关功能
 import { type Message, chatHistoryStore, agentModelStore, generalSettingsStore } from '@extension/storage';
-import { Actors, EventType, type AgentEvent, ExecutionState } from '@extension/shared';
+import { Actors, EventType, type AgentEvent, ExecutionState, type AskUserPayload } from '@extension/shared';
 // 导入收藏提示存储和类型
 import favoritesStorage, { type FavoritePrompt } from '@extension/storage/lib/prompt/favorites';
 // 导入国际化函数
@@ -19,17 +19,22 @@ import { t } from '@extension/i18n';
 import type { Skill } from '@extension/skills';
 // 导入子组件
 import MessageList from './components/MessageList';
+import RequestLogPanel from './components/RequestLogPanel';
 import ChatInput from './components/ChatInput';
 import ChatHistoryList from './components/ChatHistoryList';
 import BookmarkList from './components/BookmarkList';
 import SpiritDoll from './components/SpiritDoll';
-import { wrapTaskByMode } from './types/spiritModes';
+import { wrapTaskByMode, type SpiritMode } from './types/spiritModes';
 import ImageGenerationModal, { type ImageGenerationParams } from './components/ImageGenerationModal';
 // 导入录制控制组件
 import RecordingPill from './components/RecordingPill';
 import { ClarifyDialog } from './components/ClarifyDialog';
-import { MarkElementDialog } from './components/MarkElementDialog';
+// MarkElement 已合并到 TeachingDialog，不再单独入口
 import { TeachingDialog } from './components/TeachingDialog';
+import { AmendNextStepDialog } from './components/AmendNextStepDialog';
+import { FailDiagnosisDialog } from './components/FailDiagnosisDialog';
+import { OnboardingTour } from './components/OnboardingTour';
+import { EmptyStateCards } from './components/EmptyStateCards';
 // 导入样式表
 import './SidePanel.css';
 import '@extension/ui/global.css';
@@ -73,15 +78,18 @@ declare global {
 }
 
 const SidePanel = () => {
-  // 进度消息常量
-  const progressMessage = 'Showing progress...';
-
   // 消息状态：存储聊天消息数组
   const [messages, setMessages] = useState<Message[]>([]);
+  // 流式原文展示：仅在 Planner/Navigator 流式输出时临时显示，不持久化
+  const [liveStreamMessage, setLiveStreamMessage] = useState<{
+    actor: Actors.PLANNER | Actors.NAVIGATOR;
+    content: string;
+    timestamp: number;
+    isCompleted?: boolean;
+  } | null>(null);
   // 用户澄清弹窗：非空时显示 ClarifyDialog，等用户回应后清空
-  const [pendingClarify, setPendingClarify] = useState<import('@extension/shared').AskUserPayload | null>(null);
-  // 手动标记元素弹窗：用户主动从 header 入口打开
-  const [showMarkElement, setShowMarkElement] = useState(false);
+  const [pendingClarify, setPendingClarify] = useState<AskUserPayload | null>(null);
+  // MarkElement 已合并到 TeachingDialog
   // 教导模式弹窗：批量推测当前页面元素 purpose
   const [showTeaching, setShowTeaching] = useState(false);
   // 用户在聊天框中临时引用的页面元素（@ 面板 / TeachingDialog 点 [index] 添加）
@@ -93,6 +101,21 @@ const SidePanel = () => {
   const removeElementRef = useCallback((index: number) => {
     setReferencedElements(prev => prev.filter((_, i) => i !== index));
   }, []);
+
+  // ===== 三个新功能的 state =====
+  // 任务进度（来自 EventData.step / maxSteps），任务结束后置 null
+  const [taskProgress, setTaskProgress] = useState<{ step: number; maxSteps: number } | null>(null);
+  const showTaskProgressBar = false;
+  // 「修改下一步」弹窗：true = 已 pause + 等待用户输入
+  const [showAmend, setShowAmend] = useState(false);
+  // 失败诊断弹窗 payload（TASK_FAIL_DIAGNOSIS 事件到达时填，关闭后清）
+  const [pendingFailDiagnosis, setPendingFailDiagnosis] = useState<
+    import('@extension/shared').TaskFailDiagnosis | null
+  >(null);
+  // 首次启动新功能引导：从 generalSettings.onboardingSeen 决定是否挂载
+  const [showOnboarding, setShowOnboarding] = useState(false);
+  // 记下最后一次发送的 task（用于失败诊断弹窗里的「重试」按钮）
+  const lastTaskRef = useRef<string>('');
   // 输入启用状态：控制输入框是否可用
   const [inputEnabled, setInputEnabled] = useState(true);
   // 录制进行中标记 — 录制时禁用聊天输入
@@ -142,18 +165,16 @@ const SidePanel = () => {
   const [generatedImageBase64, setGeneratedImageBase64] = useState<string | undefined>();
   // 是否正在重播
   const [isReplaying, setIsReplaying] = useState(false);
-  // 快速入门步骤展开状态
-  const [showSteps, setShowSteps] = useState(false);
   // AI接管遮罩开关
   const [showSpotlightEnabled, setShowSpotlightEnabled] = useState(true);
   // 工作流遮罩开关
   const [showWorkflowSpotlightEnabled, setShowWorkflowSpotlightEnabled] = useState(false);
+  const [showRequestLogsEnabled, setShowRequestLogsEnabled] = useState(false);
   // Keep ref in sync for access inside callbacks
   useEffect(() => {
     showWorkflowSpotlightEnabledRef.current = showWorkflowSpotlightEnabled;
   }, [showWorkflowSpotlightEnabled]);
-  // 图片生成功能开关
-  const [showImageGeneration, setShowImageGeneration] = useState(false);
+
   // 会话ID引用
   const sessionIdRef = useRef<string | null>(null);
   // 重播状态引用
@@ -167,10 +188,7 @@ const SidePanel = () => {
   // 设置输入文本的引用
   const setInputTextRef = useRef<React.Dispatch<React.SetStateAction<string>> | null>(null);
   // 当前皮蛋模式引用（用于在发送任务时包装内容）
-  const spiritModeRef = useRef<import('./types/spiritModes').SpiritMode>('auto');
-  // 当前正在流式追加的消息标识：用 timestamp 定位 messages 数组里那条
-  // null 表示当前没有进行中的流
-  const streamingTimestampRef = useRef<number | null>(null);
+  const spiritModeRef = useRef<SpiritMode>('auto');
 
   // 检查暗色模式偏好（从 localStorage 恢复，默认跟随系统）
   useEffect(() => {
@@ -221,12 +239,12 @@ const SidePanel = () => {
       const settings = await generalSettingsStore.getSettings();
       setShowSpotlightEnabled(settings.showSpotlight);
       setShowWorkflowSpotlightEnabled(settings.showWorkflowSpotlight ?? false);
-      setShowImageGeneration(settings.showImageGeneration ?? false);
+      setShowRequestLogsEnabled(settings.showRequestLogs ?? false);
     } catch (error) {
       console.error('加载遮罩设置时出错:', error);
       setShowSpotlightEnabled(true); // 默认开启
       setShowWorkflowSpotlightEnabled(false); // 默认关闭
-      setShowImageGeneration(false); // 默认关闭
+      setShowRequestLogsEnabled(false);
     }
   }, []);
 
@@ -234,6 +252,34 @@ const SidePanel = () => {
   useEffect(() => {
     checkModelConfiguration();
   }, [checkModelConfiguration]);
+
+  // 启动检查新功能引导：onboardingSeen 缺省/false 时挂载
+  useEffect(() => {
+    (async () => {
+      try {
+        const settings = await generalSettingsStore.getSettings();
+        if (!settings?.onboardingSeen) {
+          setShowOnboarding(true);
+        }
+      } catch {
+        /* 读不到默认不弹，避免老用户被打扰 */
+      }
+    })();
+  }, []);
+
+  // 启动检查新功能引导：onboardingSeen 缺省/false 时挂载
+  useEffect(() => {
+    (async () => {
+      try {
+        const settings = await generalSettingsStore.getSettings();
+        if (!settings?.onboardingSeen) {
+          setShowOnboarding(true);
+        }
+      } catch {
+        /* 读不到默认不弹，避免老用户被打扰 */
+      }
+    })();
+  }, []);
 
   // 当侧面板再次变为可见时重新检查模型配置
   useEffect(() => {
@@ -270,13 +316,8 @@ const SidePanel = () => {
 
   // 添加新消息到消息列表
   const appendMessage = useCallback((newMessage: Message, sessionId?: string | null) => {
-    // 不保存进度消息
-    const isProgressMessage = newMessage.content === progressMessage;
-
     setMessages(prev => {
-      // 过滤掉之前的进度消息
-      const filteredMessages = prev.filter((msg, idx) => !(msg.content === progressMessage && idx === prev.length - 1));
-      return [...filteredMessages, newMessage];
+      return [...prev, newMessage];
     });
 
     // 如果提供了sessionId则使用它，否则回退到sessionIdRef.current
@@ -284,8 +325,7 @@ const SidePanel = () => {
 
     console.log('sessionId', effectiveSessionId);
 
-    // 如果有会话ID且不是进度消息，则保存消息到存储
-    if (effectiveSessionId && !isProgressMessage) {
+    if (effectiveSessionId) {
       chatHistoryStore
         .addMessage(effectiveSessionId, newMessage)
         .catch(err => console.error('保存消息到历史记录失败:', err));
@@ -523,46 +563,59 @@ const SidePanel = () => {
       const { actor, state, timestamp, data } = event;
       const content = data?.details;
       let skip = true;
-      let displayProgress = false;
+      const isStreamActor = actor === Actors.PLANNER || actor === Actors.NAVIGATOR;
 
       // === 流式增量事件：在 actor 分支前统一处理 ===
-      // STREAM_DELTA：把 delta 追加到当前流的消息上；没有则新建一条
-      // STREAM_END：标记本段流结束
+      // Planner/Navigator 的原始模型流仅临时展示，不写入历史消息
       if (state === ExecutionState.STREAM_DELTA) {
         const delta = content || '';
         if (!delta) return;
-        const activeTs = streamingTimestampRef.current;
-        if (activeTs === null) {
-          // 首个 delta：把同 actor 最近一条 progressMessage 占位替换为流式消息
-          // 注：STEP_START 也会插一条 progress 占位（actor=planner），需要把它移除
-          // 否则流式新消息插在末尾，progress 占位仍存在 → latestStepMsg 还是 progress
-          streamingTimestampRef.current = timestamp;
-          setMessages(prev => {
-            // 倒序找最后一条同 actor 的 progress 占位
-            const lastProgressIdx = (() => {
-              for (let i = prev.length - 1; i >= 0; i--) {
-                if (prev[i].content === progressMessage && prev[i].actor === actor) return i;
-              }
-              return -1;
-            })();
-            const next =
-              lastProgressIdx >= 0
-                ? [...prev.slice(0, lastProgressIdx), ...prev.slice(lastProgressIdx + 1)]
-                : [...prev];
-            next.push({ actor, content: delta, timestamp });
-            return next;
-          });
-        } else {
-          // 继续追加到那条消息
-          setMessages(prev =>
-            prev.map(m => (m.timestamp === activeTs && m.actor === actor ? { ...m, content: m.content + delta } : m)),
-          );
-        }
+        if (!isStreamActor) return;
+        setLiveStreamMessage(prev => {
+          if (!prev || prev.actor !== actor) {
+            return { actor, content: delta, timestamp, isCompleted: false };
+          }
+          return { ...prev, content: prev.content + delta, isCompleted: false };
+        });
         return;
       }
       if (state === ExecutionState.STREAM_END) {
-        streamingTimestampRef.current = null;
+        if (isStreamActor) {
+          setLiveStreamMessage(prev => (prev?.actor === actor ? { ...prev, isCompleted: true } : prev));
+        }
         return;
+      }
+
+      // === 失败诊断事件：紧随 TASK_FAIL 之前到达，挂诊断弹窗 ===
+      // executor.emitFailDiagnosis 调 LLM 拿到 summary + 3 条建议后才 emit；
+      // 失败诊断本身失败（无 LLM 配/超时）则不会到达这里，保持现有 TASK_FAIL 走老路径
+      if (state === ExecutionState.TASK_FAIL_DIAGNOSIS) {
+        try {
+          const diag = JSON.parse(content || '{}') as import('@extension/shared').TaskFailDiagnosis;
+          if (diag && typeof diag.summary === 'string') {
+            setPendingFailDiagnosis(diag);
+          }
+        } catch (e) {
+          console.error('Failed to parse TASK_FAIL_DIAGNOSIS payload:', e, content);
+        }
+        return;
+      }
+
+      // === step 进度数据：复用 EventData.step / maxSteps ===
+      // 在原有 actor 分支前先抽出，进度条显示不依赖 actor
+      const evStep = (event.data as { step?: number; maxSteps?: number } | undefined)?.step;
+      const evMax = (event.data as { step?: number; maxSteps?: number } | undefined)?.maxSteps;
+      if (state === ExecutionState.STEP_START && typeof evStep === 'number' && typeof evMax === 'number') {
+        setTaskProgress({ step: evStep + 1, maxSteps: evMax });
+      }
+      if (
+        state === ExecutionState.TASK_OK ||
+        state === ExecutionState.TASK_FAIL ||
+        state === ExecutionState.TASK_CANCEL
+      ) {
+        setTaskProgress(null);
+        setShowAmend(false); // 任务结束顺便关掉「修改下一步」弹窗
+        setLiveStreamMessage(prev => (prev ? { ...prev, isCompleted: true } : prev));
       }
 
       // === 用户澄清事件：弹窗交互 ===
@@ -570,7 +623,7 @@ const SidePanel = () => {
       // ASK_USER_RESOLVED: 用户已回应，details 是给消息流的人类可读摘要，写入消息列表即可
       if (state === ExecutionState.ASK_USER) {
         try {
-          const payload = JSON.parse(content || '{}') as import('@extension/shared').AskUserPayload;
+          const payload = JSON.parse(content || '{}') as AskUserPayload;
           if (payload && payload.requestId && payload.question) {
             setPendingClarify(payload);
           }
@@ -649,7 +702,7 @@ const SidePanel = () => {
         case Actors.PLANNER:
           switch (state) {
             case ExecutionState.STEP_START:
-              displayProgress = true;
+              setLiveStreamMessage({ actor, content: '', timestamp, isCompleted: false });
               _setSpotlightMode('planning'); // 规划阶段：蓝青色
               break;
             case ExecutionState.STEP_OK:
@@ -668,18 +721,15 @@ const SidePanel = () => {
         case Actors.NAVIGATOR:
           switch (state) {
             case ExecutionState.STEP_START:
-              displayProgress = true;
+              setLiveStreamMessage({ actor, content: '', timestamp, isCompleted: false });
               _setSpotlightMode('executing'); // 执行阶段：琥珀金
               break;
             case ExecutionState.STEP_OK:
-              displayProgress = false;
               break;
             case ExecutionState.STEP_FAIL:
               skip = false;
-              displayProgress = false;
               break;
             case ExecutionState.STEP_CANCEL:
-              displayProgress = false;
               _hideSpotlight();
               break;
             case ExecutionState.ACT_START:
@@ -703,7 +753,6 @@ const SidePanel = () => {
           // 处理来自历史消息的旧验证器事件
           switch (state) {
             case ExecutionState.STEP_START:
-              displayProgress = true;
               break;
             case ExecutionState.STEP_OK:
               skip = false;
@@ -731,18 +780,9 @@ const SidePanel = () => {
 
         // 同步更新器灵的当前执行步骤（planner/navigator/validator 的步骤）
         const isStepActor = ['planner', 'navigator', 'validator'].includes(actor);
-        if (isStepActor && content && !displayProgress) {
+        if (isStepActor && content) {
           setCurrentStep({ actor, content });
         }
-      }
-
-      // 如果需要显示进度，则添加进度消息
-      if (displayProgress) {
-        appendMessage({
-          actor,
-          content: progressMessage,
-          timestamp: timestamp,
-        });
       }
     },
     [appendMessage, _hideSpotlight, _showSpotlight, _setSpotlightMode],
@@ -822,7 +862,7 @@ const SidePanel = () => {
         _hideSpotlight();
       }
     },
-    [appendMessage, _hideSpotlight, showWorkflowSpotlightEnabled],
+    [appendMessage, _hideSpotlight],
   );
 
   // 停止心跳并关闭连接
@@ -835,6 +875,8 @@ const SidePanel = () => {
       portRef.current.disconnect();
       portRef.current = null;
     }
+    setPortInstance(null);
+    setLiveStreamMessage(null);
   }, []);
 
   // 设置连接管理
@@ -894,6 +936,8 @@ const SidePanel = () => {
         const error = chrome.runtime.lastError;
         console.log('连接断开', error ? `错误: ${error.message}` : '');
         portRef.current = null;
+        setPortInstance(null);
+        setLiveStreamMessage(null);
         if (heartbeatIntervalRef.current) {
           clearInterval(heartbeatIntervalRef.current);
           heartbeatIntervalRef.current = null;
@@ -928,8 +972,17 @@ const SidePanel = () => {
       });
       // 由于连接失败，清除任何引用
       portRef.current = null;
+      setPortInstance(null);
+      setPortInstance(null);
     }
   }, [handleTaskState, handleWorkflowEvent, appendMessage, stopConnection]);
+
+  const openTeachingDialog = useCallback(() => {
+    if (!portRef.current) {
+      setupConnection();
+    }
+    setShowTeaching(true);
+  }, [setupConnection]);
 
   // 添加消息发送的安全检查
   const sendMessage = useCallback(
@@ -1186,31 +1239,6 @@ const SidePanel = () => {
         return true;
       }
 
-      // /image <prompt>  —— 通过聊天输入直接触发图片生成
-      // 也支持 /img、/draw 别名
-      if (
-        command.startsWith('/image ') ||
-        command.startsWith('/img ') ||
-        command.startsWith('/draw ') ||
-        command === '/image' ||
-        command === '/img' ||
-        command === '/draw'
-      ) {
-        const firstSpace = command.indexOf(' ');
-        const prompt = firstSpace === -1 ? '' : command.slice(firstSpace + 1).trim();
-        if (!prompt) {
-          appendMessage({
-            actor: Actors.SYSTEM,
-            content: '用法: /image <描述文字>，例如：/image 一只穿着宇航服的猫，赛博朋克风格',
-            timestamp: Date.now(),
-          });
-          return true;
-        }
-        // 复用现有的图片生成入口（按钮路径），无需新增协议
-        await handleGenerateImage({ prompt });
-        return true;
-      }
-
       // 不支持的命令
       appendMessage({
         actor: Actors.SYSTEM,
@@ -1460,12 +1488,6 @@ const SidePanel = () => {
     }
   };
 
-  // 打开图片生成模态框
-  const handleOpenImageModal = () => {
-    setIsImageModalOpen(true);
-    setGeneratedImageBase64(undefined);
-  };
-
   // 处理图片生成请求
   const handleGenerateImage = async (params: ImageGenerationParams) => {
     setIsGeneratingImage(true);
@@ -1551,23 +1573,13 @@ const SidePanel = () => {
 
     // 按当前球球模式包装任务（自动模式不变；农场主/探索 走对应 promptWrapper）
     // skill 是嵌入在用户文本里的额外指令；模式包装作用于整段（包含 skill 信息）
-    // 把临时引用的页面元素拼成 XML 块，让 Agent 拿到精确 selector/xpath
-    let withRefs = skillEnhancedText;
-    if (referencedElements.length > 0) {
-      const lines = referencedElements.map(r => {
-        const bits: string[] = [];
-        if (r.xpath) bits.push(`xpath=${r.xpath}`);
-        if (r.selector) bits.push(`selector=${r.selector}`);
-        if (r.text) bits.push(`text="${r.text.slice(0, 60).replace(/"/g, "'")}"`);
-        return `- "${r.label}"（${r.purpose}）：${bits.join('，')}`;
-      });
-      const refsBlock = `\n\n<nano_referenced_elements>\n${lines.join('\n')}\n</nano_referenced_elements>`;
-      withRefs = (skillEnhancedText || trimmedText) + refsBlock;
-    }
-    const { task: wrappedTask, displayText: wrappedDisplay } = await wrapTaskByMode(spiritModeRef.current, withRefs);
+    const { task: wrappedTask, displayText: wrappedDisplay } = await wrapTaskByMode(
+      spiritModeRef.current,
+      skillEnhancedText,
+    );
     const finalText = wrappedTask;
     // displayText 上：若模式无包装，沿用 skillEnhancedDisplayText；否则使用模式提供的带前缀的展示文本
-    const finalDisplayText = wrappedTask === withRefs ? skillEnhancedDisplayText : wrappedDisplay;
+    const finalDisplayText = wrappedTask === skillEnhancedText ? skillEnhancedDisplayText : wrappedDisplay;
 
     // 检查输入是否为命令（以/开头）
     if (trimmedText.startsWith('/')) {
@@ -1644,6 +1656,8 @@ const SidePanel = () => {
         });
         console.log('新任务已发送', finalText, tabId, sessionIdRef.current);
       }
+      // 记下最后这次发送的 task 文本，失败诊断弹窗的「重试」按钮要用
+      lastTaskRef.current = finalText;
 
       // 发送成功 → 清空临时引用元素（chip 区也跟着空）
       if (referencedElements.length > 0) {
@@ -1653,14 +1667,7 @@ const SidePanel = () => {
       // 第六步：发送成功后，更新UI状态为"执行中"
       setInputEnabled(false);
       setShowStopButton(true);
-      // 立即追加一条进度占位消息，给用户「AI 思考中」的反馈；
-      // progressMessage 在 appendMessage 内部不会被持久化（只用于 UI 动画），
-      // 后续后台事件到达时会自动覆盖这条占位。
-      appendMessage({
-        actor: Actors.PLANNER,
-        content: progressMessage,
-        timestamp: Date.now(),
-      });
+      setLiveStreamMessage({ actor: Actors.PLANNER, content: '', timestamp: Date.now(), isCompleted: false });
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : String(err);
       console.error('任务错误', errorMessage);
@@ -1699,6 +1706,7 @@ const SidePanel = () => {
   const handleNewChat = () => {
     // 清除消息并开始新聊天
     setMessages([]);
+    setLiveStreamMessage(null);
     setCurrentSessionId(null);
     sessionIdRef.current = null;
     setInputEnabled(true);
@@ -1788,7 +1796,7 @@ const SidePanel = () => {
     }
   };
 
-  // 处理会话收藏 — 加入/取消书签（切换模式，基于 sessionId 唯一标识）
+  // 处理会话收藏
   const handleSessionBookmark = async (sessionId: string) => {
     try {
       const fullSession = await chatHistoryStore.getSession(sessionId);
@@ -1829,9 +1837,6 @@ const SidePanel = () => {
           return next;
         });
 
-        const prompts = await favoritesStorage.getAllPrompts();
-        setFavoritePrompts(prompts);
-
         appendMessage({
           actor: Actors.SYSTEM,
           content: '🗑️ 已取消收藏',
@@ -1848,8 +1853,21 @@ const SidePanel = () => {
 
       const newPrompt = await favoritesStorage.addPrompt(title, content);
 
+      // addPrompt 使用 content 做去重：如果两个会话第一条消息截断后相同，
+      // 返回的是已有 prompt，这会导致 bookmarkMap 中多个 sessionId 指向同一个 promptId。
+      // 当其中一个会话取消收藏删除 prompt 后，另一个映射会变成悬空引用。
+      // 这里检测冲突并为当前会话单独创建一个新 prompt。
+      let promptId = (newPrompt as any).id as number;
+      const collisionSessionId = Object.entries(bookmarkMap).find(
+        ([sid, pid]) => pid === promptId && sid !== sessionId,
+      )?.[0];
+      if (collisionSessionId) {
+        const collisionPrompt = await favoritesStorage.addPrompt(title, content + ' ');
+        promptId = (collisionPrompt as any).id as number;
+      }
+
       // 写入 sessionId → promptId 映射
-      const newMap = { ...bookmarkMap, [sessionId]: (newPrompt as any).id };
+      const newMap = { ...bookmarkMap, [sessionId]: promptId };
       saveBookmarkMap(newMap);
 
       setBookmarkedSessionIds(prev => {
@@ -1857,9 +1875,6 @@ const SidePanel = () => {
         next.add(sessionId);
         return next;
       });
-
-      const prompts = await favoritesStorage.getAllPrompts();
-      setFavoritePrompts(prompts);
 
       appendMessage({
         actor: Actors.SYSTEM,
@@ -1900,6 +1915,28 @@ const SidePanel = () => {
   const handleBookmarkDelete = async (id: number) => {
     try {
       await favoritesStorage.removePrompt(id);
+
+      // 同步清理 BOOKMARK_MAP 中对应的 sessionId 映射
+      // 否则下次再从 ChatHistoryList 收藏同个会话时，会误以为已收藏而走取消逻辑
+      const bookmarkMap = getBookmarkMap();
+      let sessionIdToRemove: string | null = null;
+      for (const [sid, pid] of Object.entries(bookmarkMap)) {
+        if (pid === id) {
+          sessionIdToRemove = sid;
+          break;
+        }
+      }
+      if (sessionIdToRemove) {
+        const newMap = { ...bookmarkMap };
+        delete newMap[sessionIdToRemove];
+        saveBookmarkMap(newMap);
+
+        setBookmarkedSessionIds(prev => {
+          const next = new Set(prev);
+          next.delete(sessionIdToRemove!);
+          return next;
+        });
+      }
 
       // 在UI中更新收藏
       const prompts = await favoritesStorage.getAllPrompts();
@@ -1968,23 +2005,58 @@ const SidePanel = () => {
       {pendingClarify && (
         <ClarifyDialog payload={pendingClarify} port={portInstance} onClose={() => setPendingClarify(null)} />
       )}
-      {/* 手动元素标记弹窗：用户主动从顶栏入口打开 */}
-      {showMarkElement && <MarkElementDialog onClose={() => setShowMarkElement(false)} />}
-      {/* 教导模式弹窗：批量推测当前页面元素 + 多选保存 */}
-      {showTeaching && (
-        <TeachingDialog
-          port={portInstance}
-          onClose={() => setShowTeaching(false)}
-          onPickToChat={ref => {
-            addElementRef(ref);
-            // 同步把可见 token 插到 textarea；用 setInputTextRef 远程写
-            const token = `[${ref.label}]`;
-            const setter = setInputTextRef.current;
-            if (setter) setter(prev => (prev ? `${prev} ${token} ` : `${token} `));
-            setShowTeaching(false);
+      {/* 教导模式弹窗：纯手动拾取元素后批量保存 */}
+      {showTeaching && <TeachingDialog onClose={() => setShowTeaching(false)} />}
+      {/* 「修改下一步」弹窗：进入时已经 pause；提交 → amend_next_step + resume；取消 → resume */}
+      {showAmend && (
+        <AmendNextStepDialog
+          onSubmit={text => {
+            portRef.current?.postMessage({ type: 'amend_next_step', text });
+            portRef.current?.postMessage({ type: 'resume_task' });
+            setShowAmend(false);
+          }}
+          onCancel={() => {
+            portRef.current?.postMessage({ type: 'resume_task' });
+            setShowAmend(false);
           }}
         />
       )}
+      {/* 「修改下一步」弹窗：进入时已经 pause；提交 → amend_next_step + resume；取消 → resume */}
+      {showAmend && (
+        <AmendNextStepDialog
+          onSubmit={text => {
+            portRef.current?.postMessage({ type: 'amend_next_step', text });
+            portRef.current?.postMessage({ type: 'resume_task' });
+            setShowAmend(false);
+          }}
+          onCancel={() => {
+            portRef.current?.postMessage({ type: 'resume_task' });
+            setShowAmend(false);
+          }}
+        />
+      )}
+      {/* 失败诊断弹窗：仅当 TASK_FAIL_DIAGNOSIS 到达时挂 */}
+      {pendingFailDiagnosis && (
+        <FailDiagnosisDialog
+          diagnosis={pendingFailDiagnosis}
+          onRetry={() => {
+            const last = lastTaskRef.current;
+            setPendingFailDiagnosis(null);
+            if (!last) return;
+            // 重新发送上一条 task；走 new_task 让 Agent 完全重置上下文
+            portRef.current?.postMessage({
+              type: 'new_task',
+              task: last,
+              taskId: `${Date.now()}-retry`,
+            });
+            setInputEnabled(false);
+            setShowStopButton(true);
+          }}
+          onClose={() => setPendingFailDiagnosis(null)}
+        />
+      )}
+      {/* 新功能首次启动引导：generalSettings.onboardingSeen 为 falsy 时挂 */}
+      {showOnboarding && <OnboardingTour onDone={() => setShowOnboarding(false)} />}
       <div
         className="relative flex h-screen flex-col overflow-hidden border transition-all duration-500 ease-out"
         style={{
@@ -2014,6 +2086,15 @@ const SidePanel = () => {
                 aria-label={t('nav_back_a11y')}>
                 {t('nav_back')}
               </button>
+            ) : showBookmarks ? (
+              <button
+                type="button"
+                onClick={() => setShowBookmarks(false)}
+                className="cursor-pointer font-medium transition-all duration-200"
+                style={{ color: 'var(--accent-color)' }}
+                aria-label="返回聊天">
+                ← 返回
+              </button>
             ) : (
               <button
                 type="button"
@@ -2032,6 +2113,17 @@ const SidePanel = () => {
           <div className="header-icons">
             {!showHistory && (
               <>
+                {/* <button
+                  type="button"
+                  onClick={() => setShowBookmarks(true)}
+                  onKeyDown={e => e.key === 'Enter' && setShowBookmarks(true)}
+                  className="header-icon"
+                  style={{ color: 'var(--accent-color)' }}
+                  aria-label="书签收藏"
+                  title="书签收藏"
+                  tabIndex={0}>
+                  <FiBookmark size={17} />
+                </button> */}
                 <button
                   type="button"
                   onClick={handleNewChat}
@@ -2054,23 +2146,12 @@ const SidePanel = () => {
                 </button>
                 <button
                   type="button"
-                  onClick={() => setShowMarkElement(true)}
-                  onKeyDown={e => e.key === 'Enter' && setShowMarkElement(true)}
+                  onClick={openTeachingDialog}
+                  onKeyDown={e => e.key === 'Enter' && openTeachingDialog()}
                   className="header-icon"
                   style={{ color: 'var(--accent-color)' }}
-                  aria-label="标记页面元素到记忆库"
-                  title="标记元素：把当前页面上的元素告诉皮蛋"
-                  tabIndex={0}>
-                  <FiTarget size={17} />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setShowTeaching(true)}
-                  onKeyDown={e => e.key === 'Enter' && setShowTeaching(true)}
-                  className="header-icon"
-                  style={{ color: 'var(--accent-color)' }}
-                  aria-label="教导模式：批量教 AI 认识当前网站"
-                  title="教导模式：让 AI 推测当前页面所有元素，挑一批入库"
+                  aria-label="教导模式：手动拾取页面元素"
+                  title="教导模式：手动拾取页面元素并保存到记忆库"
                   tabIndex={0}>
                   <FiBookOpen size={17} />
                 </button>
@@ -2123,7 +2204,7 @@ const SidePanel = () => {
               </h2>
             </div>
             {/* 书签列表 */}
-            <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3 pb-6">
+            <div className="min-h-0 flex-1 overflow-y-auto p-3 pb-6">
               <BookmarkList
                 bookmarks={favoritePrompts}
                 onBookmarkSelect={content => {
@@ -2384,7 +2465,6 @@ const SidePanel = () => {
                         <ChatInput
                           onSendMessage={handleSendMessage}
                           onStopTask={handleStopTask}
-                          onGenerateImage={showImageGeneration ? handleOpenImageModal : undefined}
                           disabled={!inputEnabled || isHistoricalSession || isRecordingActive}
                           showStopButton={showStopButton}
                           setContent={setter => {
@@ -2393,9 +2473,6 @@ const SidePanel = () => {
                           isDarkMode={isDarkMode}
                           onExecuteSkill={handleExecuteSkill}
                           onExecuteWorkflow={handleExecuteWorkflow}
-                          referencedElements={referencedElements}
-                          onAddRef={addElementRef}
-                          onRemoveRef={removeElementRef}
                         />
                       </div>
                       <div className="flex-1 overflow-y-auto px-2 pb-2">
@@ -2412,15 +2489,18 @@ const SidePanel = () => {
                   )}
                   {messages.length > 0 && (
                     <>
+                      {showTaskProgressBar && taskProgress && showStopButton && <></>}
                       <div className="scrollbar-gutter-stable flex-1 space-y-1 overflow-x-hidden overflow-y-scroll scroll-smooth px-3 py-2">
-                        <MessageList messages={messages} isDarkMode={isDarkMode} />
+                        <MessageList messages={messages} isDarkMode={isDarkMode} liveStream={liveStreamMessage} />
+                        {showRequestLogsEnabled && (
+                          <RequestLogPanel taskId={currentSessionId} isDarkMode={isDarkMode} />
+                        )}
                         <div ref={messagesEndRef} />
                       </div>
                       <div className="px-2 pb-2 pt-1">
                         <ChatInput
                           onSendMessage={handleSendMessage}
                           onStopTask={handleStopTask}
-                          onGenerateImage={showImageGeneration ? handleOpenImageModal : undefined}
                           disabled={!inputEnabled || isHistoricalSession || isRecordingActive}
                           showStopButton={showStopButton}
                           setContent={setter => {
@@ -2429,9 +2509,6 @@ const SidePanel = () => {
                           isDarkMode={isDarkMode}
                           onExecuteSkill={handleExecuteSkill}
                           onExecuteWorkflow={handleExecuteWorkflow}
-                          referencedElements={referencedElements}
-                          onAddRef={addElementRef}
-                          onRemoveRef={removeElementRef}
                         />
                       </div>
                     </>

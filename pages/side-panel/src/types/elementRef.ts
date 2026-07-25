@@ -9,7 +9,7 @@
  * 这是**临时引用**（每次发送后清空），不等于元素事实库 hint：
  *  - @ 面板里点已有 hint → 生成 ElementRef，*不*重复落库
  *  - @ 面板里现场拾取的新元素 → 同步落库（user_pick）+ 入 refs
- *  - TeachingDialog [index] 点击 → 入 refs（不影响事实库批量保存）
+ *  - TeachingDialog 里的手动拾取结果 → 入 refs（不影响事实库批量保存）
  */
 
 export interface ElementRef {

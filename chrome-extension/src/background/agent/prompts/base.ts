@@ -1,10 +1,24 @@
-import { HumanMessage, type SystemMessage } from '@langchain/core/messages';
+﻿import { HumanMessage, type SystemMessage } from '@langchain/core/messages';
 import type { AgentContext } from '@src/background/agent/types';
 import { wrapUntrustedContent } from '../messages/utils';
 import { createLogger } from '@src/background/log';
 import { elementHintsStore, getHostnameFromUrl } from '@extension/storage';
 
 const logger = createLogger('BasePrompt');
+const MAX_OTHER_TABS = 3;
+const MAX_KNOWN_ELEMENTS = 8;
+const MAX_RAW_ELEMENTS_CHARS = 8000;
+
+function truncateText(text: string, maxLength: number): string {
+  if (text.length <= maxLength) {
+    return text;
+  }
+  return `${text.slice(0, maxLength)}\n... [truncated]`;
+}
+
+function formatTab(tab: { id?: number; url?: string; title?: string }): string {
+  return `{id: ${tab.id ?? 0}, url: ${truncateText(tab.url || '', 120)}, title: ${truncateText(tab.title || '', 80)}}`;
+}
 
 /**
  * Analyze screenshot using vision model and generate description
@@ -106,32 +120,32 @@ abstract class BasePrompt {
    * @param context - Optional context data needed for generating the user message
    * @returns HumanMessage from LangChain
    */
-  abstract getUserMessage(context: AgentContext): Promise<HumanMessage>;
+  abstract getUserMessage(context: AgentContext, useLiveState?: boolean): Promise<HumanMessage>;
 
   /**
    * Builds the user message containing the browser state
    * @param context - The agent context
    * @returns HumanMessage from LangChain
    */
-  async buildBrowserStateUserMessage(context: AgentContext): Promise<HumanMessage> {
-    // 视觉模式状态
+  async buildBrowserStateUserMessage(context: AgentContext, useLiveState = true): Promise<HumanMessage> {
     const visionEnabled = context.options.useVision;
     const hasVisionModel = !!context.visionLLM;
+
     logger.info('========== Vision Mode Status ==========');
     logger.info(`Vision mode setting: ${visionEnabled ? 'ENABLED' : 'DISABLED'}`);
     logger.info(`Separate vision model: ${hasVisionModel ? 'YES' : 'NO (using Navigator model)'}`);
 
-    const browserState = await context.browserContext.getState(context.options.useVision);
+    const browserState = await context.browserContext.getCachedState(context.options.useVision, false, useLiveState);
+    const hasScreenshot = !!browserState.screenshot && context.options.useVision;
 
-    // 截图状态
     if (visionEnabled) {
       if (browserState.screenshot) {
         logger.info(`Screenshot captured: YES (${browserState.screenshot.length} chars base64)`);
-        if (hasVisionModel) {
-          logger.info(`Screenshot will be analyzed by Vision model, not sent to Navigator`);
-        } else {
-          logger.info(`Screenshot will be sent directly to Navigator model`);
-        }
+        logger.info(
+          hasVisionModel
+            ? 'Screenshot will be analyzed by Vision model, not sent to Navigator'
+            : 'Screenshot will be sent directly to Navigator model',
+        );
       } else {
         logger.warning('Screenshot captured: NO - Vision enabled but screenshot is empty');
       }
@@ -140,48 +154,44 @@ abstract class BasePrompt {
     }
     logger.info('========================================');
 
-    const rawElementsText = browserState.elementTree.clickableElementsToString(context.options.includeAttributes);
+    const rawElementsText = truncateText(
+      browserState.elementTree.clickableElementsToString(context.options.includeAttributes),
+      MAX_RAW_ELEMENTS_CHARS,
+    );
 
-    // Debug: 输出页面内容解析结果
-    const selectorMapSize = browserState.selectorMap.size;
     logger.info('--- Page Content Debug ---');
     logger.info(`URL: ${browserState.url}`);
     logger.info(`Title: ${browserState.title}`);
-    logger.info(`Interactive elements count: ${selectorMapSize}`);
+    logger.info(`Interactive elements count: ${browserState.selectorMap.size}`);
     logger.info(`Raw elements text length: ${rawElementsText.length} chars`);
     logger.info('--- Raw Elements Text ---');
     logger.info(rawElementsText || '(empty)');
 
-    let formattedElementsText = '';
-    if (rawElementsText !== '') {
-      const scrollInfo = `[Scroll info of current page] window.scrollY: ${browserState.scrollY}, document.body.scrollHeight: ${browserState.scrollHeight}, window.visualViewport.height: ${browserState.visualViewportHeight}, visual viewport height as percentage of scrollable distance: ${Math.round((browserState.visualViewportHeight / (browserState.scrollHeight - browserState.visualViewportHeight)) * 100)}%\n`;
-      logger.info(scrollInfo);
-      const elementsText = wrapUntrustedContent(rawElementsText);
-      formattedElementsText = `${scrollInfo}[Start of page]\n${elementsText}\n[End of page]\n`;
-    } else {
-      formattedElementsText = 'empty page';
-    }
+    const formattedElementsText =
+      rawElementsText !== ''
+        ? `[Scroll info of current page] window.scrollY: ${browserState.scrollY}, document.body.scrollHeight: ${browserState.scrollHeight}, window.visualViewport.height: ${browserState.visualViewportHeight}, visual viewport height as percentage of scrollable distance: ${Math.round((browserState.visualViewportHeight / (browserState.scrollHeight - browserState.visualViewportHeight)) * 100)}%\n[Start of page]\n${wrapUntrustedContent(rawElementsText)}\n[End of page]\n`
+        : 'empty page';
 
-    // ===== 注入元素事实库 =====
-    // 当前 hostname 在 elementHintsStore 里有历史成功记录时，把它们拼到 state 末尾告诉 LLM。
-    // LLM 在 prompt 第 13 节有指引：能匹到 purpose 时直接复用其 selector/xpath 来挑 index、并把
-    // element_confidence 提到 0.9。失败完全静默，不影响主流程。
+    let knownElementsText = '';
     try {
       const hostname = getHostnameFromUrl(browserState.url);
       if (hostname) {
         const hints = await elementHintsStore.getByHostname(hostname);
-        if (hints && hints.length > 0) {
-          // 限制最多展示 12 条避免污染上下文（按 useCount 倒序，最常用的优先）
-          const top = [...hints].sort((a, b) => b.useCount - a.useCount).slice(0, 12);
+        if (hints.length > 0) {
+          const top = [...hints].sort((a, b) => b.useCount - a.useCount).slice(0, MAX_KNOWN_ELEMENTS);
           const lines = top.map(h => {
-            const parts: string[] = [`- purpose: ${h.purpose}`];
+            const parts: string[] = [`- purpose: ${truncateText(h.purpose, 40)}`];
             if (h.selector) parts.push(`selector: ${h.selector}`);
             if (h.xpath) parts.push(`xpath: ${h.xpath}`);
             if (h.textContent) parts.push(`text: ${h.textContent.slice(0, 40)}`);
-            parts.push(`source: ${h.source}, used: ${h.useCount}x`);
             return parts.join(' | ');
           });
-          formattedElementsText += `\n[Known elements on ${hostname} — previously confirmed working, prefer these to decide index]:\n${lines.join('\n')}\n`;
+          knownElementsText = [
+            `[Known elements on ${hostname}]`,
+            'These are hard memories. If one matches the current task, use its selector/xpath first and do not guess a similar button:',
+            ...lines,
+            '',
+          ].join('\n');
           logger.info(`Injected ${top.length} element hints for ${hostname}`);
         }
       }
@@ -189,82 +199,77 @@ abstract class BasePrompt {
       logger.warning('inject element hints failed:', err);
     }
 
-    // Debug: 输出格式化后的元素文本
     logger.info('--- Formatted Page Content ---');
     logger.info(`Formatted text length: ${formattedElementsText.length} chars`);
     logger.info(formattedElementsText);
 
-    let stepInfoDescription = '';
-    if (context.stepInfo) {
-      stepInfoDescription = `Current step: ${context.stepInfo.stepNumber + 1}/${context.stepInfo.maxSteps}`;
-    }
-
-    const timeStr = new Date().toISOString().slice(0, 16).replace('T', ' '); // Format: YYYY-MM-DD HH:mm
-    stepInfoDescription += `Current date and time: ${timeStr}`;
+    const timeStr = new Date().toISOString().slice(0, 16).replace('T', ' ');
+    const stepInfoDescription = context.stepInfo
+      ? `Current step: ${context.stepInfo.stepNumber + 1}/${context.stepInfo.maxSteps}\nCurrent date and time: ${timeStr}`
+      : `Current date and time: ${timeStr}`;
 
     let actionResultsDescription = '';
-    if (context.actionResults.length > 0) {
-      for (let i = 0; i < context.actionResults.length; i++) {
-        const result = context.actionResults[i];
-        if (result.extractedContent) {
-          actionResultsDescription += `\nAction result ${i + 1}/${context.actionResults.length}: ${result.extractedContent}`;
-        }
-        if (result.error) {
-          // only use last line of error
-          const error = result.error.split('\n').pop();
-          actionResultsDescription += `\nAction error ${i + 1}/${context.actionResults.length}: ...${error}`;
-        }
+    for (let i = 0; i < context.actionResults.length; i++) {
+      const result = context.actionResults[i];
+      if (result.extractedContent) {
+        actionResultsDescription += `\nAction result ${i + 1}/${context.actionResults.length}: ${result.extractedContent}`;
       }
+      if (result.error) {
+        const error = result.error.split('\n').pop();
+        actionResultsDescription += `\nAction error ${i + 1}/${context.actionResults.length}: ...${error}`;
+      }
+    }
+    if (actionResultsDescription) {
+      actionResultsDescription +=
+        '\nIf the latest action error says the element had no visible effect or could not be resolved, do not repeat the same element. Pick a different target, re-read the page, or ask the user.';
     }
 
     const currentTab = `{id: ${browserState.tabId}, url: ${browserState.url}, title: ${browserState.title}}`;
     const otherTabs = browserState.tabs
       .filter(tab => tab.id !== browserState.tabId)
-      .map(tab => `- {id: ${tab.id}, url: ${tab.url}, title: ${tab.title}}`);
+      .slice(0, MAX_OTHER_TABS)
+      .map(tab => `- ${formatTab(tab)}`)
+      .join('\n');
 
-    // Use vision model for screenshot analysis if configured
     let visionAnalysisText = '';
-    const hasScreenshot = !!browserState.screenshot && context.options.useVision;
     if (hasScreenshot && context.visionLLM) {
       logger.info('>>> Using separate Vision model for screenshot analysis');
       visionAnalysisText = `\n[Visual Analysis from Vision Model]\n${await analyzeScreenshotWithVisionModel(browserState.screenshot!, context.visionLLM)}\n`;
     }
 
-    const stateDescription = `
-[Task history memory ends]
-[Current state starts here]
-The following is one-time information - if you need to remember it write it to memory:
-Current tab: ${currentTab}
-Other available tabs:
-  ${otherTabs.join('\n')}
-Interactive elements from top layer of the current page inside the viewport:
-${formattedElementsText}
-${visionAnalysisText}
-${stepInfoDescription}
-${actionResultsDescription}
-`;
+    const stateDescription = [
+      '[Task history memory ends]',
+      '[Current state starts here]',
+      'The following is one-time information - if you need to remember it write it to memory:',
+      knownElementsText,
+      `Current tab: ${currentTab}`,
+      otherTabs ? `Other available tabs:\n${otherTabs}` : '',
+      'Interactive elements from top layer of the current page inside the viewport:',
+      formattedElementsText,
+      visionAnalysisText,
+      stepInfoDescription,
+      actionResultsDescription,
+    ]
+      .filter(Boolean)
+      .join('\n');
 
-    // Debug: 输出最终传递给 AI 的完整用户消息
     logger.info('--- Final User Message to AI ---');
     logger.info(`Total text message length: ${stateDescription.length} chars`);
 
-    // 视觉消息状态 - only include screenshot if no separate vision model
     if (hasScreenshot) {
       if (context.visionLLM) {
-        logger.info(`*** VISION MODEL USED *** Screenshot analyzed by vision model, text-only sent to Navigator`);
+        logger.info('*** VISION MODEL USED *** Screenshot analyzed by vision model, text-only sent to Navigator');
       } else {
-        logger.info(`*** VISION ACTIVE *** Screenshot included in message to Navigator`);
+        logger.info('*** VISION ACTIVE *** Screenshot included in message to Navigator');
         logger.info(`Screenshot size: ~${Math.round((browserState.screenshot?.length || 0) / 1024)} KB (base64)`);
       }
     } else {
-      logger.info(`*** VISION INACTIVE *** No screenshot in message`);
+      logger.info('*** VISION INACTIVE *** No screenshot in message');
     }
 
     logger.info('--- Complete State Description ---');
     logger.info(stateDescription);
 
-    // If vision model is configured and screenshot exists, send text-only to Navigator
-    // Otherwise, include screenshot directly for Navigator
     if (browserState.screenshot && context.options.useVision && !context.visionLLM) {
       logger.info('>>> Sending multimodal message (text + image) to Navigator');
       return new HumanMessage({

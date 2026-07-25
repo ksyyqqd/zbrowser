@@ -112,9 +112,9 @@ function makeGetMessageFromLocaleFile(locales) {
     if (b === 'zh_CN') return 1;
     return 0;
   });
-  
+
   const defaultLocaleCode = `(() => {
-  const locales = ${JSON.stringify(reorderedLocales).replace(/"/g, "'" ).replace(/,/g, ', ' )};
+  const locales = ${JSON.stringify(reorderedLocales).replace(/"/g, "'").replace(/,/g, ', ')};
   const firstLocale = locales[0];  // zh_CN 将会是默认值
   const defaultLocale = Intl.DateTimeFormat().resolvedOptions().locale.replace('-', '_');
   if (locales.includes(defaultLocale)) {

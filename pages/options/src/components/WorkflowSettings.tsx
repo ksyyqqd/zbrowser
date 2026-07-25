@@ -174,7 +174,7 @@ export default function WorkflowSettings({ isDarkMode = false }: WorkflowSetting
             updatedAt: result.updatedAt ?? Date.now(),
           });
         } else {
-          alert(`Invalid workflow: ${validation.errors.join(', ')}`);
+          alert(t('workflow_importInvalidWorkflow', [validation.errors.join(', ')]));
         }
       }
 
@@ -377,7 +377,7 @@ export default function WorkflowSettings({ isDarkMode = false }: WorkflowSetting
           }`}
         />
         <span className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
-          {filteredWorkflows.length} / {workflows.length} workflows
+          {t('workflow_searchCount', [`${filteredWorkflows.length}`, `${workflows.length}`])}
         </span>
       </div>
 
@@ -419,13 +419,13 @@ export default function WorkflowSettings({ isDarkMode = false }: WorkflowSetting
                 <p
                   className={`mb-3 h-10 text-sm line-clamp-2 ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}
                   title={workflow.description}>
-                  {workflow.description || '暂无描述'}
+                  {workflow.description || t('workflow_noDescription')}
                 </p>
                 <div
                   className="flex min-w-0 items-center gap-1 border-t pt-3"
                   style={{ borderColor: isDarkMode ? '#334155' : '#e5e7eb' }}>
                   <span className={`mr-auto shrink-0 text-xs ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>
-                    {workflow.nodes.length} 节点
+                    {t('workflow_nodesCount', [`${workflow.nodes.length}`])}
                   </span>
                   <button
                     type="button"
@@ -445,7 +445,7 @@ export default function WorkflowSettings({ isDarkMode = false }: WorkflowSetting
                     type="button"
                     onClick={() => handleExportWorkflows([workflow.id])}
                     className={`shrink-0 rounded-md p-1.5 ${isDarkMode ? 'hover:bg-slate-700' : 'hover:bg-gray-100'}`}
-                    title="导出为 JSON">
+                    title={t('workflow_exportAsJson')}>
                     <FiDownload className={`size-3.5 ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`} />
                   </button>
                   <button
@@ -458,10 +458,12 @@ export default function WorkflowSettings({ isDarkMode = false }: WorkflowSetting
                   <span
                     className={`ml-auto min-w-0 truncate text-xs tabular-nums ${isDarkMode ? 'text-gray-600' : 'text-gray-400'}`}
                     title={
-                      workflow.updatedAt ? new Date(workflow.updatedAt).toLocaleString('zh-CN', { hour12: false }) : ''
+                      workflow.updatedAt
+                        ? new Date(workflow.updatedAt).toLocaleString(undefined, { hour12: false })
+                        : ''
                     }>
                     {workflow.updatedAt
-                      ? new Date(workflow.updatedAt).toLocaleString('zh-CN', {
+                      ? new Date(workflow.updatedAt).toLocaleString(undefined, {
                           month: '2-digit',
                           day: '2-digit',
                           hour: '2-digit',
@@ -491,7 +493,7 @@ export default function WorkflowSettings({ isDarkMode = false }: WorkflowSetting
                     className={`flex h-full items-center justify-center text-sm ${
                       isDarkMode ? 'text-gray-400' : 'text-gray-500'
                     }`}>
-                    Loading editor...
+                    {t('workflow_loadingEditor')}
                   </div>
                 }>
                 <WorkflowEditor

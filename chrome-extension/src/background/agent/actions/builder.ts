@@ -38,6 +38,41 @@ import type { DOMElementNode } from '@src/background/browser/dom/views';
 
 const logger = createLogger('Action');
 
+function normalizeLocatorValue(value?: string | null): string | null {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : null;
+}
+
+export function resolveElementNodeForAction(
+  selectorMap: Map<number, DOMElementNode>,
+  index?: number | null,
+  selector?: string | null,
+  xpath?: string | null,
+  includeDynamicAttributes = true,
+): DOMElementNode | undefined {
+  const normalizedXpath = normalizeLocatorValue(xpath);
+  if (normalizedXpath) {
+    return Array.from(selectorMap.values()).find(node => normalizeLocatorValue(node.xpath) === normalizedXpath);
+  }
+
+  const normalizedSelector = normalizeLocatorValue(selector);
+  if (normalizedSelector) {
+    return Array.from(selectorMap.values()).find(node => {
+      const selectors = [
+        node.enhancedCssSelectorForElement(includeDynamicAttributes),
+        node.enhancedCssSelectorForElement(!includeDynamicAttributes),
+      ];
+      return selectors.some(candidate => normalizeLocatorValue(candidate) === normalizedSelector);
+    });
+  }
+
+  if (typeof index === 'number') {
+    return selectorMap.get(index);
+  }
+
+  return undefined;
+}
+
 /**
  * 把 context.pendingPickedHints 中"未落库"的拾取结果落库到 elementHintsStore。
  *
@@ -325,9 +360,19 @@ export class ActionBuilder {
         const page = await this.context.browserContext.getCurrentPage();
         const state = await page.getState();
 
-        const elementNode = state?.selectorMap.get(input.index);
+        const elementNode = resolveElementNodeForAction(
+          state?.selectorMap ?? new Map<number, DOMElementNode>(),
+          input.index,
+          input.selector,
+          input.xpath,
+          this.context.browserContext.getConfig().includeDynamicAttributes,
+        );
         if (!elementNode) {
-          throw new Error(t('act_errors_elementNotExist', [input.index.toString()]));
+          const hasLocator = Boolean(input.selector?.trim() || input.xpath?.trim());
+          const errorMsg = hasLocator
+            ? `Failed to resolve remembered element for click_element: xpath/selector did not match the current page`
+            : t('act_errors_elementNotExist', [input.index.toString()]);
+          throw new Error(errorMsg);
         }
 
         // Check if element is a file uploader
@@ -376,15 +421,26 @@ export class ActionBuilder {
 
     const inputText = new Action(
       async (input: z.infer<typeof inputTextActionSchema.schema>) => {
-        const intent = input.intent || t('act_inputText_start', [input.index.toString()]);
+        const targetLabel = input.index?.toString() || input.selector || input.xpath || 'unknown';
+        const intent = input.intent || t('act_inputText_start', [targetLabel]);
         this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_START, intent);
 
         const page = await this.context.browserContext.getCurrentPage();
         const state = await page.getState();
 
-        const elementNode = state?.selectorMap.get(input.index);
+        const elementNode = resolveElementNodeForAction(
+          state?.selectorMap ?? new Map<number, DOMElementNode>(),
+          input.index,
+          input.selector,
+          input.xpath,
+          this.context.browserContext.getConfig().includeDynamicAttributes,
+        );
         if (!elementNode) {
-          throw new Error(t('act_errors_elementNotExist', [input.index.toString()]));
+          const hasLocator = Boolean(input.selector?.trim() || input.xpath?.trim());
+          const errorMsg = hasLocator
+            ? `Failed to resolve remembered element for input_text: xpath/selector did not match the current page`
+            : t('act_errors_elementNotExist', [input.index.toString()]);
+          throw new Error(errorMsg);
         }
 
         await page.inputTextElementNode(this.context.options.useVision, elementNode, input.text);
@@ -752,9 +808,18 @@ export class ActionBuilder {
         const page = await this.context.browserContext.getCurrentPage();
         const state = await page.getState();
 
-        const elementNode = state?.selectorMap.get(input.index);
+        const elementNode = resolveElementNodeForAction(
+          state?.selectorMap ?? new Map<number, DOMElementNode>(),
+          input.index,
+          input.selector,
+          input.xpath,
+          this.context.browserContext.getConfig().includeDynamicAttributes,
+        );
         if (!elementNode) {
-          const errorMsg = t('act_errors_elementNotExist', [input.index.toString()]);
+          const hasLocator = Boolean(input.selector?.trim() || input.xpath?.trim());
+          const errorMsg = hasLocator
+            ? 'Failed to resolve remembered element for select_dropdown_option: xpath/selector did not match the current page'
+            : t('act_errors_elementNotExist', [input.index.toString()]);
           this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_FAIL, errorMsg);
           return new ActionResult({
             error: errorMsg,

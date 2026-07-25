@@ -316,6 +316,33 @@
   "options_general_showImageGeneration_desc": {
     "message": "Show image generation button in chat input (requires image provider configuration)"
   },
+  "options_general_showRequestLogs": {
+    "message": "Show Request Logs"
+  },
+  "options_general_showRequestLogs_desc": {
+    "message": "Show model request/response logs in the side panel for debugging (off by default)"
+  },
+  "options_general_experimentalSection": {
+    "message": "Experimental Features"
+  },
+  "options_general_multiActionEnabled": {
+    "message": "Multi-Action Execution (Experimental)"
+  },
+  "options_general_multiActionEnabled_desc": {
+    "message": "When enabled, AI will try to plan multiple consecutive actions in one request and execute them sequentially, reducing AI requests and improving speed. When disabled, only one action is executed per step (more stable but slower)."
+  },
+  "options_general_maxMultiActions": {
+    "message": "Max Multi-Actions"
+  },
+  "options_general_maxMultiActions_desc": {
+    "message": "Maximum number of actions per AI request in multi-action mode (1-10)"
+  },
+  "options_general_autonomousMode": {
+    "message": "Autonomous Mode (Experimental)"
+  },
+  "options_general_autonomousMode_desc": {
+    "message": "When enabled, AI will not ask the user clarifying questions. It will make its own judgment or automatically skip uncertain steps. Suitable for unattended automation. When disabled, AI can actively ask questions or trigger confidence gates for user confirmation."
+  },
   "options_models_providers_header": {
     "message": "LLM Providers"
   },
@@ -730,6 +757,18 @@
         "example": "SKILL.md file is missing"
       }
     }
+  },
+  "options_skills_saveError": {
+    "message": "Save failed: $ERROR$",
+    "placeholders": {
+      "error": {
+        "content": "$1",
+        "example": "Unknown error"
+      }
+    }
+  },
+  "options_skills_saveSuccess": {
+    "message": "Skill saved successfully"
   },
 
   "bg_errors_noTabId": {
@@ -1914,5 +1953,138 @@
   },
   "image_generation_openaiProvider": {
     "message": "OpenAI (DALL-E)"
+  },
+  "workflow_noDescription": {
+    "message": "No description"
+  },
+  "workflow_exportAsJson": {
+    "message": "Export as JSON"
+  },
+  "workflow_loadingEditor": {
+    "message": "Loading editor..."
+  },
+  "workflow_searchCount": {
+    "message": "$FILTERED$ / $TOTAL$",
+    "placeholders": {
+      "filtered": {
+        "content": "$1",
+        "example": "3"
+      },
+      "total": {
+        "content": "$2",
+        "example": "10"
+      }
+    }
+  },
+  "workflow_importInvalidWorkflow": {
+    "message": "Invalid workflow: $ERRORS$",
+    "placeholders": {
+      "errors": {
+        "content": "$1",
+        "example": "Missing required fields"
+      }
+    }
+  },
+  "workflow_nodesCount": {
+    "message": "$COUNT$ nodes",
+    "placeholders": {
+      "count": {
+        "content": "$1",
+        "example": "5"
+      }
+    }
+  },
+  "options_tabs_memory": {
+    "message": "Memory"
+  },
+  "options_sections_common": {
+    "message": "Common Settings"
+  },
+  "options_sections_automation": {
+    "message": "Automation"
+  },
+  "options_sections_advanced": {
+    "message": "Advanced Settings"
+  },
+  "spirit_panel_title": {
+    "message": "Spirit Status"
+  },
+  "spirit_avatar_toggle_a11y": {
+    "message": "Toggle spirit panel"
+  },
+  "spirit_mode_auto_label": {
+    "message": "Auto"
+  },
+  "spirit_mode_auto_desc": {
+    "message": "Pidan executes tasks in standard mode"
+  },
+  "spirit_mode_explore_label": {
+    "message": "Explore"
+  },
+  "spirit_mode_explore_desc": {
+    "message": "Pidan researches multiple sources and returns a comparison report"
+  },
+  "spirit_mode_suffix": {
+    "message": " mode"
+  },
+  "spirit_mode_auto_status_idle": {
+    "message": "On standby..."
+  },
+  "spirit_mode_auto_status_thinking": {
+    "message": "Thinking..."
+  },
+  "spirit_mode_auto_status_working": {
+    "message": "Working hard..."
+  },
+  "spirit_mode_auto_status_happy": {
+    "message": "Happy wag"
+  },
+  "spirit_mode_auto_status_mischief": {
+    "message": "Sneaky mischief"
+  },
+  "spirit_mode_auto_status_sleepy": {
+    "message": "Dozing off..."
+  },
+  "spirit_mode_auto_status_curious": {
+    "message": "Sniffing around"
+  },
+  "spirit_mode_executing": {
+    "message": "Pidan is executing the task"
+  },
+  "spirit_mode_done": {
+    "message": "Task complete!"
+  },
+  "spirit_actor_planner": {
+    "message": "Planner"
+  },
+  "spirit_actor_navigator": {
+    "message": "Navigator"
+  },
+  "spirit_actor_validator": {
+    "message": "Validator"
+  },
+  "spirit_actor_user": {
+    "message": "User"
+  },
+  "spirit_actor_system": {
+    "message": "System"
+  },
+  "spirit_overlay_fireworks_label": {
+    "message": "Fireworks"
+  },
+  "spirit_overlay_write_label": {
+    "message": "Write"
+  },
+  "spirit_overlay_celebrate_label": {
+    "message": "Celebrate"
+  },
+  "spirit_overlay_fireworks_title": {
+    "message": "Fireworks effect"
+  },
+  "spirit_overlay_write_title": {
+    "message": "Write effect"
+  },
+  "spirit_overlay_celebrate_title": {
+    "message": "Celebrate effect"
   }
 }

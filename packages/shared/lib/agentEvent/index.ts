@@ -60,6 +60,19 @@ export enum ExecutionState {
   // ASK_USER_RESOLVED 的 details 是给消息流展示的摘要文案
   ASK_USER = 'ask.user',
   ASK_USER_RESOLVED = 'ask.user.resolved',
+
+  // 任务失败诊断事件：紧随 TASK_FAIL 之后发出。
+  // details 字段是 JSON.stringify(TaskFailDiagnosis)，由 LLM 异步生成。
+  // 失败 / 超时则不会发出（fallback 到 TASK_FAIL 单事件流程）。
+  TASK_FAIL_DIAGNOSIS = 'task.fail.diagnosis',
+}
+
+/** TASK_FAIL_DIAGNOSIS 事件 details 解析后的形状 */
+export interface TaskFailDiagnosis {
+  /** 一句话失败原因（不超过 30 字） */
+  summary: string;
+  /** 3 条具体修复建议（每条不超过 25 字） */
+  suggestions: string[];
 }
 
 // ===== 用户澄清相关共享类型 =====

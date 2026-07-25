@@ -304,6 +304,120 @@ export const GeneralSettings = ({ isDarkMode = false }: GeneralSettingsProps) =>
               </label>
             </div>
           </div>
+
+          {/* ───────── 实验性功能 ───────── */}
+          <div
+            className="mt-6 border-t pt-4"
+            style={isDarkMode ? { borderColor: 'rgba(100,116,139,0.3)' } : { borderColor: 'rgba(203,213,225,1)' }}>
+            <h3
+              className={`mb-3 text-sm font-semibold uppercase tracking-wider ${isDarkMode ? 'text-amber-400' : 'text-amber-600'}`}>
+              ⚡ {t('options_general_experimentalSection') || '实验性功能'}
+            </h3>
+
+            {/* 自主模式开关 */}
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className={`text-base font-medium ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
+                  {t('options_general_autonomousMode') || '自主模式（实验性功能）'}
+                </h3>
+                <p className={`text-sm font-normal ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                  {t('options_general_autonomousMode_desc') ||
+                    '开启后AI不会向用户询问澄清问题，遇到不确定的元素时自行判断或自动跳过。适合无人值守的自动化场景。关闭时AI可以主动提问或触发闸门弹窗确认。'}
+                </p>
+              </div>
+              <div className="relative inline-flex cursor-pointer items-center">
+                <input
+                  id="autonomousMode"
+                  type="checkbox"
+                  checked={settings.autonomousMode ?? false}
+                  onChange={e => updateSetting('autonomousMode', e.target.checked)}
+                  className="peer sr-only"
+                />
+                <label
+                  htmlFor="autonomousMode"
+                  className={`peer h-6 w-11 rounded-full ${isDarkMode ? 'bg-slate-600' : 'bg-gray-200'} after:absolute after:left-[2px] after:top-[2px] after:size-5 after:rounded-full after:border after:border-gray-300 after:bg-white after:transition-all after:content-[''] peer-checked:bg-amber-500 peer-checked:after:translate-x-full peer-checked:after:border-white peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-amber-300`}>
+                  <span className="sr-only">{t('options_general_autonomousMode') || '自主模式'}</span>
+                </label>
+              </div>
+            </div>
+
+            {/* 连续动作执行开关 */}
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className={`text-base font-medium ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
+                  {t('options_general_multiActionEnabled')}
+                </h3>
+                <p className={`text-sm font-normal ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                  {t('options_general_multiActionEnabled_desc')}
+                </p>
+              </div>
+              <div className="relative inline-flex cursor-pointer items-center">
+                <input
+                  id="multiActionEnabled"
+                  type="checkbox"
+                  checked={settings.multiActionEnabled}
+                  onChange={e => updateSetting('multiActionEnabled', e.target.checked)}
+                  className="peer sr-only"
+                />
+                <label
+                  htmlFor="multiActionEnabled"
+                  className={`peer h-6 w-11 rounded-full ${isDarkMode ? 'bg-slate-600' : 'bg-gray-200'} after:absolute after:left-[2px] after:top-[2px] after:size-5 after:rounded-full after:border after:border-gray-300 after:bg-white after:transition-all after:content-[''] peer-checked:bg-amber-500 peer-checked:after:translate-x-full peer-checked:after:border-white peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-amber-300`}>
+                  <span className="sr-only">{t('options_general_multiActionEnabled')}</span>
+                </label>
+              </div>
+            </div>
+
+            {/* 最大连续动作数 */}
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className={`text-base font-medium ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
+                  {t('options_general_showRequestLogs')}
+                </h3>
+                <p className={`text-sm font-normal ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                  {t('options_general_showRequestLogs_desc')}
+                </p>
+              </div>
+              <div className="relative inline-flex cursor-pointer items-center">
+                <input
+                  id="showRequestLogs"
+                  type="checkbox"
+                  checked={settings.showRequestLogs}
+                  onChange={e => updateSetting('showRequestLogs', e.target.checked)}
+                  className="peer sr-only"
+                />
+                <label
+                  htmlFor="showRequestLogs"
+                  className={`peer h-6 w-11 rounded-full ${isDarkMode ? 'bg-slate-600' : 'bg-gray-200'} after:absolute after:left-[2px] after:top-[2px] after:size-5 after:rounded-full after:border after:border-gray-300 after:bg-white after:transition-all after:content-[''] peer-checked:bg-amber-500 peer-checked:after:translate-x-full peer-checked:after:border-white peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-amber-300`}>
+                  <span className="sr-only">{t('options_general_showRequestLogs')}</span>
+                </label>
+              </div>
+            </div>
+
+            {settings.multiActionEnabled && (
+              <div className="mt-3 flex items-center justify-between">
+                <div>
+                  <h3 className={`text-base font-medium ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
+                    {t('options_general_maxMultiActions')}
+                  </h3>
+                  <p className={`text-sm font-normal ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                    {t('options_general_maxMultiActions_desc')}
+                  </p>
+                </div>
+                <label htmlFor="maxMultiActions" className="sr-only">
+                  {t('options_general_maxMultiActions')}
+                </label>
+                <input
+                  id="maxMultiActions"
+                  type="number"
+                  min={1}
+                  max={10}
+                  value={settings.maxMultiActions}
+                  onChange={e => updateSetting('maxMultiActions', Number.parseInt(e.target.value, 10))}
+                  className={`w-20 rounded-md border ${isDarkMode ? 'border-slate-600 bg-slate-700 text-gray-200' : 'border-gray-300 bg-white text-gray-700'} px-3 py-2`}
+                />
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </section>

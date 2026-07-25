@@ -3,7 +3,7 @@ import { BaseAgent, type BaseAgentOptions, type ExtraAgentOptions } from './base
 import { createLogger } from '@src/background/log';
 import { ActionResult, type AgentOutput } from '../types';
 import type { Action } from '../actions/builder';
-import { buildDynamicActionSchema } from '../actions/builder';
+import { buildDynamicActionSchema, resolveElementNodeForAction } from '../actions/builder';
 import { agentBrainSchema } from '../types';
 import { type BaseMessage, HumanMessage } from '@langchain/core/messages';
 import { Actors, ExecutionState, type AskUserPayload, type ClarifyResponse } from '@extension/shared';
@@ -30,6 +30,41 @@ import { AgentStepRecord } from '../history';
 import { type DOMHistoryElement } from '@src/background/browser/dom/history/view';
 
 const logger = createLogger('NavigatorAgent');
+
+function getBrowserStateSignature(state: BrowserState): Promise<string> {
+  return calcBranchPathHashSet(state).then(pathHashes => {
+    const sortedHashes = Array.from(pathHashes).sort().join('|');
+    const elementsSummaryHash = hashText(state.elementTree.clickableElementsToString());
+    return [
+      state.tabId,
+      state.url,
+      state.title,
+      state.scrollY,
+      state.scrollHeight,
+      state.visualViewportHeight,
+      sortedHashes,
+      elementsSummaryHash,
+    ].join('::');
+  });
+}
+
+function hasLocatorFields(actionArgs: unknown): boolean {
+  if (!actionArgs || typeof actionArgs !== 'object') {
+    return false;
+  }
+
+  const args = actionArgs as { selector?: string | null; xpath?: string | null };
+  return Boolean(args.selector?.trim() || args.xpath?.trim());
+}
+
+function hashText(text: string): string {
+  let hash = 2166136261;
+  for (let i = 0; i < text.length; i++) {
+    hash ^= text.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(16);
+}
 
 interface ParsedModelOutput {
   current_state?: {
@@ -237,6 +272,16 @@ export class NavigatorAgent extends BaseAgent<z.ZodType, NavigatorResult> {
 
       this.context.actionResults = actionResults;
 
+      const failedResult = actionResults.find(result => result.error);
+      if (failedResult) {
+        const errorString = failedResult.error || 'Navigation failed';
+        const navigationError = `Navigation failed: ${errorString}`;
+        logger.error(navigationError);
+        this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.STEP_FAIL, navigationError);
+        agentOutput.error = errorString;
+        return agentOutput;
+      }
+
       // check if the task is paused or stopped
       if (this.context.paused || this.context.stopped) {
         cancelled = true;
@@ -396,17 +441,20 @@ export class NavigatorAgent extends BaseAgent<z.ZodType, NavigatorResult> {
 
   private async doMultiAction(actions: Record<string, unknown>[]): Promise<ActionResult[]> {
     const results: ActionResult[] = [];
-    let errCount = 0;
     logger.info('Actions', actions);
 
     const browserContext = this.context.browserContext;
     const browserState = await browserContext.getState(this.context.options.useVision);
     const cachedPathHashes = await calcBranchPathHashSet(browserState);
+    const elementActionNames = new Set(['click_element', 'input_text', 'select_dropdown_option']);
 
     await browserContext.removeHighlight();
 
     for (const [i, action] of actions.entries()) {
       const actionName = Object.keys(action)[0];
+      if (!actionName) {
+        throw new Error('Empty action received');
+      }
       const actionArgs = action[actionName];
       try {
         // check if the task is paused or stopped
@@ -420,6 +468,9 @@ export class NavigatorAgent extends BaseAgent<z.ZodType, NavigatorResult> {
         }
 
         const indexArg = actionInstance.getIndexArg(actionArgs);
+        const isElementAction =
+          elementActionNames.has(actionName) && (indexArg !== null || hasLocatorFields(actionArgs));
+        const preActionState = isElementAction ? await browserContext.getState(this.context.options.useVision) : null;
         if (i > 0 && indexArg !== null) {
           const newState = await browserContext.getState(this.context.options.useVision);
           const newPathHashes = await calcBranchPathHashSet(newState);
@@ -442,24 +493,54 @@ export class NavigatorAgent extends BaseAgent<z.ZodType, NavigatorResult> {
           throw new Error(`Action ${actionName} returned undefined`);
         }
 
-        // if the action has an index argument, record the interacted element to the result
-        if (indexArg !== null) {
-          const domElement = browserState.selectorMap.get(indexArg);
-          if (domElement) {
-            const interactedElement = HistoryTreeProcessor.convertDomElementToHistoryElement(domElement);
+        // if the action targets an element, record the interacted element using the remembered locator first
+        if (isElementAction && preActionState) {
+          const resolvedElement = resolveElementNodeForAction(
+            preActionState.selectorMap,
+            indexArg,
+            (actionArgs as Record<string, unknown>).selector as string | undefined,
+            (actionArgs as Record<string, unknown>).xpath as string | undefined,
+            this.context.browserContext.getConfig().includeDynamicAttributes,
+          );
+          if (resolvedElement) {
+            const interactedElement = HistoryTreeProcessor.convertDomElementToHistoryElement(resolvedElement);
             result.interactedElement = interactedElement;
             logger.info('Interacted element', interactedElement);
             logger.info('Result', result);
           }
         }
+
+        if (isElementAction) {
+          await browserContext.waitForPageStability();
+          const beforeSignature = await getBrowserStateSignature(preActionState ?? browserState);
+          const afterState = await browserContext.getState(this.context.options.useVision);
+          const afterSignature = await getBrowserStateSignature(afterState);
+          if (!result.error && beforeSignature === afterSignature) {
+            const errorMessage = `Action ${actionName} on the selected element made no visible change. Do not repeat the same element; choose a different target or ask the user.`;
+            logger.warning(errorMessage);
+            results.push(
+              new ActionResult({
+                error: errorMessage,
+                includeInMemory: true,
+              }),
+            );
+            break;
+          }
+        } else {
+          // Smart wait for page stability after action (replaces fixed 1s delay)
+          await browserContext.waitForPageStability();
+        }
+
         results.push(result);
+
+        if (result.error) {
+          break;
+        }
 
         // check if the task is paused or stopped
         if (this.context.paused || this.context.stopped) {
           return results;
         }
-        // Smart wait for page stability after action (replaces fixed 1s delay)
-        await browserContext.waitForPageStability();
       } catch (error) {
         if (error instanceof URLNotAllowedError) {
           throw error;
@@ -473,10 +554,6 @@ export class NavigatorAgent extends BaseAgent<z.ZodType, NavigatorResult> {
         );
         // unexpected error, emit event
         this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_FAIL, errorMessage);
-        errCount++;
-        if (errCount > 3) {
-          throw new Error('Too many errors in actions');
-        }
         results.push(
           new ActionResult({
             error: errorMessage,
@@ -484,6 +561,7 @@ export class NavigatorAgent extends BaseAgent<z.ZodType, NavigatorResult> {
             includeInMemory: true,
           }),
         );
+        break;
       }
     }
     return results;

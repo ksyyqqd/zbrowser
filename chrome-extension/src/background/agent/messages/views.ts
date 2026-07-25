@@ -46,14 +46,18 @@ export class MessageHistory {
   }
 
   /**
-   * Removes the last message from the history if it is a human message.
-   * This is used to remove the state message from the history.
+   * Removes the last message tagged as 'state' from the history.
+   * Searches from the end to find the message with message_type === 'state',
+   * so it won't accidentally remove user clarification or other HumanMessages
+   * that may have been added after the state message.
    */
   removeLastStateMessage(): void {
-    if (this.messages.length > 2 && this.messages[this.messages.length - 1].message instanceof HumanMessage) {
-      const msg = this.messages.pop();
-      if (msg) {
+    // Search from the end for the message with message_type === 'state'
+    for (let i = this.messages.length - 1; i >= 0; i--) {
+      if (this.messages[i].metadata.message_type === 'state') {
+        const msg = this.messages.splice(i, 1)[0];
         this.totalTokens -= msg.metadata.tokens;
+        return;
       }
     }
   }

@@ -13,19 +13,29 @@ export interface GeneralSettingsConfig {
   displayHighlights: boolean;
   minWaitPageLoad: number;
   replayHistoricalTasks: boolean;
-  /** AI接管时是否显示遮罩（默认开启） */
+  showRequestLogs: boolean;
+  /** AI鎺ョ鏃舵槸鍚︽樉绀洪伄缃╋紙榛樿寮€鍚級 */
   showSpotlight: boolean;
-  /** 工作流执行时是否显示遮罩（默认关闭） */
+  /** 宸ヤ綔娴佹墽琛屾椂鏄惁鏄剧ず閬僵锛堥粯璁ゅ叧闂級 */
   showWorkflowSpotlight: boolean;
   /**
-   * 视口扩展范围（像素）
-   * - 0: 只显示当前可视窗口内的元素
-   * - -1: 显示整页所有元素
-   * - >0: 扩展视口边界（如100表示上下左右各扩展100px）
-   */
+   * 瑙嗗彛鎵╁睍鑼冨洿锛堝儚绱狅級
+   * - 0: 鍙樉绀哄綋鍓嶅彲瑙嗙獥鍙ｅ唴鐨勫厓绱?   * - -1: 鏄剧ず鏁撮〉鎵€鏈夊厓绱?   * - >0: 鎵╁睍瑙嗗彛杈圭晫锛堝100琛ㄧず涓婁笅宸﹀彸鍚勬墿灞?00px锛?   */
   viewportExpansion: number;
-  /** 是否显示图片生成功能按钮（默认关闭） */
+  /** 鏄惁鏄剧ず鍥剧墖鐢熸垚鍔熻兘鎸夐挳锛堥粯璁ゅ叧闂級 */
   showImageGeneration: boolean;
+  /**
+   * 鐢ㄦ埛鏄惁宸茬粡鐪嬭繃鏂板姛鑳藉紩瀵兼诞灞傦紙@/鏁欏妯″紡/鍏冪礌璁板繂锛夈€?
+   * 缂虹渷/undefined 瑙嗕负鏈湅杩囷紝棣栨鍚姩浼氬脊寮曞锛涚湅瀹岀疆 true銆?
+   * 鎯抽噸鐪嬶細鍘?chrome.storage.local 鎶婅繖涓瓧娈靛垹鎺夐噸寮€渚ц竟鏍忋€?
+   */
+  onboardingSeen?: boolean;
+  /** 鏄惁寮€鍚繛缁姩浣滄墽琛岋紙瀹為獙鎬у姛鑳斤級 */
+  multiActionEnabled: boolean;
+  /** 杩炵画鍔ㄤ綔鏈€澶ф暟閲?*/
+  maxMultiActions: number;
+  /** 鏄惁寮€鍚嚜涓绘ā寮?*/
+  autonomousMode: boolean;
 }
 
 export type GeneralSettingsStorage = BaseStorage<GeneralSettingsConfig> & {
@@ -45,10 +55,14 @@ export const DEFAULT_GENERAL_SETTINGS: GeneralSettingsConfig = {
   displayHighlights: true,
   minWaitPageLoad: 250,
   replayHistoricalTasks: true,
+  showRequestLogs: false,
   showSpotlight: true,
-  showWorkflowSpotlight: false, // 默认关闭工作流遮罩
-  viewportExpansion: 0, // 默认只显示可视窗口内的元素
-  showImageGeneration: false, // 默认关闭图片生成功能
+  showWorkflowSpotlight: false,
+  viewportExpansion: 0,
+  showImageGeneration: false,
+  multiActionEnabled: false,
+  maxMultiActions: 3,
+  autonomousMode: false,
 };
 
 const storage = createStorage<GeneralSettingsConfig>('general-settings', DEFAULT_GENERAL_SETTINGS, {

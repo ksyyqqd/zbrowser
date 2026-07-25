@@ -316,6 +316,33 @@
   "options_general_showImageGeneration_desc": {
     "message": "Mostrar botão de geração de imagens no chat (requer configuração de provedor de imagens)"
   },
+  "options_general_showRequestLogs": {
+    "message": "Mostrar logs de requisições"
+  },
+  "options_general_showRequestLogs_desc": {
+    "message": "Exibe logs de requisições e respostas do modelo na barra lateral para depuração (desativado por padrão)"
+  },
+  "options_general_experimentalSection": {
+    "message": "Recursos Experimentais"
+  },
+  "options_general_multiActionEnabled": {
+    "message": "Execução Multi-Ação (Experimental)"
+  },
+  "options_general_multiActionEnabled_desc": {
+    "message": "Quando ativado, a IA tentará planejar várias ações consecutivas em uma única solicitação, reduzindo as solicitações de IA e melhorando a velocidade. Quando desativado, apenas uma ação é executada por etapa (mais estável, porém mais lento)."
+  },
+  "options_general_maxMultiActions": {
+    "message": "Máximo de Ações Contínuas"
+  },
+  "options_general_maxMultiActions_desc": {
+    "message": "Número máximo de ações por solicitação de IA no modo multi-ação (1-10)"
+  },
+  "options_general_autonomousMode": {
+    "message": "Modo Autônomo (Experimental)"
+  },
+  "options_general_autonomousMode_desc": {
+    "message": "Quando ativado, a IA não fará perguntas de clarificação ao usuário. Ela fará seu próprio julgamento ou pulará automaticamente etapas incertas. Adequado para automação sem supervisão. Quando desativado, a IA pode perguntar ativamente ou disparar gates de confiança para confirmação do usuário."
+  },
   "options_models_providers_header": {
     "message": "Provedores de LLM"
   },
@@ -730,6 +757,18 @@
         "example": "Arquivo SKILL.md ausente"
       }
     }
+  },
+  "options_skills_saveError": {
+    "message": "Falha ao salvar: $ERROR$",
+    "placeholders": {
+      "error": {
+        "content": "$1",
+        "example": "Erro desconhecido"
+      }
+    }
+  },
+  "options_skills_saveSuccess": {
+    "message": "Skill salvo com sucesso"
   },
 
   "bg_errors_noTabId": {
@@ -1893,5 +1932,138 @@
   },
   "image_generation_openaiProvider": {
     "message": "OpenAI (DALL-E)"
+  },
+  "workflow_noDescription": {
+    "message": "Sem descrição"
+  },
+  "workflow_exportAsJson": {
+    "message": "Exportar como JSON"
+  },
+  "workflow_loadingEditor": {
+    "message": "Carregando editor..."
+  },
+  "workflow_searchCount": {
+    "message": "$FILTERED$ / $TOTAL$",
+    "placeholders": {
+      "filtered": {
+        "content": "$1",
+        "example": "3"
+      },
+      "total": {
+        "content": "$2",
+        "example": "10"
+      }
+    }
+  },
+  "workflow_importInvalidWorkflow": {
+    "message": "Workflow inválido: $ERRORS$",
+    "placeholders": {
+      "errors": {
+        "content": "$1",
+        "example": "Campos obrigatórios ausentes"
+      }
+    }
+  },
+  "workflow_nodesCount": {
+    "message": "$COUNT$ nós",
+    "placeholders": {
+      "count": {
+        "content": "$1",
+        "example": "5"
+      }
+    }
+  },
+  "options_tabs_memory": {
+    "message": "Mem?ria"
+  },
+  "options_sections_common": {
+    "message": "Configura??es comuns"
+  },
+  "options_sections_automation": {
+    "message": "Automa??o"
+  },
+  "options_sections_advanced": {
+    "message": "Configura??es avan?adas"
+  },
+  "spirit_panel_title": {
+    "message": "Status do Pidan"
+  },
+  "spirit_avatar_toggle_a11y": {
+    "message": "Alternar painel do Pidan"
+  },
+  "spirit_mode_auto_label": {
+    "message": "Autom?tico"
+  },
+  "spirit_mode_auto_desc": {
+    "message": "O Pidan executa tarefas no modo padr?o"
+  },
+  "spirit_mode_explore_label": {
+    "message": "Explorar"
+  },
+  "spirit_mode_explore_desc": {
+    "message": "O Pidan pesquisa v?rias fontes e retorna um relat?rio comparativo"
+  },
+  "spirit_mode_suffix": {
+    "message": " modo"
+  },
+  "spirit_mode_auto_status_idle": {
+    "message": "Em espera..."
+  },
+  "spirit_mode_auto_status_thinking": {
+    "message": "Pensando..."
+  },
+  "spirit_mode_auto_status_working": {
+    "message": "Trabalhando..."
+  },
+  "spirit_mode_auto_status_happy": {
+    "message": "Feliz"
+  },
+  "spirit_mode_auto_status_mischief": {
+    "message": "Travessura"
+  },
+  "spirit_mode_auto_status_sleepy": {
+    "message": "Com sono..."
+  },
+  "spirit_mode_auto_status_curious": {
+    "message": "Explorando"
+  },
+  "spirit_mode_executing": {
+    "message": "O Pidan est? executando a tarefa"
+  },
+  "spirit_mode_done": {
+    "message": "Tarefa conclu?da!"
+  },
+  "spirit_actor_planner": {
+    "message": "Planejador"
+  },
+  "spirit_actor_navigator": {
+    "message": "Navegador"
+  },
+  "spirit_actor_validator": {
+    "message": "Validador"
+  },
+  "spirit_actor_user": {
+    "message": "Usu?rio"
+  },
+  "spirit_actor_system": {
+    "message": "Sistema"
+  },
+  "spirit_overlay_fireworks_label": {
+    "message": "Fogos de artif?cio"
+  },
+  "spirit_overlay_write_label": {
+    "message": "Escrever"
+  },
+  "spirit_overlay_celebrate_label": {
+    "message": "Comemorar"
+  },
+  "spirit_overlay_fireworks_title": {
+    "message": "Efeito de fogos"
+  },
+  "spirit_overlay_write_title": {
+    "message": "Efeito de escrita"
+  },
+  "spirit_overlay_celebrate_title": {
+    "message": "Efeito de comemora??o"
   }
 }

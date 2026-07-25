@@ -8,7 +8,7 @@
   "printWidth": 120,
   "bracketSameLine": true,
   "htmlWhitespaceSensitivity": "strict",
-    "overrides": [
+  "overrides": [
     {
       "files": ["pages/side-panel/src/utils/spiritOverlayInject.js"],
       "options": {

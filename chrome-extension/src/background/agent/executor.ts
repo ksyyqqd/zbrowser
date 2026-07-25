@@ -6,7 +6,7 @@ import { NavigatorAgent, NavigatorActionRegistry } from './agents/navigator';
 import { PlannerAgent, type PlannerOutput } from './agents/planner';
 import { NavigatorPrompt } from './prompts/navigator';
 import { PlannerPrompt } from './prompts/planner';
-import { BasePrompt, analyzeUserImageWithVisionModel } from './prompts/base';
+import { analyzeUserImageWithVisionModel } from './prompts/base';
 import { createLogger } from '@src/background/log';
 import MessageManager from './messages/service';
 import type BrowserContext from '../browser/context';
@@ -32,11 +32,13 @@ import {
 import { URLNotAllowedError } from '../browser/views';
 import { chatHistoryStore } from '@extension/storage/lib/chat';
 import type { AgentStepHistory } from './history';
+import { diagnoseTaskFailure } from './diagnose';
 import type { GeneralSettingsConfig } from '@extension/storage';
 import { analytics } from '../services/analytics';
 import type { ToolExecutionResult, MCPTool } from '@extension/mcp-client';
 import type { Skill, SkillExecutionResult } from '@extension/skills';
 import { summarizeClarifyResponse } from './clarify';
+import { extractJsonFromModelOutput } from './messages/utils';
 
 const logger = createLogger('Executor');
 
@@ -69,6 +71,7 @@ export interface ExecutorExtraArgs {
 export class Executor {
   private readonly navigator: NavigatorAgent;
   private readonly planner: PlannerAgent;
+  private readonly plannerLLM: BaseChatModel;
   private readonly context: AgentContext;
   private readonly plannerPrompt: PlannerPrompt;
   private readonly navigatorPrompt: NavigatorPrompt;
@@ -76,6 +79,12 @@ export class Executor {
   private readonly mcpService?: ExecutorExtraArgs['mcpService'];
   private readonly skillsService?: ExecutorExtraArgs['skillsService'];
   private readonly userImages?: { name: string; base64: string }[]; // 用户上传的图片
+  /**
+   * 保留 navigator LLM 引用：失败诊断（diagnoseTaskFailure）需要一个能 invoke 的 LLM。
+   * 用 navigator 而非 planner，因为 navigator 通常配的是更快/更便宜的模型，
+   * 诊断对延迟敏感（用户等失败结果时不希望再等几秒）。
+   */
+  private readonly navigatorLLM: BaseChatModel;
   private tasks: string[] = [];
   constructor(
     task: string,
@@ -113,9 +122,16 @@ export class Executor {
     this.mcpService = extraArgs?.mcpService;
     this.skillsService = extraArgs?.skillsService;
     this.userImages = extraArgs?.images; // 存储用户上传的图片
+    this.plannerLLM = plannerLLM;
+    this.navigatorLLM = navigatorLLM; // 用于失败诊断
     this.tasks.push(task);
-    this.navigatorPrompt = new NavigatorPrompt(context.options.maxActionsPerStep);
-    this.plannerPrompt = new PlannerPrompt();
+    this.navigatorPrompt = new NavigatorPrompt({
+      maxActionsPerStep: context.options.maxActionsPerStep,
+      multiActionEnabled: extraArgs?.generalSettings?.multiActionEnabled ?? false,
+      maxMultiActions: extraArgs?.generalSettings?.maxMultiActions ?? 3,
+      autonomousMode: extraArgs?.generalSettings?.autonomousMode ?? false,
+    });
+    this.plannerPrompt = new PlannerPrompt(extraArgs?.generalSettings?.autonomousMode ?? false);
 
     // Set MCP service methods on context if provided
     if (extraArgs?.mcpService) {
@@ -134,7 +150,7 @@ export class Executor {
       context.getSkillInfo = async (skillId: string) => extraArgs.skillsService!.getSkillInfo(skillId);
     }
 
-    const actionBuilder = new ActionBuilder(context, extractorLLM);
+    const actionBuilder = new ActionBuilder(context, extractorLLM, extraArgs?.generalSettings?.autonomousMode ?? false);
     const navigatorActionRegistry = new NavigatorActionRegistry(actionBuilder.buildDefaultActions());
 
     // Register MCP actions if MCP service is available
@@ -346,6 +362,7 @@ ${skillList}
     const context = this.context;
     context.nSteps = 0;
     const allowedMaxSteps = this.context.options.maxSteps;
+    let navigatorCompleted = false;
 
     try {
       this.context.emitEvent(Actors.SYSTEM, ExecutionState.TASK_START, this.context.taskId);
@@ -366,6 +383,7 @@ ${skillList}
 
       let step = 0;
       let latestPlanOutput: AgentOutput<PlannerOutput> | null = null;
+      let shouldReadBrowserState = true;
       let navigatorDone = false;
 
       for (step = 0; step < allowedMaxSteps; step++) {
@@ -379,20 +397,39 @@ ${skillList}
           break;
         }
 
+        // 「跳过当前步」检查：用户在 UI 上按了「跳过此步」时，bg port 'skip_step' 会把
+        // context.skipRequested 置 true。在这里 step 边界消费它：
+        //  - 不进入 planner / navigator 调用，避免打断已派发的 LLM 请求
+        //  - 仍然 nSteps++ 防止死循环（同样的 step 反复跳）
+        if (context.skipRequested) {
+          context.skipRequested = false;
+          context.nSteps++;
+          this.context.emitEvent(Actors.SYSTEM, ExecutionState.STEP_CANCEL, '⏭ 用户跳过本步');
+          continue;
+        }
+
         // Run planner periodically for guidance
         if (this.planner && (context.nSteps % context.options.planningInterval === 0 || navigatorDone)) {
           navigatorDone = false;
-          latestPlanOutput = await this.runPlanner();
+          const plannerRun = await this.runPlanner();
+          latestPlanOutput = plannerRun.planOutput;
+          shouldReadBrowserState = plannerRun.shouldReadBrowserState;
 
           // 若 Planner 主动提出要问用户，弹窗等回应；用户回应后会作为新的 HumanMessage 注入
           // 下一轮的 message history，让 Planner 在下次迭代里能基于回答继续。
+          // 自主模式下：忽略 Planner 的 ask_user 请求，继续执行（不弹窗）
           if (latestPlanOutput?.result?.ask_user) {
-            const handled = await this.handlePlannerAskUser(latestPlanOutput.result.ask_user);
-            if (handled === 'abort') {
-              break;
+            if (this.generalSettings?.autonomousMode) {
+              logger.info('[autonomous] Planner asked user but autonomous mode is on — ignoring, continuing');
+              // 自主模式下不弹窗，继续后续规划
+            } else {
+              const handled = await this.handlePlannerAskUser(latestPlanOutput.result.ask_user);
+              if (handled === 'abort') {
+                break;
+              }
+              // 不立即 checkTaskCompletion —— 用户的回答可能让 done 失效；让下轮 planner 重新评估
+              continue;
             }
-            // 不立即 checkTaskCompletion —— 用户的回答可能让 done 失效；让下轮 planner 重新评估
-            continue;
           }
 
           // Check if task is complete after planner run
@@ -402,16 +439,18 @@ ${skillList}
         }
 
         // Execute navigator
-        navigatorDone = await this.navigate();
+        navigatorDone = await this.navigate(shouldReadBrowserState);
 
         // If navigator indicates completion, the next periodic planner run will validate it
         if (navigatorDone) {
           logger.info('🔄 Navigator indicates completion - will be validated by next planner run');
+          navigatorCompleted = true;
+          break;
         }
       }
 
       // Determine task completion status
-      const isCompleted = latestPlanOutput?.result?.done === true;
+      const isCompleted = navigatorCompleted || latestPlanOutput?.result?.done === true;
 
       if (isCompleted) {
         // Emit final answer if available, otherwise use task ID
@@ -422,6 +461,7 @@ ${skillList}
         void analytics.trackTaskComplete(this.context.taskId);
       } else if (step >= allowedMaxSteps) {
         logger.error('❌ Task failed: Max steps reached');
+        await this.emitFailDiagnosis(t('exec_errors_maxStepsReached'));
         this.context.emitEvent(Actors.SYSTEM, ExecutionState.TASK_FAIL, t('exec_errors_maxStepsReached'));
 
         // Track task failure with specific error category
@@ -445,6 +485,7 @@ ${skillList}
         void analytics.trackTaskCancelled(this.context.taskId);
       } else {
         const errorMessage = error instanceof Error ? error.message : String(error);
+        await this.emitFailDiagnosis(errorMessage);
         this.context.emitEvent(Actors.SYSTEM, ExecutionState.TASK_FAIL, t('exec_task_fail', [errorMessage]));
 
         // Track task failure with detailed error categorization
@@ -465,13 +506,19 @@ ${skillList}
   /**
    * Helper method to run planner and store its output
    */
-  private async runPlanner(): Promise<AgentOutput<PlannerOutput> | null> {
+  private async runPlanner(): Promise<{
+    planOutput: AgentOutput<PlannerOutput> | null;
+    shouldReadBrowserState: boolean;
+  }> {
     const context = this.context;
     try {
-      // Add current browser state to memory (including Vision analysis)
-      // Always add state message so Planner can see current page state and Vision analysis
+      const shouldReadBrowserState = await this.shouldReadCurrentPage();
+      logger.info(`[planner] browser state required: ${shouldReadBrowserState ? 'yes' : 'no'}`);
+
       let positionForPlan = 0;
-      await this.navigator.addStateMessageToMemory();
+      if (shouldReadBrowserState) {
+        await this.navigator.addStateMessageToMemory();
+      }
       if (this.tasks.length > 1 || this.context.nSteps > 0) {
         positionForPlan = this.context.messageManager.length() - 1;
       } else {
@@ -483,7 +530,7 @@ ${skillList}
       if (planOutput.result) {
         this.context.messageManager.addPlan(JSON.stringify(planOutput.result), positionForPlan);
       }
-      return planOutput;
+      return { planOutput, shouldReadBrowserState };
     } catch (error) {
       logger.error(`Failed to execute planner: ${error}`);
       if (
@@ -501,11 +548,88 @@ ${skillList}
       if (context.consecutiveFailures >= context.options.maxFailures) {
         throw new MaxFailuresReachedError(t('exec_errors_maxFailuresReached'));
       }
-      return null;
+      return { planOutput: null, shouldReadBrowserState: true };
     }
   }
 
-  private async navigate(): Promise<boolean> {
+  private async shouldReadCurrentPage(): Promise<boolean> {
+    const task = this.tasks[this.tasks.length - 1] || '';
+    if (!task.trim()) return false;
+
+    const decisionPrompt = [
+      'Decide whether the next planning pass needs live current page/browser state.',
+      'Do not inspect the page. Judge only from the user task and conversation intent.',
+      'Return only JSON with this shape:',
+      '{"needs_browser_state": true, "reason": "short reason"}',
+      'Rules:',
+      '- true when the task depends on visible page content, element positions, page title, or browser state.',
+      '- false when the task can be planned without looking at the current page yet.',
+      '',
+      `Task: ${task}`,
+    ].join('\n');
+
+    try {
+      const response = await this.plannerLLM.invoke(decisionPrompt, {
+        signal: this.context.controller.signal,
+      });
+      const rawContent = this.extractRawModelContent(response);
+      return this.parseBrowserStateDecision(rawContent, response);
+    } catch (error) {
+      logger.warning('[planner] browser-state decision failed, defaulting to yes:', error);
+      return true;
+    }
+  }
+
+  private extractRawModelContent(response: { content?: unknown; tool_calls?: unknown[] }): string {
+    if (Array.isArray(response.tool_calls) && response.tool_calls.length > 0) {
+      const firstToolCall = response.tool_calls[0] as { args?: unknown };
+      if (firstToolCall?.args && typeof firstToolCall.args === 'object') {
+        return JSON.stringify(firstToolCall.args);
+      }
+    }
+
+    if (typeof response.content === 'string') {
+      return response.content;
+    }
+
+    if (Array.isArray(response.content)) {
+      return response.content
+        .map(part =>
+          typeof part === 'object' && part !== null && 'text' in part ? String((part as { text: unknown }).text) : '',
+        )
+        .join('');
+    }
+
+    return '';
+  }
+
+  private parseBrowserStateDecision(rawContent: string, response: { tool_calls?: unknown[] }): boolean {
+    if (Array.isArray(response.tool_calls) && response.tool_calls.length > 0) {
+      const firstToolCall = response.tool_calls[0] as { args?: unknown };
+      const args = firstToolCall?.args;
+      if (args && typeof args === 'object') {
+        const needs = (args as Record<string, unknown>).needs_browser_state;
+        if (typeof needs === 'boolean') return needs;
+        if (typeof needs === 'string') return needs.toLowerCase() === 'true';
+      }
+    }
+
+    try {
+      const parsed = extractJsonFromModelOutput(rawContent);
+      const needs = parsed.needs_browser_state;
+      if (typeof needs === 'boolean') return needs;
+      if (typeof needs === 'string') return needs.toLowerCase() === 'true';
+    } catch {
+      // fall through
+    }
+
+    const lower = rawContent.toLowerCase();
+    if (lower.includes('needs_browser_state') && lower.includes('true')) return true;
+    if (lower.includes('needs_browser_state') && lower.includes('false')) return false;
+    return true;
+  }
+
+  private async navigate(useLiveState = true): Promise<boolean> {
     const context = this.context;
     try {
       // Get and execute navigation action
@@ -513,7 +637,7 @@ ${skillList}
       if (context.paused || context.stopped) {
         return false;
       }
-      const navOutput = await this.navigator.execute();
+      const navOutput = await this.navigator.execute(useLiveState);
       // check if the task is paused or stopped
       if (context.paused || context.stopped) {
         return false;
@@ -585,6 +709,63 @@ ${skillList}
       await this.context.browserContext.cleanup();
     } catch (error) {
       logger.error(`Failed to cleanup browser context: ${error}`);
+    }
+  }
+
+  /**
+   * 「跳过当前步」：把 context.skipRequested 置 true。
+   * 真正生效在 execute() 主循环 step 边界（见 shouldStop 之后那段 if）。
+   * 由 background port 'skip_step' 调用。
+   */
+  requestSkipStep(): void {
+    this.context.skipRequested = true;
+    logger.info('[skip] requested by user');
+  }
+
+  /**
+   * 「修改下一步」：往 message history 注入一条 HumanMessage，作为 planner / navigator
+   * 下一轮的额外指令。配合外部的 pause + resume 实现「暂停 → 用户输入 → 恢复」的体验。
+   * 由 background port 'amend_next_step' 调用，text 来自 UI。
+   */
+  async amendNextStep(text: string): Promise<void> {
+    const trimmed = (text || '').trim();
+    if (!trimmed) return;
+    this.context.messageManager.addMessageWithTokens(
+      new HumanMessage({ content: `[User mid-task instruction] ${trimmed}` }),
+      'amend',
+    );
+    // 广播给前端：消息流里展示一条用户接管痕迹，与 ask_user 摘要呼应
+    this.context.emitEvent(Actors.SYSTEM, ExecutionState.TASK_RESUME, `📝 用户中途指示：${trimmed}`);
+    logger.info(`[amend] injected mid-task instruction: ${trimmed.slice(0, 60)}`);
+  }
+
+  /**
+   * 任务失败前发出诊断事件（TASK_FAIL_DIAGNOSIS）。
+   *
+   *  - 调 navigator LLM 生成 summary + 3 条建议；超时/失败/无 history 则静默退出
+   *  - 紧随其后是真正的 TASK_FAIL，所以前端看到顺序是：
+   *      ... → STEP_FAIL → TASK_FAIL_DIAGNOSIS → TASK_FAIL
+   *  - 故意 await：诊断完成后再让 TASK_FAIL 走，前端能在同一帧拿到完整信息
+   *  - 但加超时（diagnose.ts 内部 15s），避免 LLM 卡死拖延任务结束
+   */
+  private async emitFailDiagnosis(errorMessage: string): Promise<void> {
+    try {
+      const task = this.tasks[0] || '';
+      if (!task) return;
+      // 摘最近 5 步 history（如有）
+      const recentSteps: string[] = [];
+      const history = this.context.history?.history ?? [];
+      for (const item of history.slice(-5)) {
+        const out = item.modelOutput || '';
+        if (out) recentSteps.push(out.slice(0, 200));
+      }
+      const diagnosis = await diagnoseTaskFailure(this.navigatorLLM, task, recentSteps, errorMessage);
+      if (diagnosis) {
+        this.context.emitEvent(Actors.SYSTEM, ExecutionState.TASK_FAIL_DIAGNOSIS, JSON.stringify(diagnosis));
+      }
+    } catch (err) {
+      // 诊断本身的错不能影响任务结束
+      logger.warning('[emitFailDiagnosis] swallow error:', err);
     }
   }
 
