@@ -229,6 +229,9 @@
   "options_nav_header": {
     "message": "設定"
   },
+  "options_footer_privacy": {
+    "message": "隱私權政策"
+  },
   "options_tabs_general": {
     "message": "一般"
   },

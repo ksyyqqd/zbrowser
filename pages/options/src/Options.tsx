@@ -139,8 +139,8 @@ const Options = () => {
       <div
         className={`flex min-h-screen min-w-[768px] ${isDarkMode ? 'bg-slate-900' : "bg-[url('/bg.jpg')] bg-cover bg-center"} ${isDarkMode ? 'text-gray-200' : 'text-gray-900'}`}>
         <nav
-          className={`w-48 border-r ${isDarkMode ? 'border-slate-700 bg-slate-800/80' : 'border-white/20 bg-[#0EA5E9]/10'} backdrop-blur-sm`}>
-          <div className="p-4">
+          className={`flex w-48 flex-col border-r ${isDarkMode ? 'border-slate-700 bg-slate-800/80' : 'border-white/20 bg-[#0EA5E9]/10'} backdrop-blur-sm`}>
+          <div className="flex-1 p-4">
             <h1 className={`mb-6 text-xl font-bold ${isDarkMode ? 'text-gray-200' : 'text-gray-800'}`}>
               {t('options_nav_header')}
             </h1>
@@ -177,6 +177,19 @@ const Options = () => {
                 );
               })}
             </ul>
+          </div>
+          <div className={`border-t p-4 ${isDarkMode ? 'border-slate-700' : 'border-white/20'}`}>
+            <a
+              href="/pages/privacy-policy.html"
+              target="_blank"
+              rel="noopener noreferrer"
+              className={`block rounded-lg px-3 py-2 text-center text-sm transition-colors ${
+                isDarkMode
+                  ? 'text-slate-400 hover:bg-slate-700/50 hover:text-slate-200'
+                  : 'text-gray-600 hover:bg-white/20 hover:text-gray-800'
+              }`}>
+              {t('options_footer_privacy')}
+            </a>
           </div>
         </nav>
 

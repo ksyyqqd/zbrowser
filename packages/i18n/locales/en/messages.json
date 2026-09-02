@@ -229,6 +229,9 @@
   "options_nav_header": {
     "message": "Settings"
   },
+  "options_footer_privacy": {
+    "message": "Privacy Policy"
+  },
   "options_tabs_general": {
     "message": "General"
   },

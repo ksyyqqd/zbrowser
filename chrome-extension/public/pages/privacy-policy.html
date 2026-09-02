@@ -1,0 +1,527 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>隐私政策 - 皮蛋浏览器助手 | Privacy Policy - Pidan Browser Assistant</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+            line-height: 1.7;
+            color: #F8FAFC;
+            background: #0B0E14;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            background: #1E293B;
+            border-radius: 12px;
+            padding: 48px;
+            box-shadow: 0 4px 24px rgba(0, 0, 0, 0.4);
+        }
+
+        h1 {
+            font-size: 36px;
+            font-weight: 700;
+            color: #22D3EE;
+            margin-bottom: 12px;
+            letter-spacing: -0.02em;
+        }
+
+        h2 {
+            font-size: 24px;
+            font-weight: 600;
+            color: #38BDF8;
+            margin-top: 40px;
+            margin-bottom: 16px;
+            padding-bottom: 8px;
+            border-bottom: 2px solid #334155;
+        }
+
+        h3 {
+            font-size: 18px;
+            font-weight: 600;
+            color: #F8FAFC;
+            margin-top: 24px;
+            margin-bottom: 12px;
+        }
+
+        p, li {
+            margin-bottom: 12px;
+            color: #CBD5E1;
+        }
+
+        ul, ol {
+            margin-left: 24px;
+            margin-bottom: 16px;
+        }
+
+        li {
+            margin-bottom: 8px;
+        }
+
+        a {
+            color: #22D3EE;
+            text-decoration: none;
+            border-bottom: 1px solid transparent;
+            transition: border-color 0.2s;
+        }
+
+        a:hover {
+            border-bottom-color: #22D3EE;
+        }
+
+        .lang-toggle {
+            text-align: right;
+            margin-bottom: 24px;
+        }
+
+        .lang-toggle a {
+            display: inline-block;
+            padding: 8px 16px;
+            background: #334155;
+            border-radius: 6px;
+            font-size: 14px;
+            margin-left: 8px;
+        }
+
+        .lang-toggle a:hover {
+            background: #475569;
+            border-bottom-color: transparent;
+        }
+
+        .last-updated {
+            color: #94A3B8;
+            font-size: 14px;
+            margin-bottom: 32px;
+        }
+
+        .highlight-box {
+            background: #0F172A;
+            border-left: 4px solid #22D3EE;
+            padding: 20px;
+            margin: 24px 0;
+            border-radius: 6px;
+        }
+
+        .highlight-box strong {
+            color: #22D3EE;
+        }
+
+        strong {
+            color: #F8FAFC;
+            font-weight: 600;
+        }
+
+        .section {
+            margin-bottom: 32px;
+        }
+
+        .divider {
+            height: 2px;
+            background: linear-gradient(to right, #334155, transparent);
+            margin: 48px 0;
+        }
+
+        @media (max-width: 768px) {
+            .container {
+                padding: 24px;
+            }
+
+            h1 {
+                font-size: 28px;
+            }
+
+            h2 {
+                font-size: 20px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="lang-toggle">
+            <a href="#zh">中文</a>
+            <a href="#en">English</a>
+        </div>
+
+        <!-- 中文版本 -->
+        <div id="zh" class="section">
+            <h1>隐私政策</h1>
+            <p class="last-updated">最后更新日期：2026年9月2日</p>
+
+            <div class="highlight-box">
+                <p><strong>核心承诺：</strong>皮蛋浏览器助手（以下简称"本扩展"）采用纯本地运行架构，<strong>不设置任何服务器</strong>，<strong>不收集、不上传、不存储</strong>您的任何个人数据。所有数据处理均在您的本地浏览器中完成。</p>
+            </div>
+
+            <h2>1. 我们收集哪些信息</h2>
+
+            <h3>1.1 本地存储的配置信息</h3>
+            <p>本扩展会在您的浏览器本地存储以下配置信息，<strong>这些信息仅保存在您的设备上，绝不上传至任何服务器</strong>：</p>
+            <ul>
+                <li><strong>AI 模型配置</strong>：您选择的 LLM 提供商（如 OpenAI、Anthropic、Google 等）和模型名称</li>
+                <li><strong>API 密钥</strong>：您输入的 API 密钥（使用 Chrome 本地存储加密保存）</li>
+                <li><strong>个人偏好设置</strong>：语言选择、主题设置、快捷键配置等</li>
+                <li><strong>任务历史记录</strong>（可选）：您执行过的自动化任务记录，用于历史回放功能</li>
+                <li><strong>MCP 服务器配置</strong>：您配置的本地 MCP 服务器地址和工具列表</li>
+                <li><strong>自定义技能</strong>：您创建或导入的自动化技能模板</li>
+                <li><strong>工作流数据</strong>：您设计的可视化工作流定义</li>
+            </ul>
+
+            <h3>1.2 运行时的临时数据</h3>
+            <p>在执行自动化任务时，本扩展会临时处理以下信息，<strong>这些数据仅存在于内存中，任务结束即清除</strong>：</p>
+            <ul>
+                <li><strong>网页内容</strong>：当前标签页的 DOM 结构、文本内容（用于 AI 分析页面）</li>
+                <li><strong>网页截图</strong>：页面视觉快照（仅在启用视觉识别功能时）</li>
+                <li><strong>浏览器状态</strong>：当前 URL、标签页信息（用于导航和操作）</li>
+            </ul>
+
+            <h3>1.3 我们绝不收集的信息</h3>
+            <p><strong>本扩展不会收集以下任何信息</strong>：</p>
+            <ul>
+                <li>❌ 您的姓名、邮箱、手机号等个人身份信息</li>
+                <li>❌ 您的完整浏览历史记录</li>
+                <li>❌ 您的登录凭证、密码、Cookie</li>
+                <li>❌ 您的信用卡或支付信息</li>
+                <li>❌ 您的设备指纹或唯一标识符</li>
+                <li>❌ 您访问网站的具体内容（除非用于当前任务）</li>
+            </ul>
+
+            <h2>2. 我们如何使用信息</h2>
+
+            <h3>2.1 本地处理</h3>
+            <p>所有数据处理均在您的本地浏览器中进行：</p>
+            <ul>
+                <li><strong>AI 模型调用</strong>：使用您配置的 API 密钥直接调用第三方 AI 服务（OpenAI、Anthropic 等），<strong>本扩展不作为中间服务器</strong></li>
+                <li><strong>页面分析</strong>：在本地解析网页 DOM 结构，识别可操作元素</li>
+                <li><strong>任务执行</strong>：根据 AI 决策在本地浏览器中执行点击、填写、导航等操作</li>
+                <li><strong>历史记录</strong>：任务历史仅保存在本地，用于您回顾和重放</li>
+            </ul>
+
+            <h3>2.2 第三方 AI 服务</h3>
+            <p>当您使用本扩展调用 AI 模型时，<strong>您的网页内容会直接发送至您选择的 AI 服务提供商</strong>（非本扩展的服务器）。这些提供商包括但不限于：</p>
+            <ul>
+                <li>OpenAI (GPT-4, GPT-4o 等) - <a href="https://openai.com/privacy" target="_blank">隐私政策</a></li>
+                <li>Anthropic (Claude 系列) - <a href="https://www.anthropic.com/privacy" target="_blank">隐私政策</a></li>
+                <li>Google (Gemini 系列) - <a href="https://policies.google.com/privacy" target="_blank">隐私政策</a></li>
+                <li>其他您自行配置的 AI 服务提供商</li>
+            </ul>
+            <p><strong>重要提示</strong>：这些第三方服务有各自独立的隐私政策和数据处理规则。我们建议您在使用前仔细阅读其隐私政策。<strong>本扩展对第三方服务的数据处理行为不承担责任。</strong></p>
+
+            <h3>2.3 本地 AI 模型（完全离线）</h3>
+            <p>如果您选择使用本地 AI 模型（如通过 Ollama 运行），<strong>所有数据处理将完全在您的本地设备上进行，不涉及任何网络传输。</strong></p>
+
+            <h2>3. 数据存储与安全</h2>
+
+            <h3>3.1 存储位置</h3>
+            <ul>
+                <li><strong>所有配置数据</strong>存储在 Chrome 浏览器的本地存储空间（chrome.storage.local）</li>
+                <li><strong>API 密钥</strong>使用 Chrome 的安全存储机制加密保存</li>
+                <li><strong>任务历史</strong>存储在本地数据库（IndexedDB），您可随时清除</li>
+                <li><strong>无远程服务器</strong>：本扩展不设置任何云端服务器或数据库</li>
+            </ul>
+
+            <h3>3.2 数据安全措施</h3>
+            <ul>
+                <li>✅ 敏感数据（如 API 密钥）加密存储</li>
+                <li>✅ 所有网络请求均为 HTTPS 加密（直连 AI 服务商）</li>
+                <li>✅ 不使用第三方分析工具或跟踪脚本</li>
+                <li>✅ 符合 Chrome 扩展安全最佳实践</li>
+            </ul>
+
+            <h3>3.3 数据保留时间</h3>
+            <ul>
+                <li><strong>配置数据</strong>：永久保存在本地，直到您手动删除或卸载扩展</li>
+                <li><strong>任务历史</strong>：默认保留最近 100 条记录，您可在设置中调整或清除</li>
+                <li><strong>临时数据</strong>：任务结束后立即从内存中清除</li>
+            </ul>
+
+            <h2>4. 数据共享与披露</h2>
+
+            <div class="highlight-box">
+                <p><strong>明确声明：我们不会与任何第三方共享、出售或披露您的数据。</strong></p>
+            </div>
+
+            <p>唯一的"数据传输"场景是：</p>
+            <ul>
+                <li><strong>您主动发起</strong>：当您使用 AI 功能时，网页内容会直接发送至<strong>您选择的 AI 服务提供商</strong>（这是实现功能的必要步骤）</li>
+                <li><strong>您完全可控</strong>：您可以选择使用本地 AI 模型（Ollama），实现完全离线运行</li>
+            </ul>
+
+            <p><strong>我们不会因以下原因共享数据</strong>：</p>
+            <ul>
+                <li>❌ 商业目的（广告、营销）</li>
+                <li>❌ 数据分析或用户画像</li>
+                <li>❌ 与其他公司的合作伙伴关系</li>
+            </ul>
+
+            <h2>5. 您的权利与控制</h2>
+
+            <h3>5.1 数据访问权</h3>
+            <p>所有数据存储在您的本地浏览器中，您可以随时：</p>
+            <ul>
+                <li>在扩展设置中查看所有配置数据</li>
+                <li>在任务历史页面查看历史记录</li>
+                <li>使用 Chrome 开发者工具查看存储内容（chrome://extensions → 开发者模式 → 背景页）</li>
+            </ul>
+
+            <h3>5.2 数据删除权</h3>
+            <p>您可以随时删除数据：</p>
+            <ul>
+                <li><strong>清除 API 密钥</strong>：设置 → 模型配置 → 删除密钥</li>
+                <li><strong>清除任务历史</strong>：历史记录页面 → 清除全部历史</li>
+                <li><strong>清除所有数据</strong>：卸载扩展，所有本地数据将被永久删除</li>
+                <li><strong>或</strong>：Chrome 设置 → 隐私和安全 → 网站设置 → 查看所有网站的权限和数据存储 → 找到本扩展并清除数据</li>
+            </ul>
+
+            <h3>5.3 数据导出权</h3>
+            <p>本扩展支持导出功能：</p>
+            <ul>
+                <li>导出自定义技能（JSON 格式）</li>
+                <li>导出工作流配置（JSON 格式）</li>
+                <li>导出任务历史（CSV 格式）</li>
+            </ul>
+
+            <h2>6. Cookies 和跟踪技术</h2>
+
+            <p><strong>本扩展不使用任何 Cookies 或跟踪技术</strong>：</p>
+            <ul>
+                <li>❌ 不使用 Google Analytics 或其他分析工具</li>
+                <li>❌ 不使用广告跟踪像素</li>
+                <li>❌ 不使用设备指纹识别技术</li>
+                <li>❌ 不使用第三方 CDN 加载资源（所有资源内置于扩展中）</li>
+            </ul>
+
+            <h2>7. 儿童隐私保护</h2>
+
+            <p>本扩展面向 13 岁及以上用户。我们不会有意收集 13 岁以下儿童的个人信息。如果您发现儿童向我们提供了个人信息，请通过下方联系方式告知我们，我们将立即删除相关信息。</p>
+
+            <h2>8. 国际用户须知</h2>
+
+            <p>本扩展在全球范围内可用。由于采用<strong>纯本地运行架构</strong>，不涉及跨境数据传输：</p>
+            <ul>
+                <li>✅ 符合 GDPR（欧盟通用数据保护条例）要求</li>
+                <li>✅ 符合 CCPA（加州消费者隐私法案）要求</li>
+                <li>✅ 符合中国《个人信息保护法》要求</li>
+            </ul>
+
+            <p><strong>唯一例外</strong>：如果您选择使用云端 AI 服务（如 OpenAI、Anthropic），数据会传输至这些服务商的服务器（可能位于美国或其他国家），请参考其隐私政策。</p>
+
+            <h2>9. 隐私政策变更</h2>
+
+            <p>我们可能会不定期更新本隐私政策。重大变更时，我们会：</p>
+            <ul>
+                <li>在扩展中显示通知</li>
+                <li>在 GitHub 仓库发布更新日志</li>
+                <li>更新本页面顶部的"最后更新日期"</li>
+            </ul>
+
+            <p>继续使用本扩展即表示您接受更新后的隐私政策。</p>
+
+            <h2>10. 联系我们</h2>
+
+            <p>如果您对本隐私政策有任何疑问、意见或建议，请通过以下方式联系我们：</p>
+            <ul>
+                <li><strong>GitHub Issues</strong>：<a href="https://github.com/your-org/nanobrowser/issues" target="_blank">提交问题</a></li>
+                <li><strong>电子邮件</strong>：privacy@your-domain.com（请替换为实际邮箱）</li>
+            </ul>
+
+            <p>我们将在收到您的请求后 30 天内回复。</p>
+        </div>
+
+        <div class="divider"></div>
+
+        <!-- English Version -->
+        <div id="en" class="section">
+            <h1>Privacy Policy</h1>
+            <p class="last-updated">Last Updated: September 2, 2026</p>
+
+            <div class="highlight-box">
+                <p><strong>Core Commitment:</strong> Pidan Browser Assistant (hereinafter "the Extension") uses a purely local architecture with <strong>no server infrastructure</strong>. We <strong>do not collect, upload, or store</strong> any of your personal data. All data processing occurs in your local browser.</p>
+            </div>
+
+            <h2>1. What Information We Collect</h2>
+
+            <h3>1.1 Locally Stored Configuration Data</h3>
+            <p>The Extension stores the following configuration data in your browser locally. <strong>This information is saved only on your device and is never uploaded to any server</strong>:</p>
+            <ul>
+                <li><strong>AI Model Configuration</strong>: Your chosen LLM provider (OpenAI, Anthropic, Google, etc.) and model names</li>
+                <li><strong>API Keys</strong>: API keys you enter (encrypted and stored using Chrome's local storage)</li>
+                <li><strong>Personal Preferences</strong>: Language selection, theme settings, keyboard shortcuts, etc.</li>
+                <li><strong>Task History</strong> (optional): Records of automation tasks you've executed, used for history replay</li>
+                <li><strong>MCP Server Configuration</strong>: Local MCP server addresses and tool lists you configure</li>
+                <li><strong>Custom Skills</strong>: Automation skill templates you create or import</li>
+                <li><strong>Workflow Data</strong>: Visual workflow definitions you design</li>
+            </ul>
+
+            <h3>1.2 Runtime Temporary Data</h3>
+            <p>When executing automation tasks, the Extension temporarily processes the following information. <strong>This data exists only in memory and is cleared when tasks end</strong>:</p>
+            <ul>
+                <li><strong>Web Content</strong>: Current tab's DOM structure and text content (for AI page analysis)</li>
+                <li><strong>Page Screenshots</strong>: Visual snapshots (only when vision recognition is enabled)</li>
+                <li><strong>Browser State</strong>: Current URL and tab information (for navigation and operations)</li>
+            </ul>
+
+            <h3>1.3 What We Never Collect</h3>
+            <p><strong>The Extension does not collect any of the following</strong>:</p>
+            <ul>
+                <li>❌ Personal identification information (name, email, phone number)</li>
+                <li>❌ Complete browsing history</li>
+                <li>❌ Login credentials, passwords, cookies</li>
+                <li>❌ Credit card or payment information</li>
+                <li>❌ Device fingerprints or unique identifiers</li>
+                <li>❌ Specific content of websites you visit (except for current tasks)</li>
+            </ul>
+
+            <h2>2. How We Use Information</h2>
+
+            <h3>2.1 Local Processing</h3>
+            <p>All data processing occurs in your local browser:</p>
+            <ul>
+                <li><strong>AI Model Calls</strong>: Uses your configured API keys to directly call third-party AI services (OpenAI, Anthropic, etc.). <strong>The Extension does not act as an intermediary server</strong></li>
+                <li><strong>Page Analysis</strong>: Parses web page DOM structure locally to identify actionable elements</li>
+                <li><strong>Task Execution</strong>: Executes clicks, fills, and navigation in your local browser based on AI decisions</li>
+                <li><strong>History Recording</strong>: Task history is saved locally only for your review and replay</li>
+            </ul>
+
+            <h3>2.2 Third-Party AI Services</h3>
+            <p>When you use the Extension to call AI models, <strong>your web content is sent directly to your chosen AI service provider</strong> (not our servers). These providers include but are not limited to:</p>
+            <ul>
+                <li>OpenAI (GPT-4, GPT-4o, etc.) - <a href="https://openai.com/privacy" target="_blank">Privacy Policy</a></li>
+                <li>Anthropic (Claude series) - <a href="https://www.anthropic.com/privacy" target="_blank">Privacy Policy</a></li>
+                <li>Google (Gemini series) - <a href="https://policies.google.com/privacy" target="_blank">Privacy Policy</a></li>
+                <li>Other AI service providers you configure</li>
+            </ul>
+            <p><strong>Important Notice</strong>: These third-party services have their own independent privacy policies and data processing rules. We recommend reading their privacy policies before use. <strong>The Extension is not responsible for third-party data processing practices.</strong></p>
+
+            <h3>2.3 Local AI Models (Completely Offline)</h3>
+            <p>If you choose to use local AI models (e.g., via Ollama), <strong>all data processing occurs entirely on your local device with no network transmission.</strong></p>
+
+            <h2>3. Data Storage and Security</h2>
+
+            <h3>3.1 Storage Location</h3>
+            <ul>
+                <li><strong>All configuration data</strong> is stored in Chrome's local storage (chrome.storage.local)</li>
+                <li><strong>API Keys</strong> are encrypted using Chrome's secure storage mechanism</li>
+                <li><strong>Task History</strong> is stored in local database (IndexedDB), which you can clear anytime</li>
+                <li><strong>No Remote Servers</strong>: The Extension does not use any cloud servers or databases</li>
+            </ul>
+
+            <h3>3.2 Security Measures</h3>
+            <ul>
+                <li>✅ Sensitive data (e.g., API keys) is encrypted in storage</li>
+                <li>✅ All network requests use HTTPS encryption (direct connection to AI providers)</li>
+                <li>✅ No third-party analytics or tracking scripts</li>
+                <li>✅ Complies with Chrome Extension security best practices</li>
+            </ul>
+
+            <h3>3.3 Data Retention Period</h3>
+            <ul>
+                <li><strong>Configuration Data</strong>: Permanently saved locally until you manually delete or uninstall the extension</li>
+                <li><strong>Task History</strong>: Defaults to retaining the most recent 100 records; adjustable or clearable in settings</li>
+                <li><strong>Temporary Data</strong>: Immediately cleared from memory after task completion</li>
+            </ul>
+
+            <h2>4. Data Sharing and Disclosure</h2>
+
+            <div class="highlight-box">
+                <p><strong>Clear Statement: We do not share, sell, or disclose your data with any third parties.</strong></p>
+            </div>
+
+            <p>The only "data transfer" scenario is:</p>
+            <ul>
+                <li><strong>User-Initiated</strong>: When you use AI features, web content is sent directly to <strong>your chosen AI service provider</strong> (necessary for functionality)</li>
+                <li><strong>Fully Controllable</strong>: You can choose to use local AI models (Ollama) for completely offline operation</li>
+            </ul>
+
+            <p><strong>We will not share data for</strong>:</p>
+            <ul>
+                <li>❌ Commercial purposes (advertising, marketing)</li>
+                <li>❌ Data analytics or user profiling</li>
+                <li>❌ Partnerships with other companies</li>
+            </ul>
+
+            <h2>5. Your Rights and Controls</h2>
+
+            <h3>5.1 Right to Access</h3>
+            <p>All data is stored in your local browser. You can always:</p>
+            <ul>
+                <li>View all configuration data in extension settings</li>
+                <li>View history records on the task history page</li>
+                <li>Use Chrome DevTools to view stored content (chrome://extensions → Developer mode → Background page)</li>
+            </ul>
+
+            <h3>5.2 Right to Delete</h3>
+            <p>You can delete data anytime:</p>
+            <ul>
+                <li><strong>Clear API Keys</strong>: Settings → Model Configuration → Delete Keys</li>
+                <li><strong>Clear Task History</strong>: History Page → Clear All History</li>
+                <li><strong>Clear All Data</strong>: Uninstall the extension; all local data will be permanently deleted</li>
+                <li><strong>Or</strong>: Chrome Settings → Privacy and Security → Site Settings → View permissions and data stored across sites → Find extension and clear data</li>
+            </ul>
+
+            <h3>5.3 Right to Export</h3>
+            <p>The Extension supports export functions:</p>
+            <ul>
+                <li>Export custom skills (JSON format)</li>
+                <li>Export workflow configurations (JSON format)</li>
+                <li>Export task history (CSV format)</li>
+            </ul>
+
+            <h2>6. Cookies and Tracking Technologies</h2>
+
+            <p><strong>The Extension does not use any cookies or tracking technologies</strong>:</p>
+            <ul>
+                <li>❌ No Google Analytics or other analytics tools</li>
+                <li>❌ No advertising tracking pixels</li>
+                <li>❌ No device fingerprinting technologies</li>
+                <li>❌ No third-party CDN for loading resources (all resources built into extension)</li>
+            </ul>
+
+            <h2>7. Children's Privacy Protection</h2>
+
+            <p>The Extension is intended for users aged 13 and above. We do not knowingly collect personal information from children under 13. If you discover that a child has provided personal information to us, please contact us using the methods below, and we will immediately delete such information.</p>
+
+            <h2>8. International Users Notice</h2>
+
+            <p>The Extension is available globally. Due to its <strong>purely local architecture</strong>, no cross-border data transfers are involved:</p>
+            <ul>
+                <li>✅ Complies with GDPR (General Data Protection Regulation)</li>
+                <li>✅ Complies with CCPA (California Consumer Privacy Act)</li>
+                <li>✅ Complies with China's Personal Information Protection Law</li>
+            </ul>
+
+            <p><strong>Only Exception</strong>: If you choose cloud AI services (e.g., OpenAI, Anthropic), data will be transferred to these providers' servers (may be located in the US or other countries). Please refer to their privacy policies.</p>
+
+            <h2>9. Privacy Policy Changes</h2>
+
+            <p>We may update this Privacy Policy periodically. For significant changes, we will:</p>
+            <ul>
+                <li>Display notifications in the extension</li>
+                <li>Publish update logs on GitHub repository</li>
+                <li>Update the "Last Updated" date at the top of this page</li>
+            </ul>
+
+            <p>Continued use of the Extension indicates your acceptance of the updated Privacy Policy.</p>
+
+            <h2>10. Contact Us</h2>
+
+            <p>If you have any questions, comments, or suggestions regarding this Privacy Policy, please contact us through:</p>
+            <ul>
+                <li><strong>GitHub Issues</strong>: <a href="https://github.com/your-org/nanobrowser/issues" target="_blank">Submit an Issue</a></li>
+                <li><strong>Email</strong>: privacy@your-domain.com (please replace with actual email)</li>
+            </ul>
+
+            <p>We will respond to your request within 30 days of receipt.</p>
+        </div>
+    </div>
+</body>
+</html>
