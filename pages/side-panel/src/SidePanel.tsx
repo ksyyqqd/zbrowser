@@ -25,7 +25,6 @@ import ChatHistoryList from './components/ChatHistoryList';
 import BookmarkList from './components/BookmarkList';
 import SpiritDoll from './components/SpiritDoll';
 import { wrapTaskByMode, type SpiritMode } from './types/spiritModes';
-import ImageGenerationModal, { type ImageGenerationParams } from './components/ImageGenerationModal';
 // 导入录制控制组件
 import RecordingPill from './components/RecordingPill';
 import { ClarifyDialog } from './components/ClarifyDialog';
@@ -159,10 +158,6 @@ const SidePanel = () => {
   };
   // 是否已配置模型（null=加载中，false=无模型，true=有模型）
   const [hasConfiguredModels, setHasConfiguredModels] = useState<boolean | null>(null);
-  // 图片生成模态框状态
-  const [isImageModalOpen, setIsImageModalOpen] = useState(false);
-  const [isGeneratingImage, setIsGeneratingImage] = useState(false);
-  const [generatedImageBase64, setGeneratedImageBase64] = useState<string | undefined>();
   // 是否正在重播
   const [isReplaying, setIsReplaying] = useState(false);
   // AI接管遮罩开关
@@ -652,23 +647,32 @@ const SidePanel = () => {
               break;
             case ExecutionState.TASK_OK:
               isMischiefModeRef.current = false; // 重置捣乱标记
-              // 在工作流执行模式下，AI子任务完成不应改变UI状态
-              // UI状态由工作流自身的 WORKFLOW_OK/FAIL 事件控制
+              // 输入框和停止按钮无条件恢复：这两个是「用户还能不能操作」的开关，
+              // 任务终结了就该放开。原来整段收尾都锁在 !isWorkflowModeRef 里，
+              // 一旦这个标记有残留（工作流异常退出没收到 WORKFLOW_OK/FAIL），
+              // 之后每个普通任务跑完都会卡在「结果输出了但发送按钮是灰的、
+              // 皮蛋一直显示思考中」—— 因为 skip=false 在闸门外，UI 收尾在闸门里。
+              // 工作流自己的 WORKFLOW_OK 分支会再设一次，重复设置无害。
+              setInputEnabled(true);
+              setShowStopButton(false);
+              // followUp / spotlight / replay 仍归工作流管：子任务完成不代表整个工作流结束
               if (!isWorkflowModeRef.current) {
                 setIsFollowUpMode(true);
-                setInputEnabled(true);
-                setShowStopButton(false);
                 setIsReplaying(false);
                 _hideSpotlight();
               }
+              // TASK_OK 的 content 是最终答复（executor 的 finalAnswer）。skip 默认 true，
+              // 这里不显式放行的话最终结果永远不会进消息流 —— 表现为「任务跑完了，
+              // 但找到的内容没有输出出来」。
+              skip = false;
               break;
             case ExecutionState.TASK_FAIL:
               isMischiefModeRef.current = false;
-              // 在工作流执行模式下，AI子任务失败不应改变UI状态
+              // 同 TASK_OK：输入相关无条件恢复，其余归工作流管
+              setInputEnabled(true);
+              setShowStopButton(false);
               if (!isWorkflowModeRef.current) {
                 setIsFollowUpMode(true);
-                setInputEnabled(true);
-                setShowStopButton(false);
                 setIsReplaying(false);
                 setCurrentStep(null);
                 _hideSpotlight();
@@ -677,11 +681,11 @@ const SidePanel = () => {
               break;
             case ExecutionState.TASK_CANCEL:
               isMischiefModeRef.current = false;
-              // 在工作流执行模式下，取消不应改变UI状态
+              // 同 TASK_OK：输入相关无条件恢复，其余归工作流管
+              setInputEnabled(true);
+              setShowStopButton(false);
               if (!isWorkflowModeRef.current) {
                 setIsFollowUpMode(false);
-                setInputEnabled(true);
-                setShowStopButton(false);
                 setIsReplaying(false);
                 setCurrentStep(null);
                 _hideSpotlight();
@@ -908,25 +912,6 @@ const SidePanel = () => {
           });
           setInputEnabled(true);
           setShowStopButton(false);
-        } else if (message && message.type === 'image_generation_result') {
-          // 处理图片生成结果
-          setIsGeneratingImage(false);
-          if (message.result && message.result.success && message.result.images?.[0]?.b64_json) {
-            const imageData = message.result.images[0].b64_json;
-            setGeneratedImageBase64(imageData);
-            appendMessage({
-              actor: Actors.SYSTEM,
-              content: `🎨 图片生成成功！`,
-              timestamp: Date.now(),
-              images: [{ base64: imageData, name: `generated-${Date.now()}.png` }],
-            });
-          } else {
-            appendMessage({
-              actor: Actors.SYSTEM,
-              content: `图片生成失败: ${message.result?.error || message.error || '未知错误'}`,
-              timestamp: Date.now(),
-            });
-          }
         } else if (message && message.type === 'heartbeat_ack') {
           console.log('心跳已确认');
         }
@@ -1483,57 +1468,11 @@ const SidePanel = () => {
         content: `Workflow 执行失败: ${error instanceof Error ? error.message : '未知错误'}`,
         timestamp: Date.now(),
       });
+      // 标记在 postMessage 之前就置位了，这里抛异常说明工作流没真正跑起来 ——
+      // 不清掉的话它会一直挂着，污染后续所有普通任务的终端事件处理
+      isWorkflowModeRef.current = false;
       setInputEnabled(true);
       setShowStopButton(false);
-    }
-  };
-
-  // 处理图片生成请求
-  const handleGenerateImage = async (params: ImageGenerationParams) => {
-    setIsGeneratingImage(true);
-
-    try {
-      // 确保端口连接
-      if (!portRef.current) {
-        setupConnection();
-        await new Promise(resolve => setTimeout(resolve, 100));
-        if (!portRef.current) {
-          throw new Error('连接建立失败');
-        }
-      }
-
-      // 添加用户消息显示正在生成图片
-      appendMessage({
-        actor: Actors.USER,
-        content: `🎨 生成图片: ${params.prompt.slice(0, 50)}${params.prompt.length > 50 ? '...' : ''}`,
-        timestamp: Date.now(),
-      });
-
-      appendMessage({
-        actor: Actors.SYSTEM,
-        content: t('image_generation_generating'),
-        timestamp: Date.now(),
-      });
-
-      // 发送生成图片请求
-      portRef.current.postMessage({
-        type: 'generate_image',
-        prompt: params.prompt,
-        size: params.size,
-        quality: params.quality,
-        n: 1,
-        responseFormat: 'b64_json',
-      });
-
-      // 等待响应通过port.onMessage处理
-    } catch (error) {
-      console.error('[Image] 生成失败:', error);
-      appendMessage({
-        actor: Actors.SYSTEM,
-        content: `图片生成失败: ${error instanceof Error ? error.message : '未知错误'}`,
-        timestamp: Date.now(),
-      });
-      setIsGeneratingImage(false);
     }
   };
 
@@ -1556,15 +1495,22 @@ const SidePanel = () => {
 
     if (!trimmedText && !images?.length && !skill) return;
 
+    // 普通任务入口：清掉可能残留的工作流标记。
+    // isWorkflowModeRef 只在 WORKFLOW_OK/FAIL 和新建会话时清，工作流异常退出
+    // （service worker 重启、抛异常没走到终结分支）会让它一直挂着，
+    // 之后普通任务的终端事件全被误判成「工作流子任务」而不做 UI 收尾。
+    isWorkflowModeRef.current = false;
+
     // 处理 skill 信息：如果有选中的 skill，将其信息包含在任务中
     let skillEnhancedText = trimmedText;
     let skillEnhancedDisplayText = displayText || trimmedText;
 
     if (skill) {
-      // 构建 skill 信息
-      const skillInfo = `\n\n<nano_selected_skill id="${skill.id}" name="${skill.name}" description="${skill.description || ''}">
-  ${skill.steps.map((s, i) => `步骤 ${i + 1}: ${s.description || s.action}`).join('\n  ')}
-</nano_selected_skill>`;
+      // 用统一的渲染函数：优先取 instructions（通用文本格式的正文），
+      // 旧的录制产物没有 instructions 时退回渲染 steps，且会带上 selector/xpath
+      // ——之前这里只取 `description || action`，定位信息全丢了。
+      const { renderSkillForPrompt } = await import('@extension/skills');
+      const skillInfo = `\n\n${renderSkillForPrompt(skill)}`;
       skillEnhancedText = trimmedText ? `${trimmedText}${skillInfo}` : `执行 Skill: ${skill.name}${skillInfo}`;
       skillEnhancedDisplayText = trimmedText
         ? `${trimmedText}\n⚡ 使用 Skill: ${skill.name}`
@@ -2211,6 +2157,10 @@ const SidePanel = () => {
                   handleBookmarkSelect(content);
                   setShowBookmarks(false); // 选择后自动关闭面板，回到聊天
                 }}
+                onWorkflowExecute={workflowId => {
+                  setShowBookmarks(false); // 先收面板，否则执行过程被书签列表挡住
+                  handleExecuteWorkflow(workflowId);
+                }}
                 onBookmarkUpdateTitle={handleBookmarkUpdateTitle}
                 onBookmarkDelete={handleBookmarkDelete}
                 onBookmarkReorder={handleBookmarkReorder}
@@ -2479,6 +2429,7 @@ const SidePanel = () => {
                         <BookmarkList
                           bookmarks={favoritePrompts}
                           onBookmarkSelect={handleBookmarkSelect}
+                          onWorkflowExecute={handleExecuteWorkflow}
                           onBookmarkUpdateTitle={handleBookmarkUpdateTitle}
                           onBookmarkDelete={handleBookmarkDelete}
                           onBookmarkReorder={handleBookmarkReorder}
@@ -2519,16 +2470,6 @@ const SidePanel = () => {
           </>
         )}
       </div>
-
-      {/* 图片生成模态框 */}
-      <ImageGenerationModal
-        isOpen={isImageModalOpen}
-        onClose={() => setIsImageModalOpen(false)}
-        onGenerate={handleGenerateImage}
-        isGenerating={isGeneratingImage}
-        generatedImage={generatedImageBase64}
-        isDarkMode={isDarkMode}
-      />
     </div>
   );
 };

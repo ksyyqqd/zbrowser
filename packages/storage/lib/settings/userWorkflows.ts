@@ -17,6 +17,21 @@ export interface UserWorkflowConfig {
   executionConfig: WorkflowExecutionConfig;
   createdAt: number;
   updatedAt?: number;
+  /**
+   * 谁创建的。`undefined` = 用户手工创建（本字段引入前的所有工作流都是这种），
+   * 所以判断时必须把 undefined 当成 'user'，不能当成「未知所以不可信」。
+   */
+  source?: 'user' | 'ai_created';
+  /**
+   * 用户是否已确认可执行。
+   *
+   * AI 写过的工作流（新建或修改）为 false：那份图没被任何人验证过，直接放出去等于让
+   * 未经审核的脚本操作用户的浏览器。执行入口（background 的 handleExecuteWorkflow）
+   * 会拦掉它，用户在编辑器里过一遍并确认后才放行。AI 仍然能看到和继续修改它。
+   *
+   * `undefined` 同样按「已确认」处理 —— 见 `source` 的理由。
+   */
+  reviewed?: boolean;
 }
 
 /**
@@ -44,9 +59,21 @@ export type UserWorkflowsStorage = BaseStorage<UserWorkflowsRecord> & {
   removeWorkflow: (id: string) => Promise<void>;
   getWorkflow: (id: string) => Promise<UserWorkflowConfig | undefined>;
   getAllWorkflows: () => Promise<UserWorkflowConfig[]>;
+  /**
+   * 只返回用户已确认可执行的工作流（`reviewed !== false`）。
+   * 书签、快速执行等「可以直接跑」的入口一律走这个而不是 `getAllWorkflows`。
+   */
+  getReviewedWorkflows: () => Promise<UserWorkflowConfig[]>;
+  /** 用户在编辑器里确认 AI 生成的工作流后放行。 */
+  markReviewed: (id: string) => Promise<void>;
   importWorkflows: (workflows: UserWorkflowConfig[]) => Promise<WorkflowImportResult>;
   exportWorkflows: (ids?: string[]) => Promise<UserWorkflowConfig[]>;
 };
+
+/** `reviewed`/`source` 引入前存下的工作流没有这两个字段，一律视为用户已确认。 */
+export function isWorkflowReviewed(workflow: UserWorkflowConfig): boolean {
+  return workflow.reviewed !== false;
+}
 
 // Storage key
 const STORAGE_KEY = 'user-workflows';
@@ -154,6 +181,25 @@ export const userWorkflowsStore: UserWorkflowsStorage = {
   async getAllWorkflows() {
     const current = await storage.get();
     return Object.values(current.workflows);
+  },
+
+  async getReviewedWorkflows() {
+    const current = await storage.get();
+    return Object.values(current.workflows).filter(isWorkflowReviewed);
+  },
+
+  async markReviewed(id: string) {
+    const current = await storage.get();
+    const existing = current.workflows[id];
+    if (!existing) {
+      throw new Error(`Workflow not found: ${id}`);
+    }
+    await storage.set({
+      workflows: {
+        ...current.workflows,
+        [id]: { ...existing, reviewed: true, updatedAt: Date.now() },
+      },
+    });
   },
 
   async importWorkflows(workflows: UserWorkflowConfig[]) {

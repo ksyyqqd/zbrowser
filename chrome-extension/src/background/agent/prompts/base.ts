@@ -176,12 +176,16 @@ abstract class BasePrompt {
     try {
       const hostname = getHostnameFromUrl(browserState.url);
       if (hostname) {
+        // getByHostname 已剔除过期项并按优先级（来源权重 + 使用次数 × 新鲜度衰减）排好序，
+        // 这里直接取前 N 条。之前在这里按 useCount 重排，结果是一条半年前点过 20 次的
+        // 旧 selector 永久占着名额，而用户昨天刚教的那条（useCount=1）挤不进来。
         const hints = await elementHintsStore.getByHostname(hostname);
         if (hints.length > 0) {
-          const top = [...hints].sort((a, b) => b.useCount - a.useCount).slice(0, MAX_KNOWN_ELEMENTS);
+          const top = hints.slice(0, MAX_KNOWN_ELEMENTS);
           const lines = top.map(h => {
             const parts: string[] = [`- purpose: ${truncateText(h.purpose, 40)}`];
             if (h.selector) parts.push(`selector: ${h.selector}`);
+            if (h.stableSelector) parts.push(`stableSelector: ${h.stableSelector}`);
             if (h.xpath) parts.push(`xpath: ${h.xpath}`);
             if (h.textContent) parts.push(`text: ${h.textContent.slice(0, 40)}`);
             return parts.join(' | ');
@@ -241,7 +245,6 @@ abstract class BasePrompt {
       '[Task history memory ends]',
       '[Current state starts here]',
       'The following is one-time information - if you need to remember it write it to memory:',
-      knownElementsText,
       `Current tab: ${currentTab}`,
       otherTabs ? `Other available tabs:\n${otherTabs}` : '',
       'Interactive elements from top layer of the current page inside the viewport:',
@@ -249,6 +252,9 @@ abstract class BasePrompt {
       visionAnalysisText,
       stepInfoDescription,
       actionResultsDescription,
+      // Placed last on purpose: the navigator system prompt tells the model the
+      // [Known elements on <hostname>] block sits at the end of the state message.
+      knownElementsText,
     ]
       .filter(Boolean)
       .join('\n');

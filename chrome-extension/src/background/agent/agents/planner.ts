@@ -13,6 +13,7 @@ import {
   isBadRequestError,
   isForbiddenError,
   LLM_FORBIDDEN_ERROR_MESSAGE,
+  ResponseParseError,
   RequestCancelledError,
 } from './errors';
 import { filterExternalContent } from '../messages/utils';
@@ -38,49 +39,69 @@ const lenientText = z
   ])
   .default('');
 
-export const plannerOutputSchema = z.object({
-  observation: lenientText,
-  challenges: lenientText,
-  done: z.union([
-    z.boolean(),
-    z.string().transform(val => {
-      if (val.toLowerCase() === 'true') return true;
-      if (val.toLowerCase() === 'false') return false;
-      throw new Error('Invalid boolean string');
-    }),
-  ]),
-  next_steps: lenientText,
-  final_answer: lenientText,
-  reasoning: lenientText,
-  web_task: z.union([
-    z.boolean(),
-    z.string().transform(val => {
-      if (val.toLowerCase() === 'true') return true;
-      if (val.toLowerCase() === 'false') return false;
-      throw new Error('Invalid boolean string');
-    }),
-  ]),
-  // 可选：当 Planner 觉得"必须先问用户"才能继续时，结构化地表达提问。
-  // 见 executor.runPlanner() 后的分支处理：触发时会暂停任务、弹窗、等用户回答。
-  ask_user: z
-    .object({
-      question: z.string().describe('the question shown to the user'),
-      context: z.string().default('').describe('optional extra context'),
-      options: z
-        .array(
-          z.object({
-            id: z.string(),
-            label: z.string(),
-            description: z.string().default(''),
-          }),
-        )
-        .default([]),
-      allow_free_text: z.boolean().default(true),
-      allow_element_pick: z.boolean().default(false),
-    })
-    .nullable()
-    .optional(),
-});
+export const plannerOutputSchema = z
+  .object({
+    observation: lenientText,
+    challenges: lenientText,
+    done: z.union([
+      z.boolean(),
+      z.string().transform(val => {
+        if (val.toLowerCase() === 'true') return true;
+        if (val.toLowerCase() === 'false') return false;
+        throw new Error('Invalid boolean string');
+      }),
+    ]),
+    done_reason: z
+      .enum(['success', 'needs_auth', 'needs_clarification', 'blocked', 'out_of_scope'])
+      .optional()
+      .describe(
+        'When done=true, specify why: success (task completed), needs_auth (user login required), needs_clarification (task unclear), blocked (technical obstacle), out_of_scope (beyond capability)',
+      ),
+    next_steps: lenientText,
+    final_answer: lenientText,
+    reasoning: lenientText,
+    web_task: z.union([
+      z.boolean(),
+      z.string().transform(val => {
+        if (val.toLowerCase() === 'true') return true;
+        if (val.toLowerCase() === 'false') return false;
+        throw new Error('Invalid boolean string');
+      }),
+    ]),
+    // 可选：当 Planner 觉得"必须先问用户"才能继续时，结构化地表达提问。
+    // 见 executor.runPlanner() 后的分支处理：触发时会暂停任务、弹窗、等用户回答。
+    ask_user: z
+      .object({
+        id: z.string().default(() => `ask_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`),
+        question: z.string().describe('the question shown to the user'),
+        context: z.string().default('').describe('optional extra context'),
+        options: z
+          .array(
+            z.object({
+              id: z.string(),
+              label: z.string(),
+              description: z.string().default(''),
+            }),
+          )
+          .default([]),
+        allow_free_text: z.boolean().default(true),
+        allow_element_pick: z.boolean().default(false),
+      })
+      .nullable()
+      .optional(),
+  })
+  .refine(
+    data => {
+      if (data.done) {
+        // done=true 时必须有 final_answer 且 next_steps 为空
+        return data.final_answer.trim().length > 0 && data.next_steps.trim().length === 0;
+      }
+      return true;
+    },
+    {
+      message: 'When done=true, final_answer must be provided and next_steps must be empty',
+    },
+  );
 
 export type PlannerOutput = z.infer<typeof plannerOutputSchema>;
 
@@ -150,7 +171,7 @@ export class PlannerAgent extends BaseAgent<typeof plannerOutputSchema, PlannerO
       }
       if (!modelOutput) {
         logger.warning(`[planner] raw output preview: ${rawOutput.slice(0, 400)}`);
-        throw new Error('Failed to parse planner output');
+        throw new ResponseParseError(this.buildParseFailureMessage(rawOutput));
       }
 
       // clean the model output
@@ -189,6 +210,8 @@ export class PlannerAgent extends BaseAgent<typeof plannerOutputSchema, PlannerO
         throw new RequestCancelledError(errorMessage);
       } else if (isForbiddenError(error)) {
         throw new ChatModelForbiddenError(LLM_FORBIDDEN_ERROR_MESSAGE, error);
+      } else if (error instanceof ResponseParseError) {
+        throw error;
       }
 
       logger.error(`Planning failed: ${errorMessage}`);

@@ -6,25 +6,31 @@ import {
   generalSettingsStore,
   llmProviderStore,
   analyticsSettingsStore,
-  imageProviderStore,
+  userWorkflowsStore,
+  isWorkflowReviewed,
 } from '@extension/storage';
 import { t } from '@extension/i18n';
 import BrowserContext from './browser/context';
 import type Page from './browser/page';
 import { Executor } from './agent/executor';
 import { createLogger } from './log';
-import { ExecutionState } from '@extension/shared';
+import { ExecutionState, MCP_ENABLED } from '@extension/shared';
 import { createChatModel } from './agent/helper';
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models';
 import { DEFAULT_AGENT_OPTIONS } from './agent/types';
 import { injectBuildDomTreeScripts } from './browser/dom/service';
 import { analytics } from './services/analytics';
 import { MCPService } from './services/mcp';
-import { SkillsService } from './services/skills';
-import { WorkflowService } from './services/workflow';
+import { SkillsService, createSkillFromAI } from './services/skills';
+import {
+  WorkflowService,
+  guardOrchestration,
+  createWorkflowFromAI,
+  updateWorkflowFromAI,
+  type OrchestrationFrame,
+} from './services/workflow';
 import type { WorkflowResult, Workflow, WorkflowEvent } from '@extension/workflow';
 import { recorderState, selectorGenerator, generateSkillFromRecording } from './recorder';
-import { ImageGenerationService } from './services/imageGeneration/ImageGenerationService';
 
 const logger = createLogger('background');
 
@@ -37,10 +43,10 @@ const OPTIONS_URL = chrome.runtime.getURL('options/index.html');
 const optionsPorts = new Set<chrome.runtime.Port>();
 
 // Initialize MCP and Skills services
-const mcpService = new MCPService();
+// MCP 被 MCP_ENABLED 屏蔽时不实例化 —— 不建连接、不注册 action、prompt 里也不提它。
+const mcpService = MCP_ENABLED ? new MCPService() : null;
 const skillsService = new SkillsService();
 const workflowService = new WorkflowService();
-const imageGenerationService = new ImageGenerationService();
 
 // Setup side panel behavior
 chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(error => console.error(error));
@@ -71,9 +77,9 @@ chrome.tabs.onRemoved.addListener(tabId => {
 logger.info('background loaded');
 
 // Initialize MCP and Skills services
-Promise.all([mcpService.initialize(), skillsService.initialize(), workflowService.initialize()])
+Promise.all([mcpService?.initialize(), skillsService.initialize(), workflowService.initialize()])
   .then(() => {
-    logger.info('MCP, Skills and Workflow services initialized');
+    logger.info(`Skills and Workflow services initialized (MCP ${MCP_ENABLED ? 'enabled' : 'disabled'})`);
   })
   .catch(error => {
     logger.error('Failed to initialize MCP/Skills/Workflow services:', error);
@@ -125,23 +131,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true; // Keep the message channel open for async response
   }
 
-  // Handle image provider test connection from options page
-  if (message.type === 'test_image_provider') {
-    imageGenerationService
-      .testProviderConnection(message.providerId)
-      .then(result =>
-        sendResponse({ type: 'test_image_provider_result', success: result.success, error: result.error }),
-      )
-      .catch(error =>
-        sendResponse({
-          type: 'test_image_provider_result',
-          success: false,
-          error: error instanceof Error ? error.message : 'Test failed',
-        }),
-      );
-    return true; // Keep the message channel open for async response
-  }
-
   // Inject the element-picker overlay into a chosen tab. The page enters a
   // mode where hovering highlights elements and clicking sends back the
   // selector + xpath of the picked element. Used by the workflow editor's
@@ -165,13 +154,33 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
 // ============ Pick Element (workflow editor helper) ============
 
+/** 被拾取元素的语义证据，随 locator 一起回传 */
+type PickedEvidence = {
+  tagName?: string;
+  role?: string;
+  ariaLabel?: string;
+  title?: string;
+  placeholder?: string;
+  dataTestId?: string;
+  disabled?: boolean;
+};
+
+export type PickElementResult = {
+  success: boolean;
+  selector?: string;
+  /** 基于 data-testid / aria-label 等稳定属性的备用选择器（主选择器依赖构建期哈希 class 时可用） */
+  stableSelector?: string;
+  xpath?: string;
+  text?: string;
+  evidence?: PickedEvidence;
+  error?: string;
+};
+
 /**
  * Inject a transient element-picker overlay into the target tab and wait for
  * the user to click an element. Returns the resolved selector + xpath.
  */
-async function handlePickElementStart(
-  tabId: number,
-): Promise<{ success: boolean; selector?: string; xpath?: string; text?: string; error?: string }> {
+async function handlePickElementStart(tabId: number): Promise<PickElementResult> {
   // Activate the target tab so the user immediately sees where to click.
   try {
     await chrome.tabs.update(tabId, { active: true });
@@ -185,16 +194,23 @@ async function handlePickElementStart(
 
   return new Promise(resolve => {
     let settled = false;
-    const finish = (result: Parameters<typeof resolve>[0]) => {
+    const finish = (result: PickElementResult) => {
       if (settled) return;
       settled = true;
       chrome.runtime.onMessage.removeListener(onMsg);
       resolve(result);
     };
-    const onMsg = (msg: { type?: string; selector?: string; xpath?: string; text?: string; error?: string }) => {
+    const onMsg = (msg: { type?: string } & PickElementResult) => {
       if (!msg || typeof msg !== 'object') return;
       if (msg.type === 'pick_element_done') {
-        finish({ success: true, selector: msg.selector, xpath: msg.xpath, text: msg.text });
+        finish({
+          success: true,
+          selector: msg.selector,
+          stableSelector: msg.stableSelector,
+          xpath: msg.xpath,
+          text: msg.text,
+          evidence: msg.evidence,
+        });
       } else if (msg.type === 'pick_element_cancel') {
         finish({ success: false, error: 'cancelled' });
       }
@@ -229,13 +245,132 @@ function injectedElementPicker() {
   const label = document.createElement('div');
   label.style.cssText =
     'position:fixed;z-index:2147483647;background:#1e293b;color:white;padding:4px 8px;font:12px/1.4 -apple-system,Segoe UI,Roboto,sans-serif;border-radius:4px;pointer-events:none;max-width:480px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;';
-  label.textContent = '将鼠标移到目标元素上 → 点击拾取（Esc 取消）';
+  label.textContent = '将鼠标移到目标元素上 → 点击拾取（↑↓ 换层，Esc 取消）';
   document.documentElement.append(overlay, label);
 
+  /** 鼠标当前命中的原始节点（可能是按钮内部的背景层/图标层） */
+  let hoverTarget: Element | null = null;
+  /** hoverTarget 到 <html> 的祖先链，index 越大越靠外 */
+  let ancestors: Element[] = [];
+  /** 自动解析出的"可操作层"在 ancestors 里的下标 */
+  let basisIndex = 0;
+  /** 用户用 ↑↓ 手动偏移的层数，0 表示采用自动解析结果 */
+  let layerOffset = 0;
+  /** 最终会被记录的那一层 */
   let current: Element | null = null;
+
   const move = (x: number, y: number) => {
     label.style.left = `${Math.min(window.innerWidth - 460, Math.max(8, x + 14))}px`;
     label.style.top = `${Math.max(8, y + 18)}px`;
+  };
+
+  /**
+   * 判断一个元素是不是"强信号可操作元素"。
+   * 命中任意一条就认为它自己就是操作目标，不必再往外找。
+   */
+  const isActionableElement = (el: Element): boolean => {
+    const tag = el.tagName.toLowerCase();
+    if (['button', 'a', 'input', 'select', 'textarea', 'summary', 'label', 'option'].includes(tag)) return true;
+
+    const role = (el.getAttribute('role') || '').toLowerCase();
+    if (
+      ['button', 'link', 'tab', 'menuitem', 'menuitemcheckbox', 'checkbox', 'radio', 'switch', 'textbox'].includes(role)
+    )
+      return true;
+
+    if (el.hasAttribute('onclick')) return true;
+    if (el.getAttribute('contenteditable') === 'true' || el.getAttribute('contenteditable') === '') return true;
+
+    const tabindex = el.getAttribute('tabindex');
+    if (tabindex !== null && Number(tabindex) >= 0) return true;
+
+    return false;
+  };
+
+  /**
+   * 从鼠标命中的节点向上解析出真正该被记录的那一层。
+   *
+   * 为什么需要：鼠标停在按钮的背景层/图标层是常态（例如 DeepSeek 发送按钮实际命中的是
+   * div.ds-button__background，而按钮本体是外层 div.ds-button--primary）。click 事件会冒泡，
+   * 所以点内层通常也能触发；但 **输入类操作不会** —— 往 wrapper 上打字什么都不会发生，
+   * focus 和 keyboard 事件没有 click 那样的冒泡补救。同时 disabled / aria-disabled /
+   * aria-label 都挂在按钮本体上，记到内层就永远读不到这些证据。
+   *
+   * 解析策略（保守优先，宁可少走一层也不要越过真正的目标）：
+   *  1. 命中强信号（button / a / role=button / onclick / tabindex>=0 ...）→ 立即停，那就是目标
+   *  2. 否则沿 `cursor: pointer` 往上走。cursor 是**继承**属性，按钮内部的装饰层会继承
+   *     按钮的 pointer，所以"pointer 区域的最外层"通常正好是按钮本体
+   *  3. 两个封顶条件，防止整张卡片都是 pointer 时走过头：
+   *     - 最多 MAX_LIFT 层
+   *     - 包围盒面积增长超过 AREA_GROWTH_LIMIT 倍就停（换了个量级说明已经不是同一个控件）
+   */
+  const resolveActionableAncestor = (start: Element, chain: Element[]): number => {
+    const MAX_LIFT = 5;
+    const AREA_GROWTH_LIMIT = 2;
+
+    const areaOf = (el: Element) => {
+      const r = el.getBoundingClientRect();
+      return r.width * r.height;
+    };
+
+    const startArea = areaOf(start);
+    let best = 0;
+
+    for (let i = 0; i < chain.length && i <= MAX_LIFT; i++) {
+      const el = chain[i];
+
+      // 1. 强信号 —— 直接采用，不再往外看
+      if (isActionableElement(el)) return i;
+
+      if (i === 0) continue;
+
+      // 3. 面积封顶
+      const area = areaOf(el);
+      if (startArea > 0 && area > startArea * AREA_GROWTH_LIMIT) break;
+
+      // 2. cursor: pointer 链
+      let cursor = '';
+      try {
+        cursor = window.getComputedStyle(el).cursor;
+      } catch {
+        break;
+      }
+      if (cursor !== 'pointer') break;
+
+      best = i;
+    }
+
+    return best;
+  };
+
+  /** 采集从 el 到 <html> 的祖先链 */
+  const collectAncestors = (el: Element): Element[] => {
+    const chain: Element[] = [];
+    let cur: Element | null = el;
+    while (cur && cur.nodeType === 1 && cur.tagName.toLowerCase() !== 'html') {
+      chain.push(cur);
+      cur = cur.parentElement;
+    }
+    return chain;
+  };
+
+  /**
+   * 读取被拾取元素的语义证据，跟 locator 一起回传。
+   *
+   * 事实库里现在只存 purpose + 哈希类名选择器，模型看不到「这个按钮是灰的」之类的信息。
+   * 把 disabled / aria-label / 可见文本一并带回来，模型判断把握度时才有据可依。
+   */
+  const collectEvidence = (el: Element) => {
+    const ariaDisabled = (el.getAttribute('aria-disabled') || '').toLowerCase();
+    return {
+      tagName: el.tagName.toLowerCase(),
+      role: el.getAttribute('role') || undefined,
+      ariaLabel: el.getAttribute('aria-label') || undefined,
+      title: el.getAttribute('title') || undefined,
+      placeholder: el.getAttribute('placeholder') || undefined,
+      dataTestId: el.getAttribute('data-testid') || el.getAttribute('data-test-id') || undefined,
+      disabled: (el as HTMLButtonElement).disabled === true || ariaDisabled === 'true',
+    };
   };
 
   const computeCssSelector = (el: Element): string => {
@@ -268,6 +403,34 @@ function injectedElementPicker() {
     return parts.join(' > ');
   };
 
+  /**
+   * 基于稳定属性生成备用 CSS 选择器。
+   *
+   * computeCssSelector 依赖 class，而现代前端的 class 多是构建期哈希（div._020ab5b），
+   * 下次发版就失效。data-testid / aria-label / name 这类属性跨版本稳定得多，
+   * 作为同级候选存下来，主选择器失效时还能命中。
+   *
+   * 只在选择器能唯一命中时返回 —— 命中多个的选择器会被 page.ts 的多匹配保护拒绝执行，
+   * 存下来反而是噪音。
+   */
+  const computeStableSelector = (el: Element): string | undefined => {
+    const tag = el.tagName.toLowerCase();
+    const attrs = ['data-testid', 'data-test-id', 'aria-label', 'name', 'placeholder', 'title'];
+    const cssEscape = (v: string) => v.replace(/["\\]/g, '\\$&');
+
+    for (const attr of attrs) {
+      const value = el.getAttribute(attr);
+      if (!value || value.length > 100) continue;
+      const candidate = `${tag}[${attr}="${cssEscape(value)}"]`;
+      try {
+        if (document.querySelectorAll(candidate).length === 1) return candidate;
+      } catch {
+        /* 属性值里有奇怪字符导致选择器非法 —— 跳过 */
+      }
+    }
+    return undefined;
+  };
+
   const computeXpath = (el: Element): string => {
     if (el.id) return `//*[@id="${el.id}"]`;
     const parts: string[] = [];
@@ -285,22 +448,57 @@ function injectedElementPicker() {
     return '/html/' + parts.join('/');
   };
 
-  const onMove = (e: MouseEvent) => {
-    const target = e.target as Element | null;
-    if (!target || target === overlay || target === label) return;
-    current = target;
-    const r = target.getBoundingClientRect();
+  /**
+   * 按当前的 basisIndex + layerOffset 重算 current，并刷新高亮框和标签。
+   *
+   * 标签显示的是**最终会被记录的那一层**，不是鼠标命中的那一层 —— 自动解析不可能对所有站点
+   * 都猜对，但拾取是用户在场的交互：把结果显示出来、允许 ↑↓ 调整，就把「没法保证猜准」
+   * 从算法问题变成了可核对的 UI 问题。这是唯一能真正保证准确性的手段。
+   */
+  const refresh = () => {
+    if (!ancestors.length) return;
+    const idx = Math.min(ancestors.length - 1, Math.max(0, basisIndex + layerOffset));
+    current = ancestors[idx];
+
+    const r = current.getBoundingClientRect();
     overlay.style.left = `${r.left}px`;
     overlay.style.top = `${r.top}px`;
     overlay.style.width = `${r.width}px`;
     overlay.style.height = `${r.height}px`;
-    label.textContent = `${target.tagName.toLowerCase()}${target.id ? '#' + target.id : ''} — 点击拾取（Esc 取消）`;
+
+    const ev = collectEvidence(current);
+    const descriptor = [
+      current.tagName.toLowerCase(),
+      current.id ? `#${current.id}` : '',
+      ev.role ? `[role=${ev.role}]` : '',
+    ].join('');
+    const lifted = idx > 0 ? ` ↑${idx}层` : '';
+    const disabled = ev.disabled ? ' ⚠已禁用' : '';
+    const name = ev.ariaLabel || ev.dataTestId || (current.textContent || '').trim().slice(0, 24);
+    label.textContent = `${descriptor}${lifted}${disabled}${name ? ` — ${name}` : ''} — 点击拾取（↑↓ 换层，Esc 取消）`;
+  };
+
+  const onMove = (e: MouseEvent) => {
+    const target = e.target as Element | null;
+    if (!target || target === overlay || target === label) return;
+    if (target === hoverTarget) {
+      move(e.clientX, e.clientY);
+      return;
+    }
+
+    hoverTarget = target;
+    ancestors = collectAncestors(target);
+    basisIndex = resolveActionableAncestor(target, ancestors);
+    // 换了目标元素就丢弃之前的手动偏移 —— 偏移是针对某个具体元素调的，带到下一个没有意义
+    layerOffset = 0;
+    refresh();
     move(e.clientX, e.clientY);
   };
   const cleanup = () => {
     document.removeEventListener('mousemove', onMove, true);
     document.removeEventListener('click', onClick, true);
     document.removeEventListener('keydown', onKey, true);
+    document.removeEventListener('wheel', onWheel, true);
     overlay.remove();
     label.remove();
     w.__nb_picker_active__ = false;
@@ -310,20 +508,43 @@ function injectedElementPicker() {
     e.preventDefault();
     e.stopPropagation();
     const selector = computeCssSelector(current);
+    const stableSelector = computeStableSelector(current);
     const xpath = computeXpath(current);
     const text = (current.textContent || '').trim().slice(0, 200);
-    chrome.runtime.sendMessage({ type: 'pick_element_done', selector, xpath, text });
+    chrome.runtime.sendMessage({
+      type: 'pick_element_done',
+      selector,
+      stableSelector,
+      xpath,
+      text,
+      evidence: collectEvidence(current),
+    });
     cleanup();
   };
   const onKey = (e: KeyboardEvent) => {
     if (e.key === 'Escape') {
       chrome.runtime.sendMessage({ type: 'pick_element_cancel' });
       cleanup();
+      return;
     }
+    // ↑ 往外一层（父元素），↓ 往内一层，回到鼠标实际命中的节点
+    if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+      e.preventDefault();
+      e.stopPropagation();
+      const next = basisIndex + layerOffset + (e.key === 'ArrowUp' ? 1 : -1);
+      if (next < 0 || next > ancestors.length - 1) return;
+      layerOffset = next - basisIndex;
+      refresh();
+    }
+  };
+  // 拾取期间禁止滚动，否则高亮框会跟元素错位（overlay 用的是 fixed 定位）
+  const onWheel = (e: WheelEvent) => {
+    e.preventDefault();
   };
   document.addEventListener('mousemove', onMove, true);
   document.addEventListener('click', onClick, true);
   document.addEventListener('keydown', onKey, true);
+  document.addEventListener('wheel', onWheel, { capture: true, passive: false });
 }
 
 /**
@@ -422,6 +643,12 @@ async function handleExecuteWorkflow(message: {
   taskId?: string;
   params?: Record<string, unknown>;
   showOverlay?: boolean; // 是否显示工作流进度遮罩
+  /**
+   * 编排链。用户从 UI 点执行时不传（顶层）；工作流内部的 ai 节点唤起 Executor、
+   * 那个 Executor 再触发工作流执行时带上调用方的链，用于环检测和深度上限。
+   * 见 services/workflow/orchestrationDepth.ts。
+   */
+  orchestrationStack?: OrchestrationFrame[];
 }): Promise<{ success: boolean; result?: WorkflowResult; error?: string }> {
   const workflowId = message.workflowId;
   const params = message.params || {};
@@ -430,6 +657,15 @@ async function handleExecuteWorkflow(message: {
   if (!workflowId) {
     return { success: false, error: 'Workflow ID is required' };
   }
+
+  // 深度/环检测：必须在做任何事（开 tab、attach debugger）之前，否则被拦下的调用
+  // 已经留下了副作用。
+  const guard = guardOrchestration(message.orchestrationStack, { kind: 'workflow', id: workflowId });
+  if (!guard.ok) {
+    logger.error('Workflow orchestration blocked:', guard.error);
+    return { success: false, error: guard.error };
+  }
+  const orchestrationStack = guard.stack;
 
   logger.info('execute_workflow request', workflowId, 'showOverlay:', showOverlay);
 
@@ -443,6 +679,15 @@ async function handleExecuteWorkflow(message: {
     workflow = await workflowService.getWorkflowInfo(workflowId);
     if (!workflow) {
       return { success: false, error: `Workflow "${workflowId}" not found` };
+    }
+
+    // 未确认的工作流不能执行。这是 `reviewed` 唯一的执行侧门禁 —— AI 写过的图
+    // （新建或修改）没被任何人看过，直接跑等于让未经审核的脚本操作浏览器。
+    // 放在这里而不是各个调用点：这是唯一的执行入口，UI 按钮、书签、快速执行都走它。
+    const storedConfig = await userWorkflowsStore.getWorkflow(workflowId);
+    if (storedConfig && !isWorkflowReviewed(storedConfig)) {
+      logger.warning('Refusing to execute unreviewed workflow:', workflowId);
+      return { success: false, error: t('bg_workflow_unreviewed') };
     }
 
     // If the workflow starts with a go_to_url action, open a new tab for that URL
@@ -933,35 +1178,6 @@ async function handleExecuteWorkflow(message: {
             return { success: true, extractedContent: r.value ?? '' };
           }
 
-          case 'generate_image': {
-            // Use the image generation service
-            const prompt = params.prompt as string;
-            if (!prompt) return { success: false, error: 'Prompt is required for image generation' };
-
-            const imageResult = await imageGenerationService.generateImage({
-              prompt,
-              model: params.model as string,
-              size: params.size as string,
-              quality: params.quality as string,
-              n: (params.n as number) || 1,
-              outputFormat: params.outputFormat as string,
-              responseFormat: (params.responseFormat as string) || 'b64_json',
-            });
-
-            if (imageResult.success && imageResult.images?.[0]?.b64_json) {
-              // Store the generated image in workflow variable if outputVariable is specified
-              return {
-                success: true,
-                extractedContent: imageResult.images[0].b64_json,
-              };
-            }
-            return {
-              success: imageResult.success,
-              error: imageResult.error || 'Image generation failed',
-              extractedContent: imageResult.images?.[0]?.url,
-            };
-          }
-
           default:
             return { success: false, error: `Unknown action: ${action}` };
         }
@@ -986,7 +1202,12 @@ async function handleExecuteWorkflow(message: {
         const contextStr = context ? `\n上下文变量: ${JSON.stringify(context)}` : '';
         const taskDescription = `${prompt}${contextStr}`;
 
-        const executor = await setupExecutor(aiTaskId, taskDescription, browserContext);
+        // 把编排链往下传，并压入一帧 ai —— 这个 Executor 里若再触发工作流执行
+        // （subflow 等），守卫才能看到自己是被工作流唤起的，而不是一次顶层对话。
+        const executor = await setupExecutor(aiTaskId, taskDescription, browserContext, undefined, [
+          ...orchestrationStack,
+          { kind: 'ai', id: workflowId },
+        ]);
 
         // Collect result from executor events
         let finalResult: { success: boolean; response?: string; error?: string } = {
@@ -1285,6 +1506,9 @@ async function inferElementPurposes(
 }
 
 async function handleMCPTestConnection(config: unknown): Promise<{ success: boolean; error?: string }> {
+  if (!mcpService) {
+    return { success: false, error: t('options_mcp_disabled') };
+  }
   try {
     const result = await mcpService.testConnection(config as Parameters<typeof mcpService.testConnection>[0]);
     return result;
@@ -1297,6 +1521,9 @@ async function handleMCPTestConnection(config: unknown): Promise<{ success: bool
 }
 
 async function handleMCPListTools(serverId?: string): Promise<{ tools: unknown[] }> {
+  if (!mcpService) {
+    return { tools: [] };
+  }
   try {
     const tools = await mcpService.listTools(serverId);
     return { tools };
@@ -1787,8 +2014,14 @@ chrome.runtime.onConnect.addListener(port => {
                 return port.postMessage({ type: 'error', error: `Skill "${message.skillId}" not found` });
               }
 
-              // Convert skill steps to task format
-              const taskDescription = `执行 Skill: ${skill.name}\n\n步骤:\n${skill.steps.map((s: { description?: string; action: string }, i: number) => `${i + 1}. ${s.description || s.action}`).join('\n')}`;
+              // 渲染成任务描述：优先用 instructions（通用文本格式正文），
+              // 没有则退回把 steps 渲染成清单（含 selector/xpath 定位信息）。
+              // message.parameters 里的取值会替换掉正文里的 {{param}} 占位符。
+              const { renderSkillAsTask } = await import('@extension/skills');
+              const taskDescription = renderSkillAsTask(
+                skill,
+                (message.parameters as Record<string, unknown> | undefined) ?? {},
+              );
 
               // Setup executor
               currentExecutor = await setupExecutor(message.taskId, taskDescription, browserContext);
@@ -1943,6 +2176,29 @@ ${stepsDescription}
                 );
               }
 
+              // 润色只允许改 description / intent，不改 action 和 locator（上面的守卫保证了这点）。
+              // 但 instructions 是从 steps 渲染出来的，不重渲染的话正文还是润色前的旧措辞，
+              // 而正文才是执行时真正注入给 LLM 的内容 —— 润色就白做了。
+              if (Array.isArray(polishedSkill?.steps)) {
+                const steps = polishedSkill.steps as Array<{
+                  action: string;
+                  description?: string;
+                  parameters?: Record<string, unknown>;
+                }>;
+                polishedSkill.instructions = steps
+                  .map((step, i) => {
+                    const lines = [`${i + 1}. ${step.description?.trim() || step.action}`];
+                    const detail: string[] = [];
+                    for (const key of ['url', 'selector', 'xpath', 'text'] as const) {
+                      const v = step.parameters?.[key];
+                      if (typeof v === 'string' && v) detail.push(`${key}=${v}`);
+                    }
+                    if (detail.length) lines.push(`   （${detail.join('，')}）`);
+                    return lines.join('\n');
+                  })
+                  .join('\n');
+              }
+
               logger.info('AI polish result:', polishedSkill.name);
               return port.postMessage({ type: 'ai_polish_result', polishedSkill });
             } catch (error) {
@@ -1978,115 +2234,6 @@ ${stepsDescription}
               return port.postMessage({
                 type: 'error',
                 error: error instanceof Error ? error.message : 'Failed to execute workflow',
-              });
-            }
-            break;
-          }
-
-          case 'generate_image': {
-            logger.info('generate_image request', message.prompt?.slice(0, 50));
-
-            try {
-              const result = await imageGenerationService.generateImage({
-                prompt: message.prompt,
-                model: message.model,
-                size: message.size,
-                quality: message.quality,
-                n: message.n || 1,
-                outputFormat: message.outputFormat,
-                responseFormat: message.responseFormat || 'b64_json',
-              });
-
-              // Always send image_generation_result type for both success and failure
-              port.postMessage({ type: 'image_generation_result', result });
-            } catch (error) {
-              logger.error('Image generation failed:', error);
-              // Send as image_generation_result with success: false
-              port.postMessage({
-                type: 'image_generation_result',
-                result: {
-                  success: false,
-                  error: error instanceof Error ? error.message : 'Failed to generate image',
-                },
-              });
-            }
-            break;
-          }
-
-          case 'test_image_provider': {
-            logger.info('test_image_provider', message.providerId);
-
-            try {
-              const result = await imageGenerationService.testProviderConnection(message.providerId);
-              port.postMessage({ type: 'test_image_provider_result', success: result.success, error: result.error });
-            } catch (error) {
-              logger.error('Test image provider failed:', error);
-              return port.postMessage({
-                type: 'error',
-                error: error instanceof Error ? error.message : 'Failed to test provider',
-              });
-            }
-            break;
-          }
-
-          case 'get_image_providers': {
-            try {
-              const providers = await imageProviderStore.getAllProviders();
-              const activeProvider = await imageProviderStore.getActiveProvider();
-              port.postMessage({ type: 'image_providers_list', providers, activeProvider });
-            } catch (error) {
-              logger.error('Get image providers failed:', error);
-              return port.postMessage({
-                type: 'error',
-                error: error instanceof Error ? error.message : 'Failed to get providers',
-              });
-            }
-            break;
-          }
-
-          case 'set_image_provider': {
-            logger.info('set_image_provider', message.providerId, message.config);
-
-            try {
-              await imageProviderStore.setProvider(message.providerId, message.config);
-              port.postMessage({ type: 'success', message: 'Provider saved successfully' });
-            } catch (error) {
-              logger.error('Set image provider failed:', error);
-              return port.postMessage({
-                type: 'error',
-                error: error instanceof Error ? error.message : 'Failed to set provider',
-              });
-            }
-            break;
-          }
-
-          case 'remove_image_provider': {
-            logger.info('remove_image_provider', message.providerId);
-
-            try {
-              await imageProviderStore.removeProvider(message.providerId);
-              port.postMessage({ type: 'success', message: 'Provider removed successfully' });
-            } catch (error) {
-              logger.error('Remove image provider failed:', error);
-              return port.postMessage({
-                type: 'error',
-                error: error instanceof Error ? error.message : 'Failed to remove provider',
-              });
-            }
-            break;
-          }
-
-          case 'set_active_image_provider': {
-            logger.info('set_active_image_provider', message.providerId);
-
-            try {
-              await imageProviderStore.setActiveProvider(message.providerId);
-              port.postMessage({ type: 'success', message: 'Active provider set successfully' });
-            } catch (error) {
-              logger.error('Set active image provider failed:', error);
-              return port.postMessage({
-                type: 'error',
-                error: error instanceof Error ? error.message : 'Failed to set active provider',
               });
             }
             break;
@@ -2346,6 +2493,11 @@ async function setupExecutor(
   task: string,
   browserContext: BrowserContext,
   images?: { name: string; base64: string }[],
+  /**
+   * 编排链。顶层对话不传；由工作流 ai 节点唤起时必须带上调用方的链，
+   * 否则这个 Executor 里再触发的工作流执行会以为自己是顶层调用，深度守卫失效。
+   */
+  orchestrationStack?: OrchestrationFrame[],
 ) {
   const providers = await llmProviderStore.getAllProviders();
   // if no providers, need to display the options page
@@ -2433,8 +2585,29 @@ async function setupExecutor(
     plannerModelName: plannerModel?.modelName ?? navigatorModel.modelName,
     visionProvider: visionModel?.provider ?? navigatorModel.provider,
     visionModelName: visionModel?.modelName ?? navigatorModel.modelName,
-    mcpService: mcpService,
-    skillsService: skillsService,
+    // mcpService 为 null 时 Executor 不注册 mcp_* action、不注入工具清单，
+    // NavigatorPrompt 也会去掉 MCP 段落
+    mcpService: mcpService ?? undefined,
+    skillsService: {
+      executeSkill: (skillId, params, mode) => skillsService.executeSkill(skillId, params, mode),
+      listSkills: category => skillsService.listSkills(category),
+      getSkillInfo: skillId => skillsService.getSkillInfo(skillId),
+      createSkill: (input, createdCount) => createSkillFromAI(input, createdCount),
+    },
+    /**
+     * 工作流能力：只有读和写，没有执行。
+     *
+     * 执行入口只有 `handleExecuteWorkflow`，且只由用户在 UI 上点触发。工作流是固定图，
+     * 执行时不再逐节点决策 —— 让 AI 自己触发等于交给它一个不可中途纠偏的脚本去操作
+     * 用户的浏览器。
+     */
+    workflowService: {
+      listWorkflows: () => workflowService.listSummariesForAI(),
+      getWorkflowSummary: workflowId => workflowService.getSummaryForAI(workflowId),
+      createWorkflow: (input, createdCount) => createWorkflowFromAI(input, createdCount),
+      updateWorkflow: (input, updatedCount) => updateWorkflowFromAI(input, updatedCount),
+    },
+    orchestrationStack,
     images, // 用户上传的图片
   });
 

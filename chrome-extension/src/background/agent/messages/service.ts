@@ -487,4 +487,37 @@ export default class MessageManager {
     const msg = new ToolMessage({ content, tool_call_id: String(id) });
     this.addMessageWithTokens(msg, messageType);
   }
+
+  /**
+   * Adds a user clarification response to the history with context tracking
+   * @param requestId - The ID of the ask_user request this is responding to
+   * @param answer - The formatted answer string from summarizeClarifyResponse
+   * @param originalQuestion - The original question for context
+   */
+  public addClarification(requestId: string, answer: string, originalQuestion: string): void {
+    const content = `[User clarification for request ${requestId}: "${originalQuestion}"]\n${answer}`;
+    const msg = new HumanMessage({ content });
+    this.addMessageWithTokens(msg, 'clarification');
+  }
+
+  /**
+   * Gets the latest plan output from the message history
+   * @returns The latest plan as a parsed object, or null if not found
+   */
+  public getLatestPlan(): Record<string, unknown> | null {
+    for (let i = this.history.messages.length - 1; i >= 0; i--) {
+      const msg = this.history.messages[i];
+      if (msg.message instanceof AIMessage && typeof msg.message.content === 'string') {
+        const match = msg.message.content.match(/<plan>([\s\S]*?)<\/plan>/);
+        if (match) {
+          try {
+            return JSON.parse(match[1]);
+          } catch {
+            return null;
+          }
+        }
+      }
+    }
+    return null;
+  }
 }

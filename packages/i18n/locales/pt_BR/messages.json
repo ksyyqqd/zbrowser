@@ -121,6 +121,15 @@
   "chat_bookmarks_delete": {
     "message": "Excluir favorito"
   },
+  "chat_bookmarks_runWorkflow": {
+    "message": "Executar fluxo de trabalho \"$NAME$\"",
+    "placeholders": {
+      "name": {
+        "content": "$1",
+        "example": "Relatório diário"
+      }
+    }
+  },
   "chat_replay_starting": {
     "message": "Iniciando reprodução da tarefa:\n\n\"$TASK$\"",
     "placeholders": {
@@ -226,9 +235,6 @@
   "options_tabs_models": {
     "message": "Modelos"
   },
-  "options_tabs_images": {
-    "message": "Imagens"
-  },
   "options_tabs_firewall": {
     "message": "Firewall"
   },
@@ -310,12 +316,6 @@
   "options_general_viewportExpansion_option_all": {
     "message": "Todos os elementos da página"
   },
-  "options_general_showImageGeneration": {
-    "message": "Mostrar Geração de Imagens"
-  },
-  "options_general_showImageGeneration_desc": {
-    "message": "Mostrar botão de geração de imagens no chat (requer configuração de provedor de imagens)"
-  },
   "options_general_showRequestLogs": {
     "message": "Mostrar logs de requisições"
   },
@@ -324,18 +324,6 @@
   },
   "options_general_experimentalSection": {
     "message": "Recursos Experimentais"
-  },
-  "options_general_multiActionEnabled": {
-    "message": "Execução Multi-Ação (Experimental)"
-  },
-  "options_general_multiActionEnabled_desc": {
-    "message": "Quando ativado, a IA tentará planejar várias ações consecutivas em uma única solicitação, reduzindo as solicitações de IA e melhorando a velocidade. Quando desativado, apenas uma ação é executada por etapa (mais estável, porém mais lento)."
-  },
-  "options_general_maxMultiActions": {
-    "message": "Máximo de Ações Contínuas"
-  },
-  "options_general_maxMultiActions_desc": {
-    "message": "Número máximo de ações por solicitação de IA no modo multi-ação (1-10)"
   },
   "options_general_autonomousMode": {
     "message": "Modo Autônomo (Experimental)"
@@ -370,7 +358,6 @@
   "options_models_providers_custom_name_placeholder": {
     "message": "Nome do provedor"
   },
-
   "options_models_providers_apiKey": {
     "message": "Chave de API"
   },
@@ -389,14 +376,12 @@
   "options_models_providers_apiKey_show": {
     "message": "Mostrar chave de API"
   },
-
   "options_models_selection_header": {
     "message": "Seleção de Modelo"
   },
   "options_models_speechToText_header": {
     "message": "Modelo de Fala para Texto"
   },
-
   "options_models_agents_navigator": {
     "message": "Navega em sites e executa ações"
   },
@@ -406,7 +391,6 @@
   "options_models_agents_vision": {
     "message": "Analisa screenshots e conteúdo visual (opcional)"
   },
-
   "options_models_labels_model": {
     "message": "Modelo"
   },
@@ -494,7 +478,6 @@
       }
     }
   },
-
   "options_firewall_header": {
     "message": "Firewall"
   },
@@ -531,7 +514,6 @@
   "options_firewall_howItWorks": {
     "message": "O firewall contém uma lista de negações e uma lista de permissões.\nSe ambas as listas estiverem vazias, todos os URLs são permitidos\nA lista de negações tem prioridade - se um URL corresponder a qualquer entrada da lista de negações, ele será bloqueado\nQuando a lista de permissões está vazia, todos os URLs não negados são permitidos\nQuando a lista de permissões não está vazia, apenas os URLs correspondentes são permitidos\nCuringas ainda NÃO são suportados\nA lista de permissões é preferível à lista de negações"
   },
-
   "options_tabs_mcp": {
     "message": "Servidores MCP"
   },
@@ -607,6 +589,9 @@
   "options_mcp_statusUnknown": {
     "message": "Desconhecido"
   },
+  "options_mcp_disabled": {
+    "message": "O suporte a MCP está desativado nesta versão."
+  },
   "options_mcp_statusConnected": {
     "message": "Conectado"
   },
@@ -616,7 +601,6 @@
   "options_mcp_statusDisabled": {
     "message": "Desativado"
   },
-
   "options_skills_header": {
     "message": "Skills"
   },
@@ -770,7 +754,6 @@
   "options_skills_saveSuccess": {
     "message": "Skill salvo com sucesso"
   },
-
   "bg_errors_noTabId": {
     "message": "Nenhum ID de aba fornecido"
   },
@@ -813,6 +796,9 @@
   "bg_cmd_replay_failed": {
     "message": "Reprodução falhou"
   },
+  "bg_workflow_unreviewed": {
+    "message": "Este fluxo de trabalho ainda não foi confirmado. Abra-o no editor, verifique as etapas e confirme antes de executar."
+  },
   "bg_setup_noApiKeys": {
     "message": "Por favor, configure as chaves de API nas configurações primeiro"
   },
@@ -833,6 +819,9 @@
   },
   "exec_errors_maxFailuresReached": {
     "message": "Máximo de falhas atingido"
+  },
+  "exec_task_ok": {
+    "message": "Tarefa concluída"
   },
   "exec_task_cancel": {
     "message": "Tarefa cancelada"
@@ -870,7 +859,6 @@
   "exec_replay_historyEmpty": {
     "message": "O histórico está vazio"
   },
-
   "act_searchGoogle_start": {
     "message": "Procurando por \"$QUERY$\" no Google",
     "placeholders": {
@@ -1528,6 +1516,21 @@
   "workflow_execute": {
     "message": "Executar"
   },
+  "workflow_bookmark": {
+    "message": "Adicionar aos favoritos — aparece no acesso rápido do painel lateral para execução com um clique"
+  },
+  "workflow_unbookmark": {
+    "message": "Remover dos favoritos"
+  },
+  "workflow_bookmarkNeedsReview": {
+    "message": "Confirme este fluxo de trabalho primeiro. Favoritos são executados com um clique, e um fluxo não confirmado não pode ser executado."
+  },
+  "workflow_unreviewedBadge": {
+    "message": "Não confirmado"
+  },
+  "workflow_confirm": {
+    "message": "Confirmar"
+  },
   "workflow_convert": {
     "message": "Converter"
   },
@@ -1693,9 +1696,6 @@
   "workflow_action_cacheContent": {
     "message": "Cachear Conteúdo"
   },
-  "workflow_action_generateImage": {
-    "message": "Gerar Imagem"
-  },
   "workflow_intent": {
     "message": "Intenção"
   },
@@ -1734,21 +1734,6 @@
   },
   "workflow_param_tabIndex": {
     "message": "Índice da Aba"
-  },
-  "workflow_param_prompt": {
-    "message": "Prompt"
-  },
-  "workflow_param_model": {
-    "message": "Modelo"
-  },
-  "workflow_param_size": {
-    "message": "Tamanho"
-  },
-  "workflow_param_quality": {
-    "message": "Qualidade"
-  },
-  "workflow_param_outputVariable": {
-    "message": "Variável de Saída"
   },
   "workflow_editEdge": {
     "message": "Editar Conexão"
@@ -1848,90 +1833,6 @@
   },
   "workflow_branchNamePlaceholder": {
     "message": "Nome da ramificação"
-  },
-  "image_generation_title": {
-    "message": "Geração de Imagem"
-  },
-  "image_generation_providers": {
-    "message": "Provedores de Imagem"
-  },
-  "image_generation_addProvider": {
-    "message": "Adicionar Provedor de Imagem"
-  },
-  "image_generation_removeProvider": {
-    "message": "Remover Provedor"
-  },
-  "image_generation_activeProvider": {
-    "message": "Provedor Ativo"
-  },
-  "image_generation_providerName": {
-    "message": "Nome do Provedor"
-  },
-  "image_generation_apiKey": {
-    "message": "Chave API"
-  },
-  "image_generation_baseUrl": {
-    "message": "URL Base"
-  },
-  "image_generation_baseUrl_placeholder": {
-    "message": "ex: https://www.packyapi.com/v1"
-  },
-  "image_generation_models": {
-    "message": "Modelos Disponíveis"
-  },
-  "image_generation_defaultModel": {
-    "message": "Modelo padrão"
-  },
-  "image_generation_defaultSize": {
-    "message": "Tamanho padrão"
-  },
-  "image_generation_quality": {
-    "message": "Qualidade"
-  },
-  "image_generation_prompt_placeholder": {
-    "message": "Digite o prompt para gerar imagem..."
-  },
-  "image_generation_generate": {
-    "message": "Gerar Imagem"
-  },
-  "image_generation_generating": {
-    "message": "Gerando imagem..."
-  },
-  "image_generation_result": {
-    "message": "Imagem gerada com sucesso"
-  },
-  "image_generation_error": {
-    "message": "Falha na geração de imagem"
-  },
-  "image_generation_noProvider": {
-    "message": "Nenhum provedor de imagem configurado"
-  },
-  "image_generation_testConnection": {
-    "message": "Testar Conexão"
-  },
-  "image_generation_testSuccess": {
-    "message": "Conexão successful"
-  },
-  "image_generation_testFailed": {
-    "message": "Falha na conexão"
-  },
-  "image_generation_saveProvider": {
-    "message": "Salvar Provedor"
-  },
-  "image_generation_providerSaved": {
-    "message": "Provedor saved successfully"
-  },
-  "image_generation_providerRemoved": {
-    "message": "Provedor removido com sucesso"
-  },
-  "image_generation_setActive": {
-    "message": "Definir como Ativo"
-  },
-  "image_generation_customProvider": {
-    "message": "Provedor Personalizado"
-  },
-  "image_generation_openaiProvider": {
-    "message": "OpenAI (DALL-E)"
   },
   "workflow_noDescription": {
     "message": "Sem descrição"

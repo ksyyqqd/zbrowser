@@ -376,12 +376,25 @@ export default class Page {
     return this._cachedState;
   }
 
-  async getState(useVision = false, cacheClickableElementsHashes = false): Promise<PageState> {
+  /**
+   * @param skipStabilityWait 跳过内部的 waitForPageAndFramesLoad（网络空闲等待）。
+   *   调用方刚刚执行过 waitForPageStability() 时应传 true —— 否则会背靠背等两次
+   *   独立的稳定性检查：waitForPageStability 等 DOM 静默，紧接着这里的
+   *   _waitForStableNetwork 又要求网络连续静默 waitForNetworkIdlePageLoadTime 秒
+   *   （默认 0.5s，每 100ms 轮询），即便页面早已空闲也会白等。
+   */
+  async getState(
+    useVision = false,
+    cacheClickableElementsHashes = false,
+    skipStabilityWait = false,
+  ): Promise<PageState> {
     if (!this._validWebPage) {
       // return the initial state
       return build_initial_state(this._tabId);
     }
-    await this.waitForPageAndFramesLoad();
+    if (!skipStabilityWait) {
+      await this.waitForPageAndFramesLoad();
+    }
     const updatedState = await this._updateState(useVision);
 
     // Find out which elements are new
@@ -1461,6 +1474,60 @@ export default class Page {
   // These methods allow direct selector-based operations for workflow execution
 
   /**
+   * 判断一条 locator 是 XPath 还是 CSS 选择器，并补齐缺失的前导斜杠。
+   *
+   * 必要性：事实库里存的是 buildDomTree.js/getXPathTree 的产出，它 **不带前导斜杠**
+   * （`html/body/div[1]/...`）。之前三处 workflow helper 都只认 `startsWith('/')`，
+   * 于是这种 xpath 会被当成 CSS 选择器交给 $$()，必然 0 匹配 —— 记忆里的元素静默失效。
+   * locateElement（本文件 ~1149 行）早就补过同样的斜杠，但只补在了那一处。
+   *
+   * CSS 选择器不会出现裸斜杠（`a[href="/x"]` 里的斜杠在属性值引号内，不会命中下面第二条），
+   * 所以「以 / 开头」或「tagName[可选数字下标]/ 开头」即可安全判定为 XPath。
+   */
+  private _normalizeLocator(selector: string): { value: string; isXPath: boolean } {
+    const trimmed = selector.trim();
+    if (trimmed.startsWith('/')) {
+      return { value: trimmed, isXPath: true };
+    }
+    if (/^[A-Za-z][A-Za-z0-9-]*(\[\d+\])?\//.test(trimmed)) {
+      return { value: `/${trimmed}`, isXPath: true };
+    }
+    return { value: trimmed, isXPath: false };
+  }
+
+  /**
+   * 按 locator（XPath 或 CSS）解析出唯一元素句柄。
+   *
+   * CSS 命中多个时返回 null 而不是取第一个 —— 点错元素比点不到更难排查，
+   * 让调用方回退到更精确的 XPath。
+   */
+  private async _resolveLocatorHandle(selector: string, action: string): Promise<ElementHandle<Element> | null> {
+    if (!this._puppeteerPage) {
+      throw new Error('Puppeteer page is not connected');
+    }
+
+    const { value, isXPath } = this._normalizeLocator(selector);
+
+    if (isXPath) {
+      const handle = await this._puppeteerPage.evaluateHandle(xpath => {
+        const result = document.evaluate(xpath, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null);
+        return result.singleNodeValue as Element | null;
+      }, value);
+      return handle.asElement() as ElementHandle<Element> | null;
+    }
+
+    const matches = await this._puppeteerPage.$$(value);
+    if (matches.length > 1) {
+      logger.warning(
+        `CSS selector "${value}" matched ${matches.length} elements; skipping ${action} to let caller fall back to XPath.`,
+      );
+      await Promise.all(matches.map(m => m.dispose().catch(() => {})));
+      return null;
+    }
+    return matches[0] || null;
+  }
+
+  /**
    * Click element by CSS selector or XPath
    */
   async clickBySelector(selector: string): Promise<boolean> {
@@ -1469,29 +1536,7 @@ export default class Page {
     }
 
     try {
-      // Try CSS selector first
-      let element: ElementHandle<Element> | null = null;
-      if (selector.startsWith('//') || selector.startsWith('/')) {
-        // XPath selector - use evaluate to find element
-        const handle = await this._puppeteerPage.evaluateHandle(xpath => {
-          const result = document.evaluate(xpath, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null);
-          return result.singleNodeValue as Element | null;
-        }, selector);
-        element = handle.asElement() as ElementHandle<Element> | null;
-      } else {
-        // CSS selector — if multiple elements match, refuse to click to avoid
-        // hitting the wrong one (caller should fall back to a more precise selector like XPath)
-        const matches = await this._puppeteerPage.$$(selector);
-        if (matches.length > 1) {
-          logger.warning(
-            `CSS selector "${selector}" matched ${matches.length} elements; skipping to let caller fall back to XPath.`,
-          );
-          // Release handles
-          await Promise.all(matches.map(m => m.dispose().catch(() => {})));
-          return false;
-        }
-        element = matches[0] || null;
-      }
+      const element = await this._resolveLocatorHandle(selector, 'click');
 
       if (!element) {
         logger.warning(`Element not found with selector: ${selector}`);
@@ -1518,26 +1563,7 @@ export default class Page {
     }
 
     try {
-      let element: ElementHandle<Element> | null = null;
-      if (selector.startsWith('//') || selector.startsWith('/')) {
-        const handle = await this._puppeteerPage.evaluateHandle(xpath => {
-          const result = document.evaluate(xpath, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null);
-          return result.singleNodeValue as Element | null;
-        }, selector);
-        element = handle.asElement() as ElementHandle<Element> | null;
-      } else {
-        // CSS selector — if multiple elements match, refuse to input to avoid
-        // typing into the wrong one (caller should fall back to XPath)
-        const matches = await this._puppeteerPage.$$(selector);
-        if (matches.length > 1) {
-          logger.warning(
-            `CSS selector "${selector}" matched ${matches.length} elements; skipping input to let caller fall back to XPath.`,
-          );
-          await Promise.all(matches.map(m => m.dispose().catch(() => {})));
-          return false;
-        }
-        element = matches[0] || null;
-      }
+      const element = await this._resolveLocatorHandle(selector, 'input');
 
       if (!element) {
         logger.warning(`Element not found with selector: ${selector}`);
@@ -1572,16 +1598,7 @@ export default class Page {
     }
 
     try {
-      let element: ElementHandle<Element> | null = null;
-      if (selector.startsWith('//') || selector.startsWith('/')) {
-        const handle = await this._puppeteerPage.evaluateHandle(xpath => {
-          const result = document.evaluate(xpath, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null);
-          return result.singleNodeValue as Element | null;
-        }, selector);
-        element = handle.asElement() as ElementHandle<Element> | null;
-      } else {
-        element = await this._puppeteerPage.$(selector);
-      }
+      const element = await this._resolveLocatorHandle(selector, 'select');
 
       if (!element) {
         logger.warning(`Element not found with selector: ${selector}`);

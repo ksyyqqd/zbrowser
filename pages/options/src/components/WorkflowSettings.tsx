@@ -5,9 +5,16 @@
 
 import { useState, useEffect, lazy, Suspense } from 'react';
 import { createPortal } from 'react-dom';
-import { FiPlus, FiEdit2, FiTrash2, FiDownload, FiUpload, FiPlay, FiCode } from 'react-icons/fi';
+import { FiPlus, FiEdit2, FiTrash2, FiDownload, FiUpload, FiPlay, FiCode, FiStar } from 'react-icons/fi';
 import { t } from '@extension/i18n';
-import { userWorkflowsStore, userSkillsStore, type UserWorkflowConfig, type UserSkillConfig } from '@extension/storage';
+import {
+  userWorkflowsStore,
+  userSkillsStore,
+  favoritesStorage,
+  isWorkflowReviewed,
+  type UserWorkflowConfig,
+  type UserSkillConfig,
+} from '@extension/storage';
 import {
   convertWorkflowToSkill,
   parseWorkflow,
@@ -33,10 +40,22 @@ export default function WorkflowSettings({ isDarkMode = false }: WorkflowSetting
   const { state: executionState, reset: resetExecution } = useWorkflowExecution();
   const [importContent, setImportContent] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
+  /** 已加书签的工作流 id。书签在 favoritesStorage 里，这里只缓存一份用于按钮选中态。 */
+  const [bookmarkedIds, setBookmarkedIds] = useState<Set<string>>(new Set());
+
+  const loadBookmarkedIds = async () => {
+    try {
+      const prompts = await favoritesStorage.getAllPrompts();
+      setBookmarkedIds(new Set(prompts.map(p => p.workflowId).filter((id): id is string => !!id)));
+    } catch (e) {
+      console.error('[WorkflowSettings] Failed to load workflow bookmarks:', e);
+    }
+  };
 
   // Load workflows on mount
   useEffect(() => {
     loadWorkflows();
+    loadBookmarkedIds();
   }, []);
 
   // Auto-open workflow editor if redirected from recording save-as-workflow.
@@ -138,15 +157,56 @@ export default function WorkflowSettings({ isDarkMode = false }: WorkflowSetting
     }
   };
 
+  /**
+   * 用户确认 AI 写过的工作流，放行执行。
+   *
+   * 单独一个动作而不是「保存即确认」：保存是编辑器里的高频操作，把确认绑上去会让
+   * 用户在还没看完的情况下无意间放行。这个按钮只在未确认的工作流上出现。
+   */
+  const handleConfirmWorkflow = async (workflow: UserWorkflowConfig) => {
+    try {
+      await userWorkflowsStore.markReviewed(workflow.id);
+      await loadWorkflows();
+    } catch (e) {
+      console.error('[WorkflowSettings] Failed to confirm workflow:', e);
+    }
+  };
+
   // Delete workflow
   const handleDeleteWorkflow = async (workflow: UserWorkflowConfig) => {
     if (!window.confirm(t('workflow_deleteConfirm', [workflow.name]))) return;
 
     try {
       await userWorkflowsStore.removeWorkflow(workflow.id);
+      // 同时清掉书签，否则侧边栏会留一条点了报「工作流不存在」的死书签
+      await favoritesStorage.removeWorkflowBookmark(workflow.id);
       await loadWorkflows();
+      await loadBookmarkedIds();
     } catch (e) {
       console.error('[WorkflowSettings] Failed to delete workflow:', e);
+    }
+  };
+
+  /**
+   * 加入 / 移出书签。
+   *
+   * 未确认的工作流不允许加书签：书签是一键执行的入口，而未确认的工作流执行时会被
+   * background 拦下 —— 让用户加一个点了就报错的书签没有意义。
+   */
+  const handleToggleBookmark = async (workflow: UserWorkflowConfig) => {
+    try {
+      if (bookmarkedIds.has(workflow.id)) {
+        await favoritesStorage.removeWorkflowBookmark(workflow.id);
+      } else {
+        if (!isWorkflowReviewed(workflow)) {
+          alert(t('workflow_bookmarkNeedsReview'));
+          return;
+        }
+        await favoritesStorage.addWorkflowBookmark(workflow.id, workflow.name, workflow.description);
+      }
+      await loadBookmarkedIds();
+    } catch (e) {
+      console.error('[WorkflowSettings] Failed to toggle workflow bookmark:', e);
     }
   };
 
@@ -416,6 +476,21 @@ export default function WorkflowSettings({ isDarkMode = false }: WorkflowSetting
                     <FiTrash2 className="size-3.5 text-red-500" />
                   </button>
                 </div>
+                {/* 未确认标记 + 确认入口。AI 写过的工作流在这之前不能执行、不能加书签，
+                    所以放行的动作必须在列表上就能看见，不能藏在编辑器里 */}
+                {!isWorkflowReviewed(workflow) && (
+                  <div className="mb-2 flex items-center gap-2">
+                    <span className="shrink-0 rounded px-1.5 py-0.5 text-xs bg-amber-500/20 text-amber-600 dark:text-amber-400">
+                      {t('workflow_unreviewedBadge')}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => handleConfirmWorkflow(workflow)}
+                      className="rounded px-1.5 py-0.5 text-xs text-blue-600 hover:bg-blue-500/20 dark:text-blue-400">
+                      {t('workflow_confirm')}
+                    </button>
+                  </div>
+                )}
                 <p
                   className={`mb-3 h-10 text-sm line-clamp-2 ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}
                   title={workflow.description}>
@@ -433,6 +508,21 @@ export default function WorkflowSettings({ isDarkMode = false }: WorkflowSetting
                     className="shrink-0 rounded-md p-1.5 hover:bg-green-500/20"
                     title={t('workflow_execute')}>
                     <FiPlay className="size-3.5 text-green-500" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleToggleBookmark(workflow)}
+                    className="shrink-0 rounded-md p-1.5 hover:bg-amber-500/20"
+                    title={bookmarkedIds.has(workflow.id) ? t('workflow_unbookmark') : t('workflow_bookmark')}>
+                    <FiStar
+                      className={`size-3.5 ${
+                        bookmarkedIds.has(workflow.id)
+                          ? 'fill-amber-400 text-amber-400'
+                          : isDarkMode
+                            ? 'text-gray-400'
+                            : 'text-gray-500'
+                      }`}
+                    />
                   </button>
                   <button
                     type="button"

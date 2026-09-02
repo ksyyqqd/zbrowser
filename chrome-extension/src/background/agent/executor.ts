@@ -28,6 +28,7 @@ import {
   RequestCancelledError,
   MaxStepsReachedError,
   MaxFailuresReachedError,
+  ResponseParseError,
 } from './agents/errors';
 import { URLNotAllowedError } from '../browser/views';
 import { chatHistoryStore } from '@extension/storage/lib/chat';
@@ -37,6 +38,15 @@ import type { GeneralSettingsConfig } from '@extension/storage';
 import { analytics } from '../services/analytics';
 import type { ToolExecutionResult, MCPTool } from '@extension/mcp-client';
 import type { Skill, SkillExecutionResult } from '@extension/skills';
+import type { SkillCreateInput, SkillCreateResult } from '../services/skills/createFromAI';
+import type { OrchestrationFrame } from '../services/workflow/orchestrationDepth';
+import type {
+  WorkflowCreateInput,
+  WorkflowCreateResult,
+  WorkflowSummary,
+  WorkflowUpdateInput,
+  WorkflowUpdateResult,
+} from '../services/workflow/types';
 import { summarizeClarifyResponse } from './clarify';
 import { extractJsonFromModelOutput } from './messages/utils';
 
@@ -63,7 +73,25 @@ export interface ExecutorExtraArgs {
     executeSkill: (skillId: string, params: Record<string, unknown>, mode?: string) => Promise<SkillExecutionResult>;
     listSkills: (category?: string) => Skill[];
     getSkillInfo: (skillId: string) => Skill | undefined;
+    createSkill: (input: SkillCreateInput, createdCount: number) => Promise<SkillCreateResult>;
   };
+  /**
+   * 工作流能力。由 background 注入，因为要访问 store。
+   *
+   * 只有「读」和「写」，没有 executeWorkflow —— AI 不执行工作流。
+   */
+  workflowService?: {
+    listWorkflows: () => Promise<WorkflowSummary[]>;
+    getWorkflowSummary: (workflowId: string) => Promise<WorkflowSummary | undefined>;
+    createWorkflow: (input: WorkflowCreateInput, createdCount: number) => Promise<WorkflowCreateResult>;
+    updateWorkflow: (input: WorkflowUpdateInput, updatedCount: number) => Promise<WorkflowUpdateResult>;
+  };
+  /**
+   * 本 Executor 在编排链上的位置。顶层对话不传（等价于空链）；
+   * 工作流 ai 节点唤起的 Executor 必须把调用方的链传进来，否则这个 Executor 里
+   * 再触发的工作流执行会以为自己是顶层调用，深度守卫失效。
+   */
+  orchestrationStack?: OrchestrationFrame[];
   // 用户上传的图片
   images?: { name: string; base64: string }[];
 }
@@ -78,6 +106,7 @@ export class Executor {
   private readonly generalSettings: GeneralSettingsConfig | undefined;
   private readonly mcpService?: ExecutorExtraArgs['mcpService'];
   private readonly skillsService?: ExecutorExtraArgs['skillsService'];
+  private readonly workflowService?: ExecutorExtraArgs['workflowService'];
   private readonly userImages?: { name: string; base64: string }[]; // 用户上传的图片
   /**
    * 保留 navigator LLM 引用：失败诊断（diagnoseTaskFailure）需要一个能 invoke 的 LLM。
@@ -86,6 +115,14 @@ export class Executor {
    */
   private readonly navigatorLLM: BaseChatModel;
   private tasks: string[] = [];
+  /**
+   * shouldReadCurrentPage 的结果缓存，key 为被判定的 task 文本。
+   *
+   * 该判定只读 task 字符串（prompt 里明确要求「不要检查页面」），而 task 在一轮任务里不变，
+   * 所以每 planningInterval 步都重新问一次 LLM 是纯粹的浪费 —— 每次都多一个完整往返。
+   * 按 task 缓存后，同一 task 只判定一次；follow-up task 会换 key 自然重新判定。
+   */
+  private readonly browserStateDecisionCache = new Map<string, boolean>();
   constructor(
     task: string,
     taskId: string,
@@ -121,14 +158,13 @@ export class Executor {
     this.generalSettings = extraArgs?.generalSettings;
     this.mcpService = extraArgs?.mcpService;
     this.skillsService = extraArgs?.skillsService;
+    this.workflowService = extraArgs?.workflowService;
     this.userImages = extraArgs?.images; // 存储用户上传的图片
     this.plannerLLM = plannerLLM;
     this.navigatorLLM = navigatorLLM; // 用于失败诊断
     this.tasks.push(task);
     this.navigatorPrompt = new NavigatorPrompt({
       maxActionsPerStep: context.options.maxActionsPerStep,
-      multiActionEnabled: extraArgs?.generalSettings?.multiActionEnabled ?? false,
-      maxMultiActions: extraArgs?.generalSettings?.maxMultiActions ?? 3,
       autonomousMode: extraArgs?.generalSettings?.autonomousMode ?? false,
     });
     this.plannerPrompt = new PlannerPrompt(extraArgs?.generalSettings?.autonomousMode ?? false);
@@ -148,9 +184,22 @@ export class Executor {
       context.listSkills = async (category?: string) => extraArgs.skillsService!.listSkills(category);
       // Wrap synchronous getSkillInfo in async function
       context.getSkillInfo = async (skillId: string) => extraArgs.skillsService!.getSkillInfo(skillId);
+      context.createSkill = (input, createdCount) => extraArgs.skillsService!.createSkill(input, createdCount);
     }
 
-    const actionBuilder = new ActionBuilder(context, extractorLLM, extraArgs?.generalSettings?.autonomousMode ?? false);
+    // Set Workflow service methods on context if provided
+    if (extraArgs?.workflowService) {
+      context.listWorkflows = () => extraArgs.workflowService!.listWorkflows();
+      context.getWorkflowSummary = (workflowId: string) => extraArgs.workflowService!.getWorkflowSummary(workflowId);
+      context.createWorkflow = (input, createdCount) => extraArgs.workflowService!.createWorkflow(input, createdCount);
+      context.updateWorkflow = (input, updatedCount) => extraArgs.workflowService!.updateWorkflow(input, updatedCount);
+    }
+
+    // 编排链：background 在起「工作流 ai 节点」的 Executor 时把调用方的链传下来。
+    // 顶层对话没有链，留空数组。
+    context.orchestrationStack = extraArgs?.orchestrationStack ?? [];
+
+    const actionBuilder = new ActionBuilder(context, extractorLLM);
     const navigatorActionRegistry = new NavigatorActionRegistry(actionBuilder.buildDefaultActions());
 
     // Register MCP actions if MCP service is available
@@ -165,6 +214,14 @@ export class Executor {
     if (extraArgs?.skillsService) {
       const skillActions = actionBuilder.buildSkillActions();
       for (const action of skillActions) {
+        navigatorActionRegistry.registerAction(action);
+      }
+    }
+
+    // Register Workflow actions if Workflow service is available
+    if (extraArgs?.workflowService) {
+      const workflowActions = actionBuilder.buildWorkflowActions();
+      for (const action of workflowActions) {
         navigatorActionRegistry.registerAction(action);
       }
     }
@@ -227,6 +284,42 @@ export class Executor {
       }
     } catch (error) {
       logger.warning('Failed to inject skills info:', error);
+    }
+  }
+
+  /**
+   * Inject Workflow information into the agent context.
+   *
+   * 只注入摘要（名字 + 说明），不注入入参和步骤 —— 那些由 `workflow_get_info` 按需取。
+   * 一次性把所有工作流的完整信息铺进上下文，在用户有十几个工作流时是几千 token 的
+   * 常驻开销，而 AI 每轮任务通常只关心其中一个。
+   */
+  private async injectWorkflowsInfo(workflowService: {
+    listWorkflows: () => Promise<WorkflowSummary[]>;
+  }): Promise<void> {
+    try {
+      const workflows = await workflowService.listWorkflows();
+      if (workflows.length === 0) {
+        return;
+      }
+      const listing = workflows
+        .map(w => `- ${w.id}: ${w.name}${w.description ? ` - ${w.description}` : ''}`)
+        .join('\n');
+      const content = `<workflows_available>
+用户已保存的工作流（固定步骤图，顺序已定死，执行时不再重新决策）：
+
+${listing}
+
+你不能执行工作流 —— 只有用户能在界面上点击运行。你能做的是：
+- 用户要改某个工作流时，先 workflow_get_info 看清它现在是什么，再 workflow_update
+- 用户描述了一套可重复的步骤时，用 workflow_create 存下来，然后告诉用户去确认
+用户要你「跑一下某个工作流」时，不要试图调用它，也不要手工重演它的步骤，
+直接告诉用户在工作流列表里点击执行。
+</workflows_available>`;
+      this.context.messageManager.addMessageWithTokens(new HumanMessage({ content }), 'workflows');
+      logger.info(`Injected ${workflows.length} workflows into agent context`);
+    } catch (error) {
+      logger.warning('Failed to inject workflows info:', error);
     }
   }
 
@@ -377,6 +470,9 @@ ${skillList}
       if (this.skillsService) {
         await this.injectSkillsInfo(this.skillsService);
       }
+      if (this.workflowService) {
+        await this.injectWorkflowsInfo(this.workflowService);
+      }
 
       // Track task start
       void analytics.trackTaskStart(this.context.taskId);
@@ -414,14 +510,25 @@ ${skillList}
           const plannerRun = await this.runPlanner();
           latestPlanOutput = plannerRun.planOutput;
           shouldReadBrowserState = plannerRun.shouldReadBrowserState;
+          if (!latestPlanOutput) {
+            continue;
+          }
 
           // 若 Planner 主动提出要问用户，弹窗等回应；用户回应后会作为新的 HumanMessage 注入
           // 下一轮的 message history，让 Planner 在下次迭代里能基于回答继续。
-          // 自主模式下：忽略 Planner 的 ask_user 请求，继续执行（不弹窗）
+          // 自主模式下：将 ask_user 转换为 done=true + needs_clarification，不再盲目继续
           if (latestPlanOutput?.result?.ask_user) {
             if (this.generalSettings?.autonomousMode) {
-              logger.info('[autonomous] Planner asked user but autonomous mode is on — ignoring, continuing');
-              // 自主模式下不弹窗，继续后续规划
+              logger.info('[autonomous] Planner asked user but autonomous mode is on — marking as needs_clarification');
+              // 自主模式下将 ask_user 请求转换为明确的完成状态，需要用户澄清
+              latestPlanOutput.result.done = true;
+              latestPlanOutput.result.done_reason = 'needs_clarification';
+              latestPlanOutput.result.final_answer = `需要您的澄清：${latestPlanOutput.result.ask_user.question}`;
+              latestPlanOutput.result.next_steps = '';
+              // 检查任务完成（实际是等待澄清）
+              if (this.checkTaskCompletion(latestPlanOutput)) {
+                break;
+              }
             } else {
               const handled = await this.handlePlannerAskUser(latestPlanOutput.result.ask_user);
               if (handled === 'abort') {
@@ -453,8 +560,9 @@ ${skillList}
       const isCompleted = navigatorCompleted || latestPlanOutput?.result?.done === true;
 
       if (isCompleted) {
-        // Emit final answer if available, otherwise use task ID
-        const finalMessage = this.context.finalAnswer || this.context.taskId;
+        // finalAnswer 为空时退回一句通用完成语。原来退回的是 taskId —— 那是个内部
+        // 标识符，直接显示在对话流里对用户毫无意义。
+        const finalMessage = this.context.finalAnswer || t('exec_task_ok');
         this.context.emitEvent(Actors.SYSTEM, ExecutionState.TASK_OK, finalMessage);
 
         // Track task completion
@@ -529,6 +637,36 @@ ${skillList}
       const planOutput = await this.planner.execute();
       if (planOutput.result) {
         this.context.messageManager.addPlan(JSON.stringify(planOutput.result), positionForPlan);
+
+        // 检测 observation 相似度，防止无限循环
+        const observation = planOutput.result.observation || '';
+        if (observation.trim()) {
+          this.context.recentObservations.push({
+            observation: observation.trim(),
+            step: this.context.nSteps,
+          });
+
+          // 只保留最近 5 次
+          if (this.context.recentObservations.length > 5) {
+            this.context.recentObservations = this.context.recentObservations.slice(-5);
+          }
+
+          // 检查最近 3 次是否相似
+          if (this.context.recentObservations.length >= 3) {
+            const recent3 = this.context.recentObservations.slice(-3);
+            const isSimilar = this.checkObservationSimilarity(recent3.map(r => r.observation));
+
+            if (isSimilar) {
+              const warningMsg = new HumanMessage({
+                content: `[System warning] You've made similar observations 3 times in a row (steps ${recent3.map(r => r.step).join(', ')}). Consider a different approach or mark the task as blocked if you cannot make progress.`,
+              });
+              this.context.messageManager.addMessageWithTokens(warningMsg, 'system_warning');
+              logger.warning(
+                `[planner] loop detected - similar observations at steps: ${recent3.map(r => r.step).join(', ')}`,
+              );
+            }
+          }
+        }
       }
       return { planOutput, shouldReadBrowserState };
     } catch (error) {
@@ -543,6 +681,23 @@ ${skillList}
       ) {
         throw error;
       }
+      if (error instanceof ResponseParseError) {
+        context.consecutiveFailures++;
+        const errorMessage = error.message || 'Failed to parse planner output';
+        const isFinalAttempt = context.consecutiveFailures >= context.options.maxFailures;
+        logger.warning(
+          `[planner] parse failed (attempt ${context.consecutiveFailures}/${context.options.maxFailures}): ${errorMessage}`,
+        );
+        if (isFinalAttempt) {
+          this.context.emitEvent(
+            Actors.PLANNER,
+            ExecutionState.STEP_FAIL,
+            `Planning failed after ${context.options.maxFailures} parse attempts: ${errorMessage}`,
+          );
+          throw new MaxFailuresReachedError(errorMessage);
+        }
+        return { planOutput: null, shouldReadBrowserState: true };
+      }
       context.consecutiveFailures++;
       logger.error(`Failed to execute planner: ${error}`);
       if (context.consecutiveFailures >= context.options.maxFailures) {
@@ -555,6 +710,12 @@ ${skillList}
   private async shouldReadCurrentPage(): Promise<boolean> {
     const task = this.tasks[this.tasks.length - 1] || '';
     if (!task.trim()) return false;
+
+    const cached = this.browserStateDecisionCache.get(task);
+    if (cached !== undefined) {
+      logger.info(`[planner] browser-state decision served from cache: ${cached ? 'yes' : 'no'}`);
+      return cached;
+    }
 
     const decisionPrompt = [
       'Decide whether the next planning pass needs live current page/browser state.',
@@ -573,7 +734,9 @@ ${skillList}
         signal: this.context.controller.signal,
       });
       const rawContent = this.extractRawModelContent(response);
-      return this.parseBrowserStateDecision(rawContent, response);
+      const decision = this.parseBrowserStateDecision(rawContent, response);
+      this.browserStateDecisionCache.set(task, decision);
+      return decision;
     } catch (error) {
       logger.warning('[planner] browser-state decision failed, defaulting to yes:', error);
       return true;
@@ -648,6 +811,12 @@ ${skillList}
       }
       context.consecutiveFailures = 0;
       if (navOutput.result?.done) {
+        // Navigator 直接 done 时 planner 不会再跑，finalAnswer 只能从这里拿 —— 否则
+        // TASK_OK 会退化成 taskId，用户看不到 done 里的内容。
+        // 不覆盖 planner 已给出的 final_answer（planner 的结论经过校验，更可信）。
+        if (navOutput.result.finalAnswer && !context.finalAnswer) {
+          context.finalAnswer = navOutput.result.finalAnswer;
+        }
         return true;
       }
     } catch (error) {
@@ -661,6 +830,23 @@ ${skillList}
         error instanceof ExtensionConflictError
       ) {
         throw error;
+      }
+      if (error instanceof ResponseParseError) {
+        context.consecutiveFailures++;
+        const errorMessage = error.message || 'Failed to parse navigator output';
+        const isFinalAttempt = context.consecutiveFailures >= context.options.maxFailures;
+        logger.warning(
+          `[navigator] parse failed (attempt ${context.consecutiveFailures}/${context.options.maxFailures}): ${errorMessage}`,
+        );
+        if (isFinalAttempt) {
+          this.context.emitEvent(
+            Actors.NAVIGATOR,
+            ExecutionState.STEP_FAIL,
+            `Navigation failed after ${context.options.maxFailures} parse attempts: ${errorMessage}`,
+          );
+          throw new MaxFailuresReachedError(errorMessage);
+        }
+        return false;
       }
       context.consecutiveFailures++;
       logger.error(`Failed to execute step: ${error}`);
@@ -740,6 +926,55 @@ ${skillList}
   }
 
   /**
+   * 检查最近 3 次 observation 是否相似，用于检测 Planner 陷入循环。
+   * 简单策略：任意两个 observation 之间如果有 70% 以上的字符重叠，视为相似。
+   */
+  private checkObservationSimilarity(observations: string[]): boolean {
+    if (observations.length < 3) return false;
+
+    const normalize = (s: string) => s.toLowerCase().replace(/\s+/g, ' ').trim();
+    const normalized = observations.map(normalize);
+
+    // 检查任意两个是否相似
+    for (let i = 0; i < normalized.length; i++) {
+      for (let j = i + 1; j < normalized.length; j++) {
+        const a = normalized[i];
+        const b = normalized[j];
+
+        // 简单相似度：计算较短字符串在较长字符串中的包含度
+        const [shorter, longer] = a.length < b.length ? [a, b] : [b, a];
+        if (longer.includes(shorter)) {
+          return true;
+        }
+
+        // 或者计算编辑距离的相似度
+        const similarity = this.calculateStringSimilarity(a, b);
+        if (similarity >= 0.7) {
+          return true;
+        }
+      }
+    }
+
+    return false;
+  }
+
+  /**
+   * 计算两个字符串的相似度（基于最长公共子序列）。
+   * 返回 0-1 之间的值，1 表示完全相同。
+   */
+  private calculateStringSimilarity(a: string, b: string): number {
+    if (a === b) return 1;
+    if (a.length === 0 || b.length === 0) return 0;
+
+    // 使用简单的字符匹配率
+    const setA = new Set(a.split(' '));
+    const setB = new Set(b.split(' '));
+    const intersection = new Set([...setA].filter(x => setB.has(x)));
+
+    return (2 * intersection.size) / (setA.size + setB.size);
+  }
+
+  /**
    * 任务失败前发出诊断事件（TASK_FAIL_DIAGNOSIS）。
    *
    *  - 调 navigator LLM 生成 summary + 3 条建议；超时/失败/无 history 则静默退出
@@ -786,7 +1021,7 @@ ${skillList}
    * 返回 'abort' 表示用户选了"终止任务"，调用方应跳出主循环
    */
   private async handlePlannerAskUser(ask: NonNullable<PlannerOutput['ask_user']>): Promise<'continue' | 'abort'> {
-    const requestId = crypto.randomUUID();
+    const requestId = ask.id || crypto.randomUUID();
     const payload: AskUserPayload = {
       requestId,
       source: 'planner',
@@ -804,12 +1039,19 @@ ${skillList}
     } finally {
       await this.context.resume();
     }
+    if (resp.pickedSelector || resp.pickedXpath) {
+      this.context.pendingPickedHints.push({
+        purpose: ask.question || 'User picked element',
+        selector: resp.pickedSelector,
+        stableSelector: resp.pickedStableSelector,
+        xpath: resp.pickedXpath,
+        textContent: resp.pickedText,
+      });
+      this.context.skipNextElementGateForPickedHint = true;
+    }
     const summary = summarizeClarifyResponse(resp);
-    // 注入消息历史，让下一轮 Planner 看到用户的回答
-    this.context.messageManager.addMessageWithTokens(
-      new HumanMessage({ content: `[User clarification] ${summary}` }),
-      'clarify',
-    );
+    // 使用新的追踪方法，带上请求 ID 和问题
+    this.context.messageManager.addClarification(requestId, summary, ask.question);
     this.context.emitEvent(Actors.PLANNER, ExecutionState.ASK_USER_RESOLVED, summary);
     if (resp.abortTask) {
       await this.context.stop();

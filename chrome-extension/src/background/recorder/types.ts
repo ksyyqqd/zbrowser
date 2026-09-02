@@ -196,6 +196,11 @@ export interface GeneratedSkill {
   id: string;
   name: string;
   description: string;
+  /**
+   * 通用文本格式的正文：把录制的步骤渲染成可读、可改的编号清单。
+   * steps 同时保留（workflow 转换要用），但注入给 LLM 的是这份文本。
+   */
+  instructions: string;
   category: 'automation';
   parameters: Array<{
     name: string;

@@ -1,17 +1,24 @@
 /* eslint-disable react/prop-types */
 import { useState, useRef, useEffect } from 'react';
-import { FaTrash, FaPen, FaCheck, FaTimes } from 'react-icons/fa';
+import { FaTrash, FaPen, FaCheck, FaTimes, FaPlay } from 'react-icons/fa';
 import { t } from '@extension/i18n';
 
 interface Bookmark {
   id: number;
   title: string;
   content: string;
+  /** 有值表示这是工作流书签：点击直接执行，而不是把文本填进输入框。 */
+  workflowId?: string;
 }
 
 interface BookmarkListProps {
   bookmarks: Bookmark[];
   onBookmarkSelect: (content: string) => void;
+  /**
+   * 点击工作流书签时调用。不传时工作流书签退化成普通书签（点击填入说明文字），
+   * 这样两个渲染点里只有需要执行能力的那个必须接线。
+   */
+  onWorkflowExecute?: (workflowId: string) => void;
   onBookmarkUpdateTitle?: (id: number, title: string) => void;
   onBookmarkDelete?: (id: number) => void;
   onBookmarkReorder?: (draggedId: number, targetId: number) => void;
@@ -21,6 +28,7 @@ interface BookmarkListProps {
 const BookmarkList: React.FC<BookmarkListProps> = ({
   bookmarks,
   onBookmarkSelect,
+  onWorkflowExecute,
   onBookmarkUpdateTitle,
   onBookmarkDelete,
   onBookmarkReorder,
@@ -40,6 +48,15 @@ const BookmarkList: React.FC<BookmarkListProps> = ({
     setEditingId(null);
   };
   const handleCancelEdit = () => setEditingId(null);
+
+  // 工作流书签点击 = 一键执行；没接执行回调时退回填入文本，不做静默无响应的按钮
+  const handleActivate = (b: Bookmark) => {
+    if (b.workflowId && onWorkflowExecute) {
+      onWorkflowExecute(b.workflowId);
+      return;
+    }
+    onBookmarkSelect(b.content);
+  };
 
   const handleDragStart = (e: React.DragEvent, id: number) => {
     setDraggedId(id);
@@ -94,13 +111,21 @@ const BookmarkList: React.FC<BookmarkListProps> = ({
             ) : (
               <button
                 type="button"
-                onClick={() => onBookmarkSelect(bookmark.content)}
+                onClick={() => handleActivate(bookmark)}
                 onKeyDown={e => {
-                  if (e.key === 'Enter' || e.key === ' ') onBookmarkSelect(bookmark.content);
+                  if (e.key === 'Enter' || e.key === ' ') handleActivate(bookmark);
                 }}
+                title={bookmark.workflowId ? t('chat_bookmarks_runWorkflow', [bookmark.title]) : bookmark.content}
                 className="relative z-[1] w-full text-left py-0.5">
-                <div className="truncate pr-8 text-sm font-medium" style={{ color: `var(--text-primary)` }}>
-                  {bookmark.title}
+                <div
+                  className="flex min-w-0 items-center gap-1.5 pr-8 text-sm font-medium"
+                  style={{ color: `var(--text-primary)` }}>
+                  {/* 工作流书签点了就直接跑，和「填入输入框」的提示词书签行为不同，
+                      必须在点之前就能看出来 */}
+                  {bookmark.workflowId && (
+                    <FaPlay size={9} className="shrink-0" style={{ color: `var(--accent-color)` }} aria-hidden="true" />
+                  )}
+                  <span className="truncate">{bookmark.title}</span>
                 </div>
               </button>
             )}

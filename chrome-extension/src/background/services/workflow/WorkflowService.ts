@@ -9,8 +9,9 @@ import {
   type ActionResult,
   type AIResult,
 } from '@extension/workflow';
-import { userWorkflowsStore } from '@extension/storage';
+import { userWorkflowsStore, isWorkflowReviewed, type UserWorkflowConfig } from '@extension/storage';
 import { createLogger } from '../../log';
+import type { WorkflowSummary } from './types';
 
 const logger = createLogger('WorkflowService');
 
@@ -276,4 +277,52 @@ export class WorkflowService {
   validateStructure(workflow: Workflow): { valid: boolean; errors: string[] } {
     return this.registry.validateStructure(workflow);
   }
+
+  /**
+   * AI 侧可见的工作流清单。
+   *
+   * 包含未确认的工作流，`reviewed` 字段照实带出去。这里曾经过滤掉未确认的，理由是
+   * 「别让 AI 回头执行自己刚建的东西」；但 AI 已经不能执行工作流了，而它确实需要能
+   * 看到并接着改自己刚创建的那个 —— 藏起来只会让它以为创建失败了。
+   *
+   * 执行侧的门禁不在这里，在 `handleExecuteWorkflow`（唯一的执行入口）。
+   */
+  async listSummariesForAI(): Promise<WorkflowSummary[]> {
+    const workflows = await userWorkflowsStore.getAllWorkflows();
+    return workflows.map(toWorkflowSummary);
+  }
+
+  /** 单个工作流的摘要。未确认的也返回 —— 见 `listSummariesForAI` 的理由。 */
+  async getSummaryForAI(workflowId: string): Promise<WorkflowSummary | undefined> {
+    const workflow = await userWorkflowsStore.getWorkflow(workflowId);
+    if (!workflow) {
+      return undefined;
+    }
+    return toWorkflowSummary(workflow);
+  }
+}
+
+/**
+ * 把存储态工作流裁剪成给 AI 看的摘要。
+ *
+ * 剔掉 start / end / note 三类节点：前两个每个工作流都有、没有信息量，note 是画布上
+ * 给人看的批注，不参与执行。
+ */
+function toWorkflowSummary(workflow: UserWorkflowConfig): WorkflowSummary {
+  return {
+    id: workflow.id,
+    name: workflow.name,
+    description: workflow.description ?? '',
+    variables: (workflow.variables ?? []).map(v => ({
+      name: v.name,
+      type: String(v.type ?? 'string'),
+      required: v.required ?? false,
+      description: v.description,
+      hasDefault: v.default !== undefined,
+    })),
+    steps: (workflow.nodes ?? [])
+      .filter(n => n.type !== 'start' && n.type !== 'end' && n.type !== 'note')
+      .map(n => n.name || n.type),
+    reviewed: isWorkflowReviewed(workflow),
+  };
 }

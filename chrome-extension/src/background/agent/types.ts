@@ -9,6 +9,15 @@ import { type Actors, type ExecutionState, AgentEvent, type ClarifyResponse } fr
 import { AgentStepHistory } from './history';
 import type { ToolExecutionResult, MCPTool } from '@extension/mcp-client';
 import type { Skill, SkillExecutionResult } from '@extension/skills';
+import type { SkillCreateInput, SkillCreateResult } from '../services/skills/createFromAI';
+import type { OrchestrationFrame } from '../services/workflow/orchestrationDepth';
+import type {
+  WorkflowCreateInput,
+  WorkflowCreateResult,
+  WorkflowSummary,
+  WorkflowUpdateInput,
+  WorkflowUpdateResult,
+} from '../services/workflow/types';
 
 export interface AgentOptions {
   maxSteps: number;
@@ -21,6 +30,7 @@ export interface AgentOptions {
   useVisionForPlanner: boolean;
   includeAttributes: string[];
   planningInterval: number;
+  autonomousMode: boolean;
 }
 
 export const DEFAULT_AGENT_OPTIONS: AgentOptions = {
@@ -34,6 +44,7 @@ export const DEFAULT_AGENT_OPTIONS: AgentOptions = {
   useVisionForPlanner: true,
   includeAttributes: DEFAULT_INCLUDE_ATTRIBUTES,
   planningInterval: 3,
+  autonomousMode: false,
 };
 
 export class AgentContext {
@@ -45,6 +56,7 @@ export class AgentContext {
   options: AgentOptions;
   paused: boolean;
   stopped: boolean;
+  skipRequested: boolean;
   consecutiveFailures: number;
   nSteps: number;
   stepInfo: AgentStepInfo | null;
@@ -69,6 +81,46 @@ export class AgentContext {
   executeSkill?: (skillId: string, params: Record<string, unknown>, mode?: string) => Promise<SkillExecutionResult>;
   listSkills?: (category?: string) => Promise<Skill[]>;
   getSkillInfo?: (skillId: string) => Promise<Skill | undefined>;
+  /** 创建 skill。第二个参数是本轮已创建数量，见 `skillsCreatedThisTask`。 */
+  createSkill?: (input: SkillCreateInput, createdCount: number) => Promise<SkillCreateResult>;
+
+  /** 本轮任务中 AI 已创建的 skill 数量，上限见 `MAX_SKILL_CREATES_PER_TASK`。 */
+  skillsCreatedThisTask = 0;
+
+  // Workflow service methods (optional - set by WorkflowService wiring)
+  // 注意这里没有 executeWorkflow：AI 只创建和修改工作流，执行入口只有用户在 UI 上点。
+  listWorkflows?: () => Promise<WorkflowSummary[]>;
+  getWorkflowSummary?: (workflowId: string) => Promise<WorkflowSummary | undefined>;
+  /**
+   * 创建工作流。第二个参数是本轮已创建数量，由 builder 从 `workflowsCreatedThisTask`
+   * 读出来传入 —— 计数放在 context 上而不是 service 里，因为「一轮任务」的边界就是
+   * 一个 Executor 的生命周期。
+   */
+  createWorkflow?: (input: WorkflowCreateInput, createdCount: number) => Promise<WorkflowCreateResult>;
+  /** 修改工作流。计数同上，但和创建分开计 —— 见 `MAX_WORKFLOW_UPDATES_PER_TASK`。 */
+  updateWorkflow?: (input: WorkflowUpdateInput, updatedCount: number) => Promise<WorkflowUpdateResult>;
+
+  /**
+   * 本轮任务中 AI 已创建的工作流数量。用于挡住「卡住了就再建一个」的打转行为，
+   * 上限见 `MAX_WORKFLOW_CREATES_PER_TASK`。
+   */
+  workflowsCreatedThisTask = 0;
+
+  /** 本轮任务中 AI 已修改的次数，上限见 `MAX_WORKFLOW_UPDATES_PER_TASK`。 */
+  workflowsUpdatedThisTask = 0;
+
+  /**
+   * 本 Executor 在编排链上的位置。
+   *
+   * 顶层用户对话是空链；被工作流的 ai 节点唤起的 Executor 会拿到调用方的链。
+   * 深度上限和环检测用它 —— 见 `services/workflow/orchestrationDepth.ts` 的文件头注释：
+   * 跨 AI 边界的递归 `WorkflowExecutor._subflowStack` 追不到。
+   *
+   * AI 已经不能触发工作流，所以链目前只能由 subflow / ai 节点自己长出来；保留是因为
+   * 「工作流 → ai 节点 → 新 Executor」这条边界依然存在，而 handleExecuteWorkflow 是
+   * 唯一的执行入口，守卫放在那里对所有来路都有效。
+   */
+  orchestrationStack: OrchestrationFrame[] = [];
 
   // 用户澄清等待回调表：ask_user action / planner.ask_user 调用时挂一项，
   // background 端收到 side-panel 的回应后路由到这里 resolve 对应 promise。
@@ -81,9 +133,15 @@ export class AgentContext {
   pendingPickedHints: Array<{
     purpose: string;
     selector?: string;
+    /** 基于 data-testid / aria-label 等稳定属性的备用选择器（selector 依赖易变的哈希 class） */
+    stableSelector?: string;
     xpath?: string;
     textContent?: string;
   }> = [];
+
+  // Set after the user picks an element from ask_user. The next element action
+  // should be attempted once instead of immediately re-opening the same gate.
+  skipNextElementGateForPickedHint = false;
 
   /**
    * 当前 LLM 决策中声明的元素用途（来自 current_state.element_purpose）。
@@ -92,6 +150,13 @@ export class AgentContext {
    * 每次 Navigator step 结束清空。
    */
   currentElementPurpose: string = '';
+
+  /**
+   * Planner 最近 N 次的 observation 记录，用于检测循环。
+   * 存储格式：[{ observation: string, step: number }, ...]
+   * 最多保留最近 5 次，用于相似度比较。
+   */
+  recentObservations: Array<{ observation: string; step: number }> = [];
 
   constructor(
     taskId: string,
@@ -121,6 +186,7 @@ export class AgentContext {
 
     this.paused = false;
     this.stopped = false;
+    this.skipRequested = false;
     this.nSteps = 0;
     this.consecutiveFailures = 0;
     this.stepInfo = null;

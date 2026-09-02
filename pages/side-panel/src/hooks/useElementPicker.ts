@@ -17,10 +17,30 @@ import { useState, useCallback } from 'react';
 
 export type PickerPhase = 'idle' | 'picking' | 'picked' | 'error';
 
+/** 被拾取元素的语义证据（disabled / aria-label 等），由 background 的 picker 一并回传 */
+export type PickedEvidence = {
+  tagName?: string;
+  role?: string;
+  ariaLabel?: string;
+  title?: string;
+  placeholder?: string;
+  dataTestId?: string;
+  disabled?: boolean;
+};
+
+export type PickedElement = {
+  selector?: string;
+  /** 基于 data-testid / aria-label 等稳定属性的备用选择器；主选择器依赖构建期哈希 class 时可用 */
+  stableSelector?: string;
+  xpath?: string;
+  text?: string;
+  evidence?: PickedEvidence;
+};
+
 export type PickerState =
   | { phase: 'idle' }
   | { phase: 'picking' }
-  | { phase: 'picked'; selector?: string; xpath?: string; text?: string }
+  | ({ phase: 'picked' } & PickedElement)
   | { phase: 'error'; message: string };
 
 export interface UseElementPickerResult {
@@ -60,8 +80,10 @@ export function useElementPicker(defaultTabId?: number | null): UseElementPicker
       }
       setState({ phase: 'picking' });
       try {
-        const result: { success: boolean; selector?: string; xpath?: string; text?: string; error?: string } =
-          await chrome.runtime.sendMessage({ type: 'pick_element_start', tabId });
+        const result: { success: boolean; error?: string } & PickedElement = await chrome.runtime.sendMessage({
+          type: 'pick_element_start',
+          tabId,
+        });
         if (!result || !result.success) {
           if (result?.error === 'cancelled') {
             setState({ phase: 'idle' });
@@ -73,8 +95,10 @@ export function useElementPicker(defaultTabId?: number | null): UseElementPicker
         setState({
           phase: 'picked',
           selector: result.selector,
+          stableSelector: result.stableSelector,
           xpath: result.xpath,
           text: result.text,
+          evidence: result.evidence,
         });
       } catch (e) {
         setState({ phase: 'error', message: e instanceof Error ? e.message : '拾取失败' });

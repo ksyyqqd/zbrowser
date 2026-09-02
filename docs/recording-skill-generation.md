@@ -1035,7 +1035,9 @@ interface GeneratedSkill {
     required: boolean;
     default?: string;
   }>;
-  steps: Array<{                   // 转换后的步骤
+  instructions: string;            // 正文:把 steps 渲染成编号清单(含 selector/xpath/url)
+                                   // 这是执行时真正注入给 LLM 的内容
+  steps: Array<{                   // 转换后的步骤(保留,workflow 互转要读)
     id: string;
     action: string;
     description?: string;
@@ -1045,6 +1047,11 @@ interface GeneratedSkill {
   executionMode: 'expanded';       // 默认展开模式
 }
 ```
+
+录制产物同时带 `instructions` 和 `steps`:正文给 LLM 读,steps 保留精确 locator 供
+workflow 转换使用。正文里必须写上 `selector` / `xpath` / `url` —— 只留一句描述的话
+LLM 只能重新猜元素,录制就白做了。AI 润色改完 step 描述后会重新渲染一遍 `instructions`,
+否则正文会停留在润色前的措辞。
 
 ### SkillStep 示例
 

@@ -1,46 +1,36 @@
 import { useEffect, useState } from 'react';
 import '@src/Options.css';
 import { Button } from '@extension/ui';
-import { withErrorBoundary, withSuspense } from '@extension/shared';
+import { withErrorBoundary, withSuspense, MCP_ENABLED } from '@extension/shared';
 import { t } from '@extension/i18n';
-import { FiCode, FiCpu, FiImage, FiServer, FiSettings, FiShare2 } from 'react-icons/fi';
+import { FiCode, FiCpu, FiServer, FiSettings, FiShare2 } from 'react-icons/fi';
 import { LuBrain } from 'react-icons/lu';
 import { AnalyticsSettings } from './components/AnalyticsSettings';
 import { ElementMemorySettings } from './components/ElementMemorySettings';
 import { FirewallSettings } from './components/FirewallSettings';
 import { GeneralSettings } from './components/GeneralSettings';
-import { ImageProvidersSection } from './components/ImageProvidersSection';
 import { MCPSettings } from './components/MCPSettings';
 import { ModelSettings } from './components/ModelSettings';
 import { SkillSettings } from './components/SkillSettings';
 import WorkflowSettings from './components/WorkflowSettings';
 
-type TabTypes =
-  | 'general'
-  | 'models'
-  | 'mcp'
-  | 'skills'
-  | 'workflows'
-  | 'firewall'
-  | 'analytics'
-  | 'help'
-  | 'images'
-  | 'memory';
+type TabTypes = 'general' | 'models' | 'mcp' | 'skills' | 'workflows' | 'firewall' | 'analytics' | 'help' | 'memory';
 
 const TABS: { id: TabTypes; icon: React.ComponentType<{ className?: string }>; label: string }[] = [
   { id: 'general', icon: FiSettings, label: t('options_tabs_general') },
   { id: 'models', icon: FiCpu, label: t('options_tabs_models') },
-  { id: 'images', icon: FiImage, label: t('options_tabs_images') },
   { id: 'skills', icon: FiCode, label: t('options_tabs_skills') },
   { id: 'workflows', icon: FiShare2, label: t('options_tabs_workflows') },
   { id: 'memory', icon: LuBrain, label: t('options_tabs_memory') },
-  { id: 'mcp', icon: FiServer, label: t('options_tabs_mcp') },
+  // MCP 屏蔽期间不展示入口：配置了也连不上，摆着只会误导
+  ...(MCP_ENABLED ? [{ id: 'mcp' as TabTypes, icon: FiServer, label: t('options_tabs_mcp') }] : []),
 ];
 
 const TAB_SECTIONS: { label: string; tabIds: TabTypes[] }[] = [
-  { label: t('options_sections_common'), tabIds: ['general', 'models', 'images'] },
+  { label: t('options_sections_common'), tabIds: ['general', 'models'] },
   { label: t('options_sections_automation'), tabIds: ['skills', 'workflows', 'memory'] },
-  { label: t('options_sections_advanced'), tabIds: ['mcp'] },
+  // 高级分组当前只有 MCP 一项，MCP 屏蔽时整个分组不渲染
+  ...(MCP_ENABLED ? [{ label: t('options_sections_advanced'), tabIds: ['mcp' as TabTypes] }] : []),
 ];
 
 const Options = () => {
@@ -50,8 +40,8 @@ const Options = () => {
     const validTabs: TabTypes[] = [
       'general',
       'models',
-      'images',
-      'mcp',
+      // MCP 屏蔽时不接受 ?tab=mcp 深链，否则能绕过隐藏的侧栏入口直接打开设置面板
+      ...(MCP_ENABLED ? (['mcp'] as TabTypes[]) : []),
       'skills',
       'workflows',
       'memory',
@@ -127,10 +117,8 @@ const Options = () => {
         return <GeneralSettings isDarkMode={isDarkMode} />;
       case 'models':
         return <ModelSettings isDarkMode={isDarkMode} />;
-      case 'images':
-        return <ImageProvidersSection isDarkMode={isDarkMode} />;
       case 'mcp':
-        return <MCPSettings isDarkMode={isDarkMode} />;
+        return MCP_ENABLED ? <MCPSettings isDarkMode={isDarkMode} /> : null;
       case 'skills':
         return <SkillSettings isDarkMode={isDarkMode} />;
       case 'workflows':

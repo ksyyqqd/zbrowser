@@ -120,31 +120,283 @@ export function extractJsonFromModelOutput(content: string): Record<string, unkn
       throw new Error('Python tag structure does not contain valid parameters');
     }
 
-    // If content is wrapped in code blocks, extract just the JSON part
-    if (processedContent.includes('```')) {
-      // Find the JSON content between code blocks
-      const parts = processedContent.split('```');
-      processedContent = parts[1];
-
-      // Remove language identifier if present (e.g., 'json\n')
-      if (processedContent.startsWith('json')) {
-        processedContent = processedContent.substring(4).trim();
-      }
+    const candidates = collectJsonCandidates(processedContent);
+    if (candidates.length > 0) {
+      return candidates[0];
     }
-
-    // Parse the cleaned content
-    try {
-      return JSON.parse(processedContent);
-    } catch {
-      const balanced = extractBalancedJsonSubstring(processedContent);
-      if (balanced) {
-        return JSON.parse(balanced);
-      }
-      throw new Error('Could not parse JSON content');
-    }
+    throw new Error('Could not parse JSON content');
   } catch (e) {
     throw new ResponseParseError(`Could not manually extract JSON from model output`);
   }
+}
+
+/**
+ * Extract every plausible JSON object from model output, most likely first.
+ *
+ * Unlike {@link extractJsonFromModelOutput}, this returns all candidates so the caller can
+ * validate each one against a schema and pick the first that fits. Models frequently emit
+ * prose containing braces before the real payload, or wrap the payload in a code fence that
+ * is not the first fenced block, in which case the first parseable object is the wrong one.
+ * @param content - The string content that potentially contains JSON.
+ * @returns Parsed JSON objects in priority order; empty when nothing parseable is found.
+ */
+export function extractJsonCandidatesFromModelOutput(content: string): Record<string, unknown>[] {
+  try {
+    const dsmlToolCall = extractDsmlToolCall(content);
+    if (dsmlToolCall) {
+      return [dsmlToolCall];
+    }
+  } catch {
+    // fall through to the generic scan
+  }
+
+  try {
+    return collectJsonCandidates(content);
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Collect parseable JSON objects from content, preferring fenced code blocks (where models are
+ * instructed to put the payload) over bare content, and whole-content parses over substrings.
+ */
+function collectJsonCandidates(content: string): Record<string, unknown>[] {
+  const candidates: Record<string, unknown>[] = [];
+  const seen = new Set<string>();
+
+  const addCandidate = (value: Record<string, unknown> | null) => {
+    if (!value) return;
+    const key = safeStableKey(value);
+    if (key !== null && seen.has(key)) return;
+    if (key !== null) seen.add(key);
+    candidates.push(value);
+  };
+
+  for (const block of extractFencedBlocks(content)) {
+    addCandidate(parseJsonObject(block));
+  }
+
+  addCandidate(parseJsonObject(content));
+
+  for (const substring of extractBalancedJsonSubstrings(content)) {
+    addCandidate(parseJsonObject(substring));
+  }
+
+  return candidates;
+}
+
+function safeStableKey(value: unknown): string | null {
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Return the inner text of each fenced code block, with any language tag (```json) stripped.
+ * Handles an unterminated trailing fence by treating the remainder as a block.
+ */
+function extractFencedBlocks(content: string): string[] {
+  if (!content.includes('```')) return [];
+
+  const parts = content.split('```');
+  const blocks: string[] = [];
+
+  // With balanced fences the inner text always lands on an odd index; an unterminated
+  // trailing fence puts its remainder on the final odd index, which is also covered.
+  for (let i = 1; i < parts.length; i += 2) {
+    const block = (parts[i] ?? '').replace(/^[a-zA-Z0-9_+-]*[ \t]*\r?\n/, '').trim();
+    if (block) blocks.push(block);
+  }
+
+  return blocks;
+}
+
+/**
+ * Parse content as a JSON object/array, returning null instead of throwing.
+ * Primitives are rejected because callers always expect a keyed payload.
+ */
+function parseJsonObject(content: string): Record<string, unknown> | null {
+  const trimmed = content.trim();
+  if (!trimmed) return null;
+
+  const attempt = (text: string): Record<string, unknown> | null => {
+    try {
+      const parsed = JSON.parse(text);
+      if (parsed !== null && typeof parsed === 'object') {
+        return parsed as Record<string, unknown>;
+      }
+    } catch {
+      // not a bare JSON document
+    }
+    return null;
+  };
+
+  const direct = attempt(trimmed);
+  if (direct) return direct;
+
+  // 模型（尤其中文输出）经常在字符串值里直接用未转义的 ASCII 双引号引述页面文字，
+  // 例如 "...输入了"今日天气"，页面标题为"DeepSeek""。这会提前终止字符串，让整个
+  // 对象变成非法 JSON —— 括号仍然平衡，所以候选能被圈出来，但 JSON.parse 必然失败，
+  // 最终报成 "no JSON object found"。这里做一次尽力修补后重试。
+  const repaired = repairUnescapedInnerQuotes(trimmed);
+  return repaired === trimmed ? null : attempt(repaired);
+}
+
+/**
+ * Escape double quotes that appear *inside* JSON string values without being escaped.
+ *
+ * A `"` is treated as the string's real terminator only when the next non-whitespace
+ * character is JSON-structural (`,` `:` `}` `]`) or the input ends; anything else means the
+ * model was quoting text and the quote must be escaped instead. Full-width Chinese
+ * punctuation (`，`、`。`) is deliberately *not* structural, which is exactly the case that
+ * breaks today.
+ *
+ * Best-effort only: it runs after a normal parse has already failed, so a wrong guess can
+ * turn one unparseable candidate into another unparseable candidate, never into a valid
+ * payload that means something different.
+ */
+export function repairUnescapedInnerQuotes(content: string): string {
+  const isStructuralAfterStringEnd = (char: string): boolean =>
+    char === ',' || char === ':' || char === '}' || char === ']';
+
+  let result = '';
+  let inString = false;
+  let escaped = false;
+
+  for (let i = 0; i < content.length; i++) {
+    const char = content[i];
+
+    if (escaped) {
+      result += char;
+      escaped = false;
+      continue;
+    }
+
+    if (char === '\\') {
+      result += char;
+      escaped = inString;
+      continue;
+    }
+
+    if (char !== '"') {
+      result += char;
+      continue;
+    }
+
+    if (!inString) {
+      inString = true;
+      result += char;
+      continue;
+    }
+
+    // Inside a string: decide whether this quote closes it or is quoted text.
+    let j = i + 1;
+    while (j < content.length && /\s/.test(content[j])) j++;
+
+    if (j >= content.length || isStructuralAfterStringEnd(content[j])) {
+      inString = false;
+      result += char;
+    } else {
+      result += '\\"';
+    }
+  }
+
+  return result;
+}
+
+/**
+ * Scan for balanced `{...}` substrings. Every `{` is tried as a start position so that prose
+ * or reasoning text containing stray braces before the payload does not defeat extraction.
+ */
+function extractBalancedJsonSubstrings(content: string, limit = 8): string[] {
+  const results: string[] = [];
+  let searchFrom = 0;
+
+  while (results.length < limit) {
+    const start = content.indexOf('{', searchFrom);
+    if (start < 0) break;
+
+    const balanced = scanBalancedObject(content, start);
+    if (balanced) {
+      results.push(balanced);
+      searchFrom = start + balanced.length;
+    } else {
+      searchFrom = start + 1;
+    }
+  }
+
+  // 响应在中途被切断时（网络中断、上游截断等），最外层括号永远不可能平衡：要么一个候选都
+  // 拿不到，要么只圈出内层的某个片段（缺 action 等关键字段）。这里补齐缺失的引号/括号，把
+  // 「已经产出那部分」也作为候选追加在末尾 —— 排在合法候选之后，交由 schema 校验挑出真正的
+  // 载荷。内容本就完整时该函数返回 null，因此不会给正常路径引入噪音。
+  const salvaged = closeTruncatedJsonObject(content);
+  if (salvaged) results.push(salvaged);
+
+  return results;
+}
+
+/**
+ * Best-effort repair of a JSON object cut off mid-emission.
+ *
+ * Closes an open string literal, drops a trailing incomplete key/value fragment, and appends
+ * the `}`/`]` still owed by the nesting stack. Returns null when there is nothing to salvage
+ * or the text was never truncated in the first place.
+ */
+export function closeTruncatedJsonObject(content: string): string | null {
+  const start = content.indexOf('{');
+  if (start < 0) return null;
+
+  const stack: string[] = [];
+  let inString = false;
+  let escaped = false;
+
+  for (let i = start; i < content.length; i++) {
+    const char = content[i];
+
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (char === '\\') {
+      escaped = inString;
+      continue;
+    }
+    if (char === '"') {
+      inString = !inString;
+      continue;
+    }
+    if (inString) continue;
+
+    if (char === '{' || char === '[') {
+      stack.push(char);
+    } else if (char === '}' || char === ']') {
+      stack.pop();
+    }
+  }
+
+  // Balanced and not mid-string: nothing was truncated, so this helper has no job.
+  if (stack.length === 0 && !inString) return null;
+
+  let body = content.slice(start);
+
+  if (inString) {
+    // Cut off inside a string value: terminate it where it stopped.
+    body += '"';
+  } else {
+    // Cut off between tokens: a dangling `,` or `"key":` would be a syntax error.
+    body = body.replace(/,\s*$/, '');
+    body = body.replace(/,?\s*"[^"]*"\s*:\s*$/, '');
+    body = body.replace(/,\s*$/, '');
+  }
+
+  for (let i = stack.length - 1; i >= 0; i--) {
+    body += stack[i] === '[' ? ']' : '}';
+  }
+
+  return body;
 }
 
 function extractDsmlToolCall(content: string): Record<string, unknown> | null {
@@ -184,6 +436,15 @@ function tryParseJsonValue(value: string): unknown {
 function extractBalancedJsonSubstring(content: string): string | null {
   const start = content.indexOf('{');
   if (start < 0) return null;
+  return scanBalancedObject(content, start);
+}
+
+/**
+ * Return the balanced `{...}` substring beginning at `start`, or null when braces never balance.
+ * String literals and escapes are tracked so braces inside strings do not affect nesting depth.
+ */
+function scanBalancedObject(content: string, start: number): string | null {
+  if (content[start] !== '{') return null;
 
   let depth = 0;
   let inString = false;

@@ -40,9 +40,9 @@ export function ElementRefPanel({ onPick, onClose }: ElementRefPanelProps) {
         const host = getHostnameFromUrl(active?.url);
         setHostname(host);
         if (host) {
-          const list = await elementHintsStore.getByHostname(host);
-          // 按 useCount 倒序 → 常用的在前
-          setHints([...list].sort((a, b) => b.useCount - a.useCount));
+          // getByHostname 已剔除过期项并按注入优先级排好序，这里不再另排 ——
+          // 面板里的顺序要和真正注入给 AI 的顺序一致，否则用户以为第一条会被优先用。
+          setHints(await elementHintsStore.getByHostname(host));
         }
       } catch {
         /* ignore */

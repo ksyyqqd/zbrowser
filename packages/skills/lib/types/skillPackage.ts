@@ -35,7 +35,8 @@ export interface SkillPackage {
     hasReferences: boolean;
     hasAssets: boolean;
     createdAt?: number;
-    source?: 'zip' | 'markdown' | 'json' | 'recording';
+    /** `ai_created` = 由 AI 在对话中通过 `skill_create` 生成。 */
+    source?: 'zip' | 'markdown' | 'json' | 'recording' | 'ai_created';
   };
 }
 
@@ -73,7 +74,7 @@ export const SkillPackageSchema = z.object({
       hasReferences: z.boolean().default(false),
       hasAssets: z.boolean().default(false),
       createdAt: z.number().optional(),
-      source: z.enum(['zip', 'markdown', 'json', 'recording']).optional(),
+      source: z.enum(['zip', 'markdown', 'json', 'recording', 'ai_created']).optional(),
     })
     .optional(),
 });

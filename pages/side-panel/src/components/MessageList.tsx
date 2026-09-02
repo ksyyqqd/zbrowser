@@ -48,48 +48,20 @@ export default memo(function MessageList({
 }: MessageListProps) {
   const [showSteps, setShowSteps] = useState(false);
   const [previewImage, setPreviewImage] = useState<{ base64: string; name?: string } | null>(null);
-  const [isStreamCollapsed, setIsStreamCollapsed] = useState(false);
-  const lastStreamKeyRef = useRef<string | null>(null);
-
-  useEffect(() => {
-    if (!liveStream) {
-      setIsStreamCollapsed(false);
-      lastStreamKeyRef.current = null;
-      return;
-    }
-
-    const streamKey = `${liveStream.actor}-${liveStream.timestamp}`;
-    const isNewStream = lastStreamKeyRef.current !== streamKey;
-
-    if (isNewStream) {
-      lastStreamKeyRef.current = streamKey;
-      setIsStreamCollapsed(false);
-      return;
-    }
-
-    if (liveStream.isCompleted) {
-      setIsStreamCollapsed(true);
-    } else {
-      setIsStreamCollapsed(false);
-    }
-  }, [liveStream]);
 
   const keyMessages = disableStepFiltering ? messages : messages.filter(m => !isExecutionStepMessage(m));
   const stepMessages = disableStepFiltering ? [] : messages.filter(m => isExecutionStepMessage(m));
   const latestStepMsg = stepMessages.length > 0 ? stepMessages[stepMessages.length - 1] : null;
   const displayMessages = showSteps ? messages : keyMessages;
 
+  // 原始流合并进「最新一条」预览里：输出中显示原始流文本，输出完切成 markdown。
+  // 以前是独立一个可折叠气泡，同一轮输出会先看到原始流、再在下面看到成稿的同一段内容。
+  const isStreaming = !!liveStream && !liveStream.isCompleted;
+  // 展开执行过程时最新一条已在列表里，只有还在流式输出时才需要额外顶一个预览。
+  const showLatestPreview = isStreaming || (!showSteps && !!latestStepMsg);
+
   return (
     <div className="max-w-full space-y-3">
-      {liveStream && (
-        <RawStreamBubble
-          liveStream={liveStream}
-          isDarkMode={isDarkMode}
-          isCollapsed={isStreamCollapsed}
-          onToggleCollapse={() => setIsStreamCollapsed(prev => !prev)}
-        />
-      )}
-
       {stepMessages.length > 0 && (
         <button
           onClick={() => setShowSteps(!showSteps)}
@@ -110,8 +82,13 @@ export default memo(function MessageList({
         </button>
       )}
 
-      {!showSteps && latestStepMsg && (
-        <LatestStepPreview message={latestStepMsg} isDarkMode={isDarkMode} onImagePreview={setPreviewImage} />
+      {showLatestPreview && (
+        <LatestStepPreview
+          message={latestStepMsg}
+          liveStream={isStreaming ? liveStream : null}
+          isDarkMode={isDarkMode}
+          onImagePreview={setPreviewImage}
+        />
       )}
 
       {displayMessages.map((message, index) => (
@@ -132,121 +109,6 @@ export default memo(function MessageList({
   );
 });
 
-function RawStreamBubble({
-  liveStream,
-  isDarkMode = false,
-  isCollapsed,
-  onToggleCollapse,
-}: {
-  liveStream: LiveStreamMessage;
-  isDarkMode?: boolean;
-  isCollapsed: boolean;
-  onToggleCollapse: () => void;
-}) {
-  const actor = getActorProfile(liveStream.actor);
-  const isEmpty = liveStream.content.trim().length === 0;
-  const contentRef = useRef<HTMLPreElement | null>(null);
-
-  useEffect(() => {
-    if (isCollapsed) return;
-    const el = contentRef.current;
-    if (!el) return;
-    el.scrollTop = el.scrollHeight;
-  }, [isCollapsed, liveStream.content]);
-
-  return (
-    <div
-      className={`flex max-w-full rounded-xl border px-3 py-2 ${isCollapsed ? 'items-center' : 'gap-3'}`}
-      style={{
-        borderColor: isDarkMode ? 'rgba(116,198,157,0.18)' : 'rgba(139,115,85,0.16)',
-        background: isDarkMode ? 'rgba(255,255,255,0.03)' : 'rgba(255,255,255,0.72)',
-        boxShadow: isDarkMode ? 'inset 0 0 0 1px rgba(116,198,157,0.04)' : 'inset 0 0 0 1px rgba(139,115,85,0.04)',
-      }}>
-      {!isCollapsed && (
-        <div
-          className="shrink-0 size-8 rounded-full overflow-hidden ring-1"
-          style={{
-            borderColor: isDarkMode ? 'rgba(116,198,157,0.22)' : 'rgba(139,115,85,0.25)',
-            background: actor.iconBackground || '#6B7280',
-          }}>
-          <img src={actor.icon} alt={actor.name} className="size-full object-cover" />
-        </div>
-      )}
-
-      <div className="min-w-0 flex-1">
-        <div className={`flex items-center justify-between gap-2 ${isCollapsed ? '' : 'mb-1'}`}>
-          <div className="min-w-0">
-            <div className="flex min-w-0 items-center gap-2">
-              <span className="truncate text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>
-                {actor.name}
-              </span>
-              <span
-                className="rounded-full px-2 py-0.5 text-[10px]"
-                style={{
-                  background: isDarkMode ? 'rgba(116,198,157,0.16)' : 'rgba(64,145,108,0.1)',
-                  color: isDarkMode ? '#95D5B2' : '#40916C',
-                }}>
-                原始流
-              </span>
-            </div>
-          </div>
-
-          <button
-            type="button"
-            onClick={onToggleCollapse}
-            className="inline-flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-xs transition-colors hover:bg-black/5"
-            style={{ color: isDarkMode ? '#95D5B2' : '#78716C' }}>
-            <FiChevronDown
-              size={14}
-              className={isCollapsed ? 'rotate-180 transition-transform' : 'transition-transform'}
-            />
-            <span>{isCollapsed ? '展开' : '收起'}</span>
-          </button>
-        </div>
-
-        {!isCollapsed && (
-          <div
-            className="mt-2 flex h-44 min-h-0 flex-col overflow-hidden rounded-lg border px-3 py-2"
-            style={{
-              borderColor: isDarkMode ? 'rgba(116,198,157,0.14)' : 'rgba(139,115,85,0.12)',
-              background: isDarkMode ? 'rgba(255,255,255,0.02)' : 'rgba(255,255,255,0.55)',
-            }}>
-            {isEmpty ? (
-              <div className="flex h-full items-center gap-1 text-sm" style={{ color: 'var(--text-muted)' }}>
-                <span>{actor.name} 正在输出</span>
-                <span className="inline-flex gap-0.5">
-                  <span
-                    className="inline-block size-1 animate-bounce rounded-full"
-                    style={{ background: 'currentColor', animationDelay: '0ms' }}
-                  />
-                  <span
-                    className="inline-block size-1 animate-bounce rounded-full"
-                    style={{ background: 'currentColor', animationDelay: '150ms' }}
-                  />
-                  <span
-                    className="inline-block size-1 animate-bounce rounded-full"
-                    style={{ background: 'currentColor', animationDelay: '300ms' }}
-                  />
-                </span>
-              </div>
-            ) : (
-              <pre
-                ref={contentRef}
-                className="min-h-0 flex-1 overflow-y-auto whitespace-pre-wrap break-words text-sm leading-relaxed"
-                style={{
-                  color: 'var(--text-secondary)',
-                  fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
-                }}>
-                {liveStream.content}
-              </pre>
-            )}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
 interface MessageBlockProps {
   message: Message;
   isSameActor: boolean;
@@ -255,23 +117,43 @@ interface MessageBlockProps {
   onImagePreview?: (img: { base64: string; name?: string }) => void;
 }
 
+/**
+ * 不折叠的「最新一条」。流式输出期间显示原始流文本（等宽、自动滚到底），
+ * 输出结束后切成 markdown 渲染的成稿。两者共用同一个气泡，避免同一段内容
+ * 先以原始流出现一次、再以成稿出现一次。
+ */
 function LatestStepPreview({
   message,
+  liveStream = null,
   isDarkMode = false,
   onImagePreview,
 }: {
-  message: Message;
+  message: Message | null;
+  liveStream?: LiveStreamMessage | null;
   isDarkMode?: boolean;
   onImagePreview?: (img: { base64: string; name?: string }) => void;
 }) {
-  const actor = getActorProfile(message.actor);
   const [copied, setCopied] = useState(false);
-  const isProgress = message.content === 'Showing progress...';
+  const streamRef = useRef<HTMLPreElement | null>(null);
+
+  const streaming = !!liveStream;
+  // 流式期间以 liveStream 为准：它的 actor 才是当前正在输出的那个
+  const actor = getActorProfile(streaming ? liveStream.actor : message!.actor);
+  const content = streaming ? liveStream.content : (message?.content ?? '');
+  const isProgress = !streaming && content === 'Showing progress...';
+  // 流刚建立、还没收到第一个 delta 时内容是空的，显示「正在输出」而不是空白框
+  const isStreamEmpty = streaming && content.trim().length === 0;
+
+  useEffect(() => {
+    if (!streaming) return;
+    const el = streamRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [streaming, content]);
 
   const handleCopy = async (e: React.MouseEvent) => {
     e.stopPropagation();
     try {
-      await navigator.clipboard.writeText(message.content);
+      await navigator.clipboard.writeText(content);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch {
@@ -304,12 +186,24 @@ function LatestStepPreview({
       </div>
       <div className="min-w-0 flex-1">
         <div className="mb-0.5 flex items-center justify-between">
-          <span className="font-medium shrink-0" style={{ color: 'var(--text-muted)' }}>
-            {actor.name}
-          </span>
+          <div className="flex min-w-0 items-center gap-1.5">
+            <span className="font-medium shrink-0" style={{ color: 'var(--text-muted)' }}>
+              {actor.name}
+            </span>
+            {streaming && (
+              <span
+                className="shrink-0 rounded-full px-1.5 py-0.5 text-[10px]"
+                style={{
+                  background: isDarkMode ? 'rgba(116,198,157,0.16)' : 'rgba(64,145,108,0.1)',
+                  color: isDarkMode ? '#95D5B2' : '#40916C',
+                }}>
+                原始流
+              </span>
+            )}
+          </div>
           <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-            <MessageContentExportButton content={message.content} isDarkMode={isDarkMode} />
-            <MessageExportButton content={message.content} isDarkMode={isDarkMode} />
+            <MessageContentExportButton content={content} isDarkMode={isDarkMode} />
+            <MessageExportButton content={content} isDarkMode={isDarkMode} />
             <button
               onClick={handleCopy}
               className={`rounded-md p-1 transition-all duration-200 ${copied ? '!text-green-500' : ''}`}
@@ -321,7 +215,7 @@ function LatestStepPreview({
             </button>
           </div>
         </div>
-        {message.images && message.images.length > 0 && (
+        {!streaming && message?.images && message.images.length > 0 && (
           <div className="flex flex-wrap gap-1 mt-1">
             {message.images.map((img, idx) => (
               <div
@@ -339,12 +233,14 @@ function LatestStepPreview({
             ))}
           </div>
         )}
-        {isProgress ? (
+        {isProgress || isStreamEmpty ? (
           <div
             className="mt-0.5 flex items-center gap-1.5 leading-relaxed"
             style={{ color: 'var(--text-muted)' }}
             aria-label="thinking">
-            <span>{actor.name} 正在思考</span>
+            <span>
+              {actor.name} 正在{streaming ? '输出' : '思考'}
+            </span>
             <span className="inline-flex gap-0.5">
               <span
                 className="inline-block size-1 animate-bounce rounded-full"
@@ -360,8 +256,20 @@ function LatestStepPreview({
               />
             </span>
           </div>
+        ) : streaming ? (
+          // 流式期间不走 markdown：半截的 ``` / 表格会被渲染成一团乱码，
+          // 而且每个 delta 都重解析一遍很吃 CPU。等 STREAM_END 后再切成成稿。
+          <pre
+            ref={streamRef}
+            className="mt-1 max-h-44 overflow-y-auto whitespace-pre-wrap break-words leading-relaxed"
+            style={{
+              color: 'var(--text-secondary)',
+              fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
+            }}>
+            {content}
+          </pre>
         ) : (
-          <MarkdownRenderer content={message.content} isDarkMode={isDarkMode} className="leading-relaxed" />
+          <MarkdownRenderer content={content} isDarkMode={isDarkMode} className="leading-relaxed" />
         )}
       </div>
     </div>

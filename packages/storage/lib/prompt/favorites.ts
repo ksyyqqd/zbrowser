@@ -26,11 +26,24 @@ const defaultFavoritePrompts = [
   },
 ];
 
-// Define the favorite prompt type
+/**
+ * 一条书签。
+ *
+ * 两种形态，靠 `workflowId` 区分：
+ *  - 提示词书签（`workflowId` 未设置）：点击把 `content` 填进输入框，用户再自己发送
+ *  - 工作流书签（`workflowId` 已设置）：点击直接执行那个工作流，`content` 只作为
+ *    列表里的说明文字
+ *
+ * 复用同一个 store 而不是另开一个：书签列表的排序、重命名、删除、拖拽这些行为对两者
+ * 完全一致，分成两个 store 就要把这些逻辑和 UI 都写两遍，而它们唯一的差别只是点击后
+ * 干什么。
+ */
 export interface FavoritePrompt {
   id: number;
   title: string;
   content: string;
+  /** 设置时表示这是一条工作流书签，点击即执行该 id 的工作流。 */
+  workflowId?: string;
 }
 
 // Define the favorites storage type
@@ -48,6 +61,15 @@ export interface FavoritePromptsStorage {
   getAllPrompts: () => Promise<FavoritePrompt[]>;
   getPromptById: (id: number) => Promise<FavoritePrompt | undefined>;
   reorderPrompts: (draggedId: number, targetId: number) => Promise<void>;
+  /**
+   * 把工作流加入书签。按 `workflowId` 去重 —— 同一个工作流只应有一条书签，
+   * 重复调用返回已有那条。
+   */
+  addWorkflowBookmark: (workflowId: string, title: string, description?: string) => Promise<FavoritePrompt>;
+  /** 按 workflowId 取消书签。工作流被删除时也该调它清理悬空书签。 */
+  removeWorkflowBookmark: (workflowId: string) => Promise<void>;
+  /** 查某个工作流是否已加书签，用于按钮的选中态。 */
+  getWorkflowBookmark: (workflowId: string) => Promise<FavoritePrompt | undefined>;
 }
 
 // Initial state with proper typing
@@ -206,6 +228,42 @@ export function createFavoritesStorage(): FavoritePromptsStorage {
           nextId: numPrompts + 1, // Update nextId accordingly
         };
       });
+    },
+
+    addWorkflowBookmark: async (workflowId: string, title: string, description = ''): Promise<FavoritePrompt> => {
+      // 按 workflowId 去重，不用 content：工作流书签的 content 只是说明文字，
+      // 两个不同工作流完全可以有相同的说明，而同一个工作流有两条书签是没有意义的
+      const { prompts } = await favoritesStorage.get();
+      const existing = prompts.find(p => p.workflowId === workflowId);
+      if (existing) {
+        return existing;
+      }
+
+      await favoritesStorage.set(prev => {
+        const id = prev.nextId;
+        const newPrompt: FavoritePrompt = { id, title, content: description, workflowId };
+        return {
+          nextId: id + 1,
+          prompts: [newPrompt, ...prev.prompts],
+        };
+      });
+
+      const after = await favoritesStorage.get();
+      // 按 workflowId 找回来而不是取 prompts[0]：reorderPrompts 会重排数组，
+      // 「新加的一定在头部」这个假设只在没被重排过时成立
+      return after.prompts.find(p => p.workflowId === workflowId)!;
+    },
+
+    removeWorkflowBookmark: async (workflowId: string): Promise<void> => {
+      await favoritesStorage.set(prev => ({
+        ...prev,
+        prompts: prev.prompts.filter(p => p.workflowId !== workflowId),
+      }));
+    },
+
+    getWorkflowBookmark: async (workflowId: string): Promise<FavoritePrompt | undefined> => {
+      const { prompts } = await favoritesStorage.get();
+      return prompts.find(p => p.workflowId === workflowId);
     },
   };
 }

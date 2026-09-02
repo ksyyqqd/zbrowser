@@ -66,16 +66,29 @@ export interface StepCondition {
 
 /**
  * Skill definition
+ *
+ * 通用格式（frontmatter + 正文）里 `instructions` 是主体：它是给 LLM 直接读的
+ * 自然语言指令，不是可机械执行的动作序列。`steps` 只在「录制生成」和
+ * 「workflow 互转」这两条结构化链路上有意义，纯文本编写的 skill 会是空数组。
  */
 export interface Skill {
   id: string;
   name: string;
   description: string;
+  /**
+   * 技能正文（Markdown）。执行时原样注入到任务里让 LLM 遵循。
+   * 纯文本编写的 skill 只有这一份内容，没有 steps。
+   */
+  instructions: string;
   version: string;
   category: SkillCategory;
   author: string;
   tags: string[];
   parameters: SkillParameter[];
+  /**
+   * 结构化步骤。仅录制产物与 workflow 转换使用；文本编写的 skill 为 []。
+   * 不要假设它非空——旧代码里 `skill.steps.map(...)` 的地方都要能接受空数组。
+   */
   steps: SkillStep[];
   executionMode: ExecutionMode;
   timeout?: number; // Default timeout in milliseconds
@@ -143,6 +156,7 @@ export const SkillSchema = z.object({
   id: z.string(),
   name: z.string().min(1),
   description: z.string().min(1),
+  instructions: z.string().default(''),
   version: z.string().default('1.0.0'),
   category: z
     .enum(['navigation', 'data-extraction', 'form-interaction', 'analysis', 'automation', 'custom'])
@@ -150,7 +164,8 @@ export const SkillSchema = z.object({
   author: z.string().default('unknown'),
   tags: z.array(z.string()).default([]),
   parameters: z.array(SkillParameterSchema).default([]),
-  steps: z.array(SkillStepSchema).min(1),
+  // 通用格式下 steps 可以为空（正文即全部内容），所以这里不再 .min(1)
+  steps: z.array(SkillStepSchema).default([]),
   executionMode: z.enum(['expanded', 'atomic', 'both']).default('both'),
   timeout: z.number().optional(),
   metadata: z

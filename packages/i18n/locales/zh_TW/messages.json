@@ -121,6 +121,15 @@
   "chat_bookmarks_delete": {
     "message": "刪除書籤"
   },
+  "chat_bookmarks_runWorkflow": {
+    "message": "執行工作流程「$NAME$」",
+    "placeholders": {
+      "name": {
+        "content": "$1",
+        "example": "每日報表"
+      }
+    }
+  },
   "chat_replay_starting": {
     "message": "開始重播任務：\n\n\"$TASK$\"",
     "placeholders": {
@@ -226,9 +235,6 @@
   "options_tabs_models": {
     "message": "模型"
   },
-  "options_tabs_images": {
-    "message": "圖片"
-  },
   "options_tabs_firewall": {
     "message": "防火牆"
   },
@@ -310,12 +316,6 @@
   "options_general_viewportExpansion_option_all": {
     "message": "顯示整頁所有元素"
   },
-  "options_general_showImageGeneration": {
-    "message": "顯示圖片生成"
-  },
-  "options_general_showImageGeneration_desc": {
-    "message": "在對話框中顯示圖片生成按鈕（需要配置圖片提供者）"
-  },
   "options_general_showRequestLogs": {
     "message": "顯示請求日誌"
   },
@@ -324,18 +324,6 @@
   },
   "options_general_experimentalSection": {
     "message": "實驗性功能"
-  },
-  "options_general_multiActionEnabled": {
-    "message": "連續動作執行（實驗性功能）"
-  },
-  "options_general_multiActionEnabled_desc": {
-    "message": "開啟後AI會嘗試一次規劃多個連續動作並順序執行，減少AI請求次數從而提升執行速度。關閉後每次只執行一個動作（更穩定但較慢）。"
-  },
-  "options_general_maxMultiActions": {
-    "message": "最大連續動作數"
-  },
-  "options_general_maxMultiActions_desc": {
-    "message": "連續動作模式下，每次最多規劃的動作數量（1-10）"
   },
   "options_general_autonomousMode": {
     "message": "自主模式（實驗性功能）"
@@ -526,7 +514,6 @@
   "options_firewall_howItWorks": {
     "message": "防火牆包含一個拒絕清單和一個允許清單。\n- 如果兩個清單都為空，則允許所有 URL。\n- 拒絕清單具有較高優先順序。如果一個 URL 符合任何拒絕清單中的項目，它將被封鎖。\n- 當允許清單為空時，所有未被拒絕的 URL 都會被允許。\n- 當允許清單不為空時，只有符合清單中項目的 URL 才被允許。\n- 目前尚不支援萬用字元。\n- 建議優先使用允許清單，而非拒絕清單。"
   },
-
   "options_tabs_mcp": {
     "message": "MCP 伺服器"
   },
@@ -602,6 +589,9 @@
   "options_mcp_statusUnknown": {
     "message": "未知"
   },
+  "options_mcp_disabled": {
+    "message": "MCP 功能在目前版本中已停用。"
+  },
   "options_mcp_statusConnected": {
     "message": "已連線"
   },
@@ -611,7 +601,6 @@
   "options_mcp_statusDisabled": {
     "message": "已停用"
   },
-
   "options_skills_header": {
     "message": "技能"
   },
@@ -765,7 +754,6 @@
   "options_skills_saveSuccess": {
     "message": "儲存成功"
   },
-
   "bg_errors_noTabId": {
     "message": "未提供分頁 ID"
   },
@@ -808,6 +796,9 @@
   "bg_cmd_replay_failed": {
     "message": "重播失敗"
   },
+  "bg_workflow_unreviewed": {
+    "message": "該工作流程尚未確認。請在工作流程編輯器中檢查步驟並確認後再執行。"
+  },
   "bg_setup_noApiKeys": {
     "message": "請先在設定頁面中完成 API 金鑰的設定。"
   },
@@ -828,6 +819,9 @@
   },
   "exec_errors_maxFailuresReached": {
     "message": "已達失敗次數上限。"
+  },
+  "exec_task_ok": {
+    "message": "任務已完成"
   },
   "exec_task_cancel": {
     "message": "任務已取消"
@@ -1543,6 +1537,21 @@
   "workflow_execute": {
     "message": "執行"
   },
+  "workflow_bookmark": {
+    "message": "加入書籤 —— 會出現在側邊欄快速存取中，可一鍵執行"
+  },
+  "workflow_unbookmark": {
+    "message": "移出書籤"
+  },
+  "workflow_bookmarkNeedsReview": {
+    "message": "請先確認該工作流程。書籤是一鍵執行的入口，未確認的工作流程無法執行。"
+  },
+  "workflow_unreviewedBadge": {
+    "message": "未確認"
+  },
+  "workflow_confirm": {
+    "message": "確認"
+  },
   "workflow_convert": {
     "message": "轉換"
   },
@@ -1708,9 +1717,6 @@
   "workflow_action_cacheContent": {
     "message": "緩存內容"
   },
-  "workflow_action_generateImage": {
-    "message": "生成圖片"
-  },
   "workflow_intent": {
     "message": "意图"
   },
@@ -1749,21 +1755,6 @@
   },
   "workflow_param_tabIndex": {
     "message": "標籤頁索引"
-  },
-  "workflow_param_prompt": {
-    "message": "提示詞"
-  },
-  "workflow_param_model": {
-    "message": "模型"
-  },
-  "workflow_param_size": {
-    "message": "尺寸"
-  },
-  "workflow_param_quality": {
-    "message": "品質"
-  },
-  "workflow_param_outputVariable": {
-    "message": "輸出變數"
   },
   "workflow_editEdge": {
     "message": "編輯連線"
@@ -1863,90 +1854,6 @@
   },
   "workflow_branchNamePlaceholder": {
     "message": "分支名稱"
-  },
-  "image_generation_title": {
-    "message": "圖片生成"
-  },
-  "image_generation_providers": {
-    "message": "圖片服務提供商"
-  },
-  "image_generation_addProvider": {
-    "message": "添加圖片提供商"
-  },
-  "image_generation_removeProvider": {
-    "message": "刪除提供商"
-  },
-  "image_generation_activeProvider": {
-    "message": "目前使用的提供商"
-  },
-  "image_generation_providerName": {
-    "message": "提供商名稱"
-  },
-  "image_generation_apiKey": {
-    "message": "API 金鑰"
-  },
-  "image_generation_baseUrl": {
-    "message": "API 地址"
-  },
-  "image_generation_baseUrl_placeholder": {
-    "message": "例如: https://www.packyapi.com/v1"
-  },
-  "image_generation_models": {
-    "message": "可用模型"
-  },
-  "image_generation_defaultModel": {
-    "message": "預設模型"
-  },
-  "image_generation_defaultSize": {
-    "message": "預設尺寸"
-  },
-  "image_generation_quality": {
-    "message": "圖片品質"
-  },
-  "image_generation_prompt_placeholder": {
-    "message": "輸入圖片生成提示詞..."
-  },
-  "image_generation_generate": {
-    "message": "生成圖片"
-  },
-  "image_generation_generating": {
-    "message": "正在生成圖片..."
-  },
-  "image_generation_result": {
-    "message": "圖片生成成功"
-  },
-  "image_generation_error": {
-    "message": "圖片生成失敗"
-  },
-  "image_generation_noProvider": {
-    "message": "未配置圖片服務提供商"
-  },
-  "image_generation_testConnection": {
-    "message": "測試連線"
-  },
-  "image_generation_testSuccess": {
-    "message": "連線成功"
-  },
-  "image_generation_testFailed": {
-    "message": "連線失敗"
-  },
-  "image_generation_saveProvider": {
-    "message": "儲存提供商"
-  },
-  "image_generation_providerSaved": {
-    "message": "提供商儲存成功"
-  },
-  "image_generation_providerRemoved": {
-    "message": "提供商刪除成功"
-  },
-  "image_generation_setActive": {
-    "message": "設為目前使用"
-  },
-  "image_generation_customProvider": {
-    "message": "自訂提供商"
-  },
-  "image_generation_openaiProvider": {
-    "message": "OpenAI (DALL-E)"
   },
   "workflow_noDescription": {
     "message": "暫無描述"

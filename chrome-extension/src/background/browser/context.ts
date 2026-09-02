@@ -364,12 +364,20 @@ export default class BrowserContext {
     return browserState;
   }
 
-  public async getState(useVision = false, cacheClickableElementsHashes = false): Promise<BrowserState> {
+  /**
+   * @param skipStabilityWait 见 Page.getState —— 调用方刚 await 过 waitForPageStability()
+   *   时传 true，避免背靠背两次独立的稳定性等待。
+   */
+  public async getState(
+    useVision = false,
+    cacheClickableElementsHashes = false,
+    skipStabilityWait = false,
+  ): Promise<BrowserState> {
     const currentPage = await this.getCurrentPage();
 
     const pageState = !currentPage
       ? build_initial_state()
-      : await currentPage.getState(useVision, cacheClickableElementsHashes);
+      : await currentPage.getState(useVision, cacheClickableElementsHashes, skipStabilityWait);
     const tabInfos = await this.getTabInfos();
     const browserState: BrowserState = {
       ...pageState,

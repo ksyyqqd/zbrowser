@@ -686,9 +686,34 @@ export function generateSkillFromRecording(
     id: `recorded-${session.id}`,
     name: skillName,
     description: skillDescription,
+    instructions: renderRecordedSteps(steps),
     category: 'automation',
     parameters,
     steps,
     executionMode: 'expanded',
   };
+}
+
+/**
+ * 把录制步骤渲染成 skill 正文。
+ *
+ * 定位信息（selector / xpath / url）必须写进正文——录制的价值就在于这些精确
+ * locator，只留一句描述的话 LLM 只能重新猜元素，等于白录。
+ */
+function renderRecordedSteps(steps: GeneratedSkill['steps']): string {
+  const lines: string[] = [];
+
+  for (let i = 0; i < steps.length; i++) {
+    const step = steps[i];
+    lines.push(`${i + 1}. ${step.description?.trim() || step.action}`);
+
+    const detail: string[] = [];
+    for (const key of ['url', 'selector', 'xpath', 'text'] as const) {
+      const v = step.parameters?.[key];
+      if (typeof v === 'string' && v) detail.push(`${key}=${v}`);
+    }
+    if (detail.length) lines.push(`   （${detail.join('，')}）`);
+  }
+
+  return lines.join('\n');
 }

@@ -114,10 +114,17 @@ export interface ClarifyResponse {
   text?: string;
   /** 用户拾取的元素 selector */
   pickedSelector?: string;
+  /**
+   * 基于 data-testid / aria-label 等稳定属性的备用选择器。
+   * pickedSelector 依赖 class，而现代前端的 class 多是构建期哈希，下次发版即失效。
+   */
+  pickedStableSelector?: string;
   /** 用户拾取的元素 xpath */
   pickedXpath?: string;
   /** 拾取元素的可见文本（截断 200 字） */
   pickedText?: string;
+  /** 拾取元素是否处于禁用态（disabled / aria-disabled）—— 供模型判断"点了没反应"的成因 */
+  pickedDisabled?: boolean;
 }
 
 export interface EventData {

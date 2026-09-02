@@ -7,6 +7,7 @@ import { buildDynamicActionSchema, resolveElementNodeForAction } from '../action
 import { agentBrainSchema } from '../types';
 import { type BaseMessage, HumanMessage } from '@langchain/core/messages';
 import { Actors, ExecutionState, type AskUserPayload, type ClarifyResponse } from '@extension/shared';
+import { elementHintsStore, getHostnameFromUrl } from '@extension/storage';
 import {
   ChatModelAuthError,
   ChatModelBadRequestError,
@@ -31,9 +32,10 @@ import { type DOMHistoryElement } from '@src/background/browser/dom/history/view
 
 const logger = createLogger('NavigatorAgent');
 
-function getBrowserStateSignature(state: BrowserState): Promise<string> {
-  return calcBranchPathHashSet(state).then(pathHashes => {
-    const sortedHashes = Array.from(pathHashes).sort().join('|');
+function getBrowserStateSignature(state: BrowserState, pathHashes?: Set<string>): Promise<string> {
+  const hashesPromise = pathHashes ? Promise.resolve(pathHashes) : calcBranchPathHashSet(state);
+  return hashesPromise.then(hashes => {
+    const sortedHashes = Array.from(hashes).sort().join('|');
     const elementsSummaryHash = hashText(state.elementTree.clickableElementsToString());
     return [
       state.tabId,
@@ -45,6 +47,27 @@ function getBrowserStateSignature(state: BrowserState): Promise<string> {
       sortedHashes,
       elementsSummaryHash,
     ].join('::');
+  });
+}
+
+/**
+ * 当前元素是否被本站事实库记住过（xpath 精确相等，或任一 css selector 变体相等）。
+ *
+ * 单独导出是为了可单测：闸门本身依赖 browserContext / storage，难以在单测里构造。
+ */
+export function matchesRememberedElement(
+  hints: Array<{ xpath?: string; selector?: string }>,
+  nodeXpath: string,
+  nodeSelectors: Array<string | undefined | null>,
+): boolean {
+  const selectors = new Set(nodeSelectors.map(s => s?.trim()).filter((s): s is string => Boolean(s)));
+  const xpath = nodeXpath.trim();
+
+  return hints.some(h => {
+    const hintXpath = h.xpath?.trim();
+    if (hintXpath && xpath && hintXpath === xpath) return true;
+    const hintSelector = h.selector?.trim();
+    return Boolean(hintSelector && selectors.has(hintSelector));
   });
 }
 
@@ -105,6 +128,30 @@ export class NavigatorActionRegistry {
 
 export interface NavigatorResult {
   done: boolean;
+  /**
+   * done 动作里模型给出的最终答复文本。
+   *
+   * 必须一路带回 executor：Navigator 直接 done 时（任务在一步内就完成、或 planner 还没到
+   * 下一个 planningInterval），planner 不会再跑，context.finalAnswer 就一直是 null，
+   * TASK_OK 只好退化成 taskId —— 表现为「找到的内容没有输出出来」。
+   */
+  finalAnswer?: string;
+}
+
+/**
+ * 从本步的 action 结果里算出 NavigatorResult。
+ *
+ * 单独抽出来是为了可单测：把 done 的答复文本带回 executor 是「任务跑完但内容没输出」
+ * 这个 bug 的修复点，值得有回归覆盖。
+ *
+ * 只看**最后一条**结果：done 按约定是动作序列的最后一个动作。
+ */
+export function computeNavigatorResult(
+  actionResults: Array<{ isDone?: boolean; extractedContent?: string | null }>,
+): NavigatorResult {
+  const last = actionResults.length > 0 ? actionResults[actionResults.length - 1] : undefined;
+  if (!last?.isDone) return { done: false };
+  return { done: true, finalAnswer: last.extractedContent ?? undefined };
 }
 
 export class NavigatorAgent extends BaseAgent<z.ZodType, NavigatorResult> {
@@ -148,13 +195,11 @@ export class NavigatorAgent extends BaseAgent<z.ZodType, NavigatorResult> {
           throw error;
         }
 
-        // Try to extract JSON from markdown code blocks if parsing failed
+        // Try to extract JSON from the raw text if the structured-output path could not parse it.
+        // Any parse-shaped failure is worth retrying manually, not just "is not valid JSON":
+        // providers word these errors inconsistently and the raw content is often recoverable.
         const errorMessage = error instanceof Error ? error.message : String(error);
-        if (
-          errorMessage.includes('is not valid JSON') &&
-          response?.raw?.content &&
-          typeof response.raw.content === 'string'
-        ) {
+        if (response?.raw?.content && typeof response.raw.content === 'string') {
           const parsed = this.manuallyParseResponse(response.raw.content);
           if (parsed) {
             return parsed;
@@ -183,14 +228,24 @@ export class NavigatorAgent extends BaseAgent<z.ZodType, NavigatorResult> {
           action: [...toolCall.args.action],
         };
       }
-      throw new ResponseParseError('Could not parse navigator response');
+
+      // No parsed output and no tool calls: the payload may still be recoverable from the raw text
+      // (e.g. the model answered in prose or a code fence instead of calling the tool).
+      const rawContent = this.stringifyResponseContent(response.raw?.content);
+      if (rawContent.trim()) {
+        const parsed = this.manuallyParseResponse(rawContent);
+        if (parsed) {
+          return parsed;
+        }
+      }
+      throw new ResponseParseError(this.buildParseFailureMessage(rawContent));
     }
 
     // Fallback to parent class manual JSON extraction for models without structured output support
     return super.invoke(inputMessages);
   }
 
-  async execute(): Promise<AgentOutput<NavigatorResult>> {
+  async execute(useLiveState = true): Promise<AgentOutput<NavigatorResult>> {
     const agentOutput: AgentOutput<NavigatorResult> = {
       id: this.id,
     };
@@ -205,7 +260,7 @@ export class NavigatorAgent extends BaseAgent<z.ZodType, NavigatorResult> {
 
       const messageManager = this.context.messageManager;
       // add the browser state message
-      await this.addStateMessageToMemory();
+      await this.addStateMessageToMemory(useLiveState);
       const currentState = await this.context.browserContext.getCachedState();
       browserStateHistory = new BrowserStateHistory(currentState);
 
@@ -289,11 +344,7 @@ export class NavigatorAgent extends BaseAgent<z.ZodType, NavigatorResult> {
       }
       // emit event
       this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.STEP_OK, 'Navigation done');
-      let done = false;
-      if (actionResults.length > 0 && actionResults[actionResults.length - 1].isDone) {
-        done = true;
-      }
-      agentOutput.result = { done };
+      agentOutput.result = computeNavigatorResult(actionResults);
       return agentOutput;
     } catch (error) {
       this.removeLastStateMessageFromMemory();
@@ -310,6 +361,8 @@ export class NavigatorAgent extends BaseAgent<z.ZodType, NavigatorResult> {
       } else if (isForbiddenError(error)) {
         throw new ChatModelForbiddenError(LLM_FORBIDDEN_ERROR_MESSAGE, error);
       } else if (error instanceof URLNotAllowedError) {
+        throw error;
+      } else if (error instanceof ResponseParseError) {
         throw error;
       }
 
@@ -348,7 +401,7 @@ export class NavigatorAgent extends BaseAgent<z.ZodType, NavigatorResult> {
   /**
    * Add the state message to the memory
    */
-  public async addStateMessageToMemory() {
+  public async addStateMessageToMemory(useLiveState = true) {
     if (this.context.stateMessageAdded) {
       return;
     }
@@ -383,7 +436,7 @@ export class NavigatorAgent extends BaseAgent<z.ZodType, NavigatorResult> {
       }
     }
 
-    const state = await this.prompt.getUserMessage(this.context);
+    const state = await this.prompt.getUserMessage(this.context, useLiveState);
     messageManager.addStateMessage(state);
     this.context.stateMessageAdded = true;
   }
@@ -444,9 +497,45 @@ export class NavigatorAgent extends BaseAgent<z.ZodType, NavigatorResult> {
     logger.info('Actions', actions);
 
     const browserContext = this.context.browserContext;
-    const browserState = await browserContext.getState(this.context.options.useVision);
-    const cachedPathHashes = await calcBranchPathHashSet(browserState);
+
+    // 每次 getState() 都要等网络空闲（≥0.5s）+ 重建整棵 DOM 树 + 对全部可交互元素做 SHA-256，
+    // 是单步里最贵的一项。原实现在一个元素动作里连着抓 3 次同一个活页面（循环前 / 动作前 /
+    // 子集检查），其中两次之间没有任何操作碰过页面。这里改成「按需读取 + 脏标记」：
+    // 只有真正执行过动作、页面可能变了之后，下一次读取才重新抓。
+    let latestState = await browserContext.getState(this.context.options.useVision);
+    let stateIsFresh = true;
+    // latestState 对应的 branch-path 哈希集。计算一次要对全部可交互元素逐个 SHA-256，
+    // 而子集检查和 before/after 签名用的是同一份数据 —— 缓存起来供两处复用。
+    // state 一旦重抓就置 null（见 readState / 动作后的 afterState 赋值）。
+    let cachedHashesForState: Set<string> | null = null;
+
+    const readState = async (): Promise<BrowserState> => {
+      if (!stateIsFresh) {
+        latestState = await browserContext.getState(this.context.options.useVision);
+        stateIsFresh = true;
+        cachedHashesForState = null;
+      }
+      return latestState;
+    };
+
+    const readPathHashes = async (state: BrowserState): Promise<Set<string>> => {
+      if (state === latestState && cachedHashesForState) {
+        return cachedHashesForState;
+      }
+      const hashes = await calcBranchPathHashSet(state);
+      if (state === latestState) {
+        cachedHashesForState = hashes;
+      }
+      return hashes;
+    };
+
+    // 子集检查的基线。每执行完一个动作就刷新成「当前页面」，这样只拦真正在
+    // 下一个动作之前新冒出来的元素；原实现整轮只在循环前算一次，导致填一个输入框
+    // 触发联想下拉后，后续每个动作都会被这个陈旧基线判为「有新元素」而中断。
+    let baselinePathHashes = await readPathHashes(latestState);
     const elementActionNames = new Set(['click_element', 'input_text', 'select_dropdown_option']);
+    // 关掉可省一次完整 getState/动作，代价是「点了没反应」不再被自动发现（见 views.ts 注释）
+    const verifyVisibleChange = browserContext.getConfig().verifyVisibleChange !== false;
 
     await browserContext.removeHighlight();
 
@@ -470,12 +559,12 @@ export class NavigatorAgent extends BaseAgent<z.ZodType, NavigatorResult> {
         const indexArg = actionInstance.getIndexArg(actionArgs);
         const isElementAction =
           elementActionNames.has(actionName) && (indexArg !== null || hasLocatorFields(actionArgs));
-        const preActionState = isElementAction ? await browserContext.getState(this.context.options.useVision) : null;
+        const preActionState = isElementAction ? await readState() : null;
         if (i > 0 && indexArg !== null) {
-          const newState = await browserContext.getState(this.context.options.useVision);
-          const newPathHashes = await calcBranchPathHashSet(newState);
+          const newState = await readState();
+          const newPathHashes = await readPathHashes(newState);
           // next action requires index but there are new elements on the page
-          if (!newPathHashes.isSubsetOf(cachedPathHashes)) {
+          if (!newPathHashes.isSubsetOf(baselinePathHashes)) {
             const msg = `Something new appeared after action ${i} / ${actions.length}`;
             logger.info(msg);
             results.push(
@@ -486,9 +575,13 @@ export class NavigatorAgent extends BaseAgent<z.ZodType, NavigatorResult> {
             );
             break;
           }
+          // 通过检查：把基线推进到当前页面，供后续动作比对
+          baselinePathHashes = newPathHashes;
         }
 
         const result = await actionInstance.call(actionArgs);
+        // 动作已落地，缓存的 state 现在可能过期了
+        stateIsFresh = false;
         if (result === undefined) {
           throw new Error(`Action ${actionName} returned undefined`);
         }
@@ -512,20 +605,35 @@ export class NavigatorAgent extends BaseAgent<z.ZodType, NavigatorResult> {
 
         if (isElementAction) {
           await browserContext.waitForPageStability();
-          const beforeSignature = await getBrowserStateSignature(preActionState ?? browserState);
-          const afterState = await browserContext.getState(this.context.options.useVision);
-          const afterSignature = await getBrowserStateSignature(afterState);
-          if (!result.error && beforeSignature === afterSignature) {
-            const errorMessage = `Action ${actionName} on the selected element made no visible change. Do not repeat the same element; choose a different target or ask the user.`;
-            logger.warning(errorMessage);
-            results.push(
-              new ActionResult({
-                error: errorMessage,
-                includeInMemory: true,
-              }),
-            );
-            break;
+          if (verifyVisibleChange) {
+            // afterState 同时充当下一轮循环的 latestState —— 无需再抓一次。
+            // skipStabilityWait: 上一行刚等过 DOM 静默，getState 内部不必再等一轮网络空闲。
+            const preActionHashes = preActionState ? await readPathHashes(preActionState) : undefined;
+            const afterState = await browserContext.getState(this.context.options.useVision, false, true);
+            latestState = afterState;
+            stateIsFresh = true;
+            cachedHashesForState = null;
+            const afterHashes = await readPathHashes(afterState);
+            // 基线跟着页面走：下一个动作只和「刚才这次动作之后」的页面比
+            baselinePathHashes = afterHashes;
+            const [beforeSignature, afterSignature] = await Promise.all([
+              getBrowserStateSignature(preActionState ?? afterState, preActionState ? preActionHashes : afterHashes),
+              getBrowserStateSignature(afterState, afterHashes),
+            ]);
+            if (!result.error && beforeSignature === afterSignature) {
+              const errorMessage = `Action ${actionName} on the selected element made no visible change. Do not repeat the same element; choose a different target or ask the user.`;
+              logger.warning(errorMessage);
+              results.push(
+                new ActionResult({
+                  error: errorMessage,
+                  includeInMemory: true,
+                }),
+              );
+              break;
+            }
           }
+          // verifyVisibleChange 关闭时不抓 afterState —— 省掉一次完整 getState。
+          // 基线由下一轮子集检查自行刷新（见上面 baselinePathHashes 的赋值）。
         } else {
           // Smart wait for page stability after action (replaces fixed 1s delay)
           await browserContext.waitForPageStability();
@@ -786,6 +894,60 @@ export class NavigatorAgent extends BaseAgent<z.ZodType, NavigatorResult> {
   }
 
   /**
+   * 把用户的 ClarifyResponse 压成一句英文摘要，用于注入 LLM 历史 + 广播给前端。
+   */
+  private describeClarifyResponse(resp: ClarifyResponse): string {
+    const bits: string[] = [];
+    if (resp.choiceId) bits.push(`User chose option id=${resp.choiceId}.`);
+    if (resp.text?.trim()) bits.push(`User typed: ${resp.text.trim()}`);
+    if (resp.pickedSelector || resp.pickedXpath) {
+      const segs: string[] = [];
+      if (resp.pickedSelector) segs.push(`selector=${resp.pickedSelector}`);
+      if (resp.pickedXpath) segs.push(`xpath=${resp.pickedXpath}`);
+      if (resp.pickedText) segs.push(`text="${resp.pickedText.slice(0, 80)}"`);
+      bits.push(`User picked an element: ${segs.join(', ')}.`);
+    }
+    if (resp.cancelled) bits.push('User cancelled the question.');
+    if (resp.abortTask) bits.push('User aborted the task.');
+    return bits.length ? bits.join(' ') : 'User answered with no content.';
+  }
+
+  /**
+   * 目标元素是否已经在本站事实库中（xpath 或 selector 精确匹配）。
+   *
+   * 用途：闸门放行判据。用户此前已经指认过的元素不应再被反复追问 —— 这正是
+   * 「记忆里已有的元素还用 ask_user 让用户拾取」这一 bug 的根因：硬上限只看
+   * 当前 DOM 证据（无文字 icon → 0.6），完全没有查过记忆。
+   *
+   * 失败不阻塞：任何异常都按「没命中」处理，让原有闸门逻辑继续。
+   */
+  private async isRememberedElement(elementIndex: number): Promise<boolean> {
+    try {
+      const cachedState = await this.context.browserContext.getCachedState();
+      const elementNode = cachedState?.selectorMap.get(elementIndex);
+      if (!elementNode) return false;
+
+      const hostname = getHostnameFromUrl(cachedState?.url ?? '');
+      if (!hostname) return false;
+
+      const hints = await elementHintsStore.getByHostname(hostname);
+      if (hints.length === 0) return false;
+
+      const nodeXpath = elementNode.xpath?.trim() || '';
+      const includeDynamic = this.context.browserContext.getConfig().includeDynamicAttributes;
+      const nodeSelectors = [
+        elementNode.enhancedCssSelectorForElement(includeDynamic),
+        elementNode.enhancedCssSelectorForElement(!includeDynamic),
+      ];
+
+      return matchesRememberedElement(hints, nodeXpath, nodeSelectors);
+    } catch (err) {
+      logger.warning('[gate] memory lookup failed:', err);
+      return false;
+    }
+  }
+
+  /**
    * 把握度闸门：检查本步是否有元素交互动作且 element_confidence < 阈值，是则发 ask_user 并 pause 等用户。
    * 返回 true 表示已经接管这一步（调用方应 skip doMultiAction）；false 表示放行。
    *
@@ -827,6 +989,24 @@ export class NavigatorAgent extends BaseAgent<z.ZodType, NavigatorResult> {
       }
     }
     if (elementActionIndex === undefined) return false;
+
+    if (this.context.skipNextElementGateForPickedHint) {
+      this.context.skipNextElementGateForPickedHint = false;
+      logger.info(
+        `[gate] bypassed once after user picked an element (index=${elementActionIndex}, action=${elementActionName})`,
+      );
+      return false;
+    }
+
+    // 记忆命中即放行：若目标元素的 xpath/selector 已经存在于本站事实库中（尤其是
+    // source='user_pick' 的条目），说明用户此前已经指认过同一个元素，再问一次纯属骚扰。
+    // 放在硬上限之前 —— 无文字的 icon 按钮正是最需要记忆、也最容易被硬上限打回的一类。
+    if (await this.isRememberedElement(elementActionIndex)) {
+      logger.info(
+        `[gate] bypassed: element already in memory (index=${elementActionIndex}, action=${elementActionName})`,
+      );
+      return false;
+    }
 
     // === 系统侧硬上限检查 ===
     // 即使 LLM 给 1.0，也要看客观证据：元素本身有没有文本可识别？同容器有多少相似兄弟？
@@ -954,25 +1134,42 @@ export class NavigatorAgent extends BaseAgent<z.ZodType, NavigatorResult> {
       this.context.pendingPickedHints.push({
         purpose: purpose || '用户拾取的元素',
         selector: resp.pickedSelector,
+        stableSelector: resp.pickedStableSelector,
         xpath: resp.pickedXpath,
         textContent: resp.pickedText,
       });
+      this.context.skipNextElementGateForPickedHint = true;
+    }
+
+    // 立刻把本步动作改写到用户拾取的元素上并放行执行，而不是把 xpath 塞进 prose
+    // 让 LLM 下一轮自己抄。这是「用户拾取后没有按拾取结果点击」的根因：注入的只是
+    // 自然语言，LLM 经常忽略它、继续用原来那个 index，于是又点回错的元素。
+    const pickedLocator = resp.pickedXpath?.trim() || resp.pickedSelector?.trim();
+    if (pickedLocator && !resp.cancelled && !resp.abortTask && elementActionName) {
+      const targetAction = actions.find(a => Object.keys(a)[0] === elementActionName);
+      const targetArgs = targetAction?.[elementActionName] as Record<string, unknown> | undefined;
+      if (targetArgs) {
+        if (resp.pickedXpath?.trim()) targetArgs.xpath = resp.pickedXpath.trim();
+        if (resp.pickedSelector?.trim()) targetArgs.selector = resp.pickedSelector.trim();
+        this.context.currentElementPurpose = purpose || '用户拾取的元素';
+        logger.info(
+          `[gate] retargeted ${elementActionName} to user-picked element` +
+            ` (xpath=${resp.pickedXpath || '-'}, selector=${resp.pickedSelector || '-'})`,
+        );
+        // 摘要仍然注入历史，让后续轮次知道用户指认过什么
+        this.context.messageManager.addMessageWithTokens(
+          new HumanMessage({
+            content: `[User clarification] ${this.describeClarifyResponse(resp)} The current step has been retargeted to that element.`,
+          }),
+          'clarify',
+        );
+        this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ASK_USER_RESOLVED, this.describeClarifyResponse(resp));
+        return false;
+      }
     }
 
     // 把摘要广播给前端 + 注入 message manager，让下一轮 Navigator 看到用户的回答
-    const bits: string[] = [];
-    if (resp.choiceId) bits.push(`User chose option id=${resp.choiceId}.`);
-    if (resp.text?.trim()) bits.push(`User typed: ${resp.text.trim()}`);
-    if (resp.pickedSelector || resp.pickedXpath) {
-      const segs: string[] = [];
-      if (resp.pickedSelector) segs.push(`selector=${resp.pickedSelector}`);
-      if (resp.pickedXpath) segs.push(`xpath=${resp.pickedXpath}`);
-      if (resp.pickedText) segs.push(`text="${resp.pickedText.slice(0, 80)}"`);
-      bits.push(`User picked an element: ${segs.join(', ')}.`);
-    }
-    if (resp.cancelled) bits.push('User cancelled the question.');
-    if (resp.abortTask) bits.push('User aborted the task.');
-    const summary = bits.length ? bits.join(' ') : 'User answered with no content.';
+    const summary = this.describeClarifyResponse(resp);
 
     this.context.messageManager.addMessageWithTokens(
       new HumanMessage({ content: `[User clarification] ${summary}` }),

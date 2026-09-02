@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { AIMessage, HumanMessage } from '@langchain/core/messages';
+import { AIMessage, HumanMessage, SystemMessage } from '@langchain/core/messages';
 import { serializeMessagesForLog, normalizeLogContent } from '../requestLogs';
 
 describe('request log helpers', () => {
@@ -34,5 +34,21 @@ describe('request log helpers', () => {
     const text = normalizeLogContent('a'.repeat(9000), 100);
     expect(text.length).toBeGreaterThan(100);
     expect(text).toContain('[truncated');
+  });
+
+  it('repairs common GBK mojibake when possible', () => {
+    const text = normalizeLogContent('\u6d63\u72b3\u69f8', 1000);
+    expect(text).toContain('你是');
+  });
+
+  it('omits garbled system prompts from request logs', () => {
+    const text = serializeMessagesForLog([
+      new SystemMessage('\u6d63\u72b3\u69f8\u6d93\u64b3\u68ec\u9422\u3124\u7c2c\u9477\u9354\u3125'),
+      new HumanMessage('正常用户输入'),
+    ]);
+
+    expect(text).toContain('[system] [system prompt omitted');
+    expect(text).toContain('正常用户输入');
+    expect(text).not.toContain('\u6d63\u72b3\u69f8');
   });
 });

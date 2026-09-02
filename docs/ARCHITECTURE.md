@@ -53,7 +53,6 @@ nanobrowser/
 │     │  ├ workflow/            # 工作流执行服务(host adapter)
 │     │  ├ mcp/                 # MCP 客户端(外部工具服务器)
 │     │  ├ skills/              # Skill 注册/查找
-│     │  ├ imageGeneration/     # 图片生成
 │     │  ├ guardrails/          # 防火墙(URL/操作白名单)
 │     │  ├ analytics.ts         # PostHog 上报
 │     │  └ speechToText.ts      # 语音转文字
@@ -377,8 +376,9 @@ WorkflowEditor.tsx          # 总入口(顶层 Provider + 工具栏 + 画布 + �
 
 ### 7.1 定位
 
-Skill 是**给 AI(Navigator)调用的可重用工具**:
-- 顺序步骤数组,带参数 schema
+Skill 是**给 AI(Navigator)读的可重用指令**,采用通用 Agent Skill 文本格式:
+- `---` 之间是 YAML frontmatter(元信息 + 参数 schema),下方正文是自然语言指令
+- 执行时正文原样注入任务,由 Navigator 按页面实际情况自行定位元素
 - 可被打包成 `SkillPackage`(含 markdown + 资源文件 + manifest)
 - 内置一批通用 skill(`builtin/`)
 
@@ -388,27 +388,38 @@ Skill 是**给 AI(Navigator)调用的可重用工具**:
 Skill {
   id, name, description, version,
   category, author, tags,
-  parameters: SkillParameter[],   // 入参 schema
-  steps: SkillStep[],             // 顺序动作链
+  parameters: SkillParameter[],   // 入参 schema,正文里用 {{name}} 引用
+  instructions: string,           // 正文(Markdown),执行时注入给 LLM —— 主体
+  steps: SkillStep[],             // 兼容字段:仅录制产物与 workflow 互转使用,文本编写时为 []
   executionMode: 'expanded' | 'compact' | 'both',
   timeout?,
 }
 
 SkillStep {
   id, action, description?,
-  parameters: Record<string, unknown>,
+  parameters: Record<string, unknown>,   // 含 url / selector / xpath 等 locator
   condition?: { type, expression, thenSteps?, elseSteps? },
   onError?: 'continue' | 'stop' | 'retry',
   retryCount?, delay?,
 }
 ```
 
+`steps` 不能假设非空。录制产物里的 locator 是重要数据,读取、保存、渲染三条路径都
+不会丢弃它:`userSkills` 读取时只补 `instructions`(不覆盖 steps),文本编辑保存时
+保留原 steps,各渲染函数都会把 `url/selector/xpath/text` 写进正文。
+
+渲染统一走 `packages/skills/lib/core/renderSkill.ts`:
+- `renderSkillBody` —— 取 `instructions`,回退渲染 `steps`,再回退 `description`;
+  替换 `{{param}}`(支持 `a.b` 嵌套),未提供的占位符会显式列出让 LLM 追问而不是静默留着
+- `renderSkillForPrompt` / `renderSkillAsTask` —— 侧边栏注入 / 后台 `execute_skill` 各自的包装
+
 ### 7.3 编辑器(`pages/options/src/components/SkillSettings.tsx`)
 
-- UI 编辑模式(可视化表单)
-- 文本编辑模式(直接编辑 Markdown / JSON)
-- Skill 包(`.zip`)导入/导出,基于 JSZip
-- 详情 modal / 文件查看器 / 导出选择 modal
+- **只有文本编辑**:直接编辑 frontmatter + 正文。原先那套结构化 UI 表单(逐字段编
+  parameters / steps)已移除 —— 同一份数据两个编辑入口会产生两个真相来源,而且 steps
+  的执行路径本来就没接通
+- 详情视图只读,录制的 locator 数据折叠在「录制的定位数据」里
+- Skill 包(`.zip`)导入/导出,基于 JSZip;JSON 导入会为旧文件补出 `instructions`
 
 ### 7.4 与 Workflow 的转换
 
@@ -477,11 +488,10 @@ RecordedAction {
 - 通过 long-lived port 接收 background 实时事件(任务执行流、录制状态)
 - 核心组件:
   - `SidePanel.tsx`:总入口
-  - `ChatInput.tsx`:输入(支持斜杠命令 `/skill` `/workflow` `/image` `/img` `/draw` `/state` 等)
+  - `ChatInput.tsx`:输入(支持斜杠命令 `/skill` `/workflow` `/state` 等)
   - `MessageList.tsx`:消息流
   - `RecordingPill.tsx`:录制控制条
   - `WorkflowQuickSelect` / `SkillQuickSelect`:快速选择
-  - `ImageGenerationModal.tsx`:图片生成结果
 
 主题:**localStorage['nanobrowser_dark_mode']**,跨页面 `storage` 事件同步。
 
@@ -525,14 +535,29 @@ returns {
 - `agentModelStore`:每个 agent 的默认模型选择
 - `userWorkflowsStore` / `userSkillsStore`
 - `firewallStore`:URL/操作白名单
-- `imageProviderStore`:图片生成 provider
 - `mcpServersStore`:MCP 服务器列表
 - `farmerSitesStore`:农场主模式 AI 网站清单(`packages/storage/lib/settings/farmerSites.ts`)
 - `elementHintsStore`:元素事实库,按 hostname 索引(`packages/storage/lib/settings/elementHints.ts`)
   - schema:`{ buckets: { [hostname]: { hostname, hints: ElementHint[], updatedAt } } }`
-  - `ElementHint { id, purpose, selector?, xpath?, textContent?, source: 'user_pick' | 'ai_success' | 'manual', createdAt, lastUsedAt, useCount }`
+  - `ElementHint { id, purpose, selector?, stableSelector?, xpath?, textContent?, source: 'user_pick' | 'ai_success' | 'ai_inferred' | 'manual', createdAt, lastUsedAt, useCount, pinned?, staleHits? }`
   - 由 Navigator/Planner 的 `ask_user` 闭环写入(见 §4.4),不允许 UI 手动添加
   - 同 selector+xpath 已存在则 `touchHint`(useCount + 1),不重复
+  - **优先级**:`scoreHint` = (来源权重 + min(useCount,10)×5) × 0.5^(闲置天数/14)。
+    注入名额只有 `MAX_KNOWN_ELEMENTS`(8) 条,而 prompt 写的是「优先用它的 selector 不要另猜」,
+    所以选谁进去很关键。只按 useCount 排会让半年前点过 20 次的旧 selector 永久占位,
+    而用户昨天刚教的那条(useCount=1)挤不进来
+  - **过期**:按来源给不同 TTL,从 `lastUsedAt` 起算(user_pick/manual 90 天、ai_success 30 天、
+    ai_inferred 14 天)—— 一直在用的不会过期,只淘汰「存进来后再没派上用场」的。
+    另有独立判据:连续 `MAX_STALE_HITS`(3) 次定位失败即判过期(站点改版的典型表现,
+    此时 TTL 还远没到,靠计数才能及时把坏数据挤出注入名额)。`markHintStale` 由
+    `builder.ts` 三个元素动作的 locator 解析失败分支调用
+  - **置顶**(`pinned`):跳过评分直接进名额且永不过期。自动评分总有判错的时候 ——
+    某站点关键入口一个月才用一次,分数天然低,给个手动兜底比反复调参可靠
+  - **容量**:单 hostname 上限 `MAX_HINTS_PER_HOSTNAME`(60),超出按分数从低到高淘汰
+  - 过期项在**读取时过滤**(不改数据,TTL 常量以后调大还能回来),在**写入时真正删除**;
+    管理 UI 的「清理过期」按钮走 `pruneExpired` 手动触发
+  - `getByHostname` 已完成过滤 + 排序,三个读取方(prompt 注入、`@` 引用面板、闸门记忆查询)
+    都直接用,不再各自重排 —— 否则用户在面板里看到的第一条未必是真正注入的那条
 - 各类 `chatStore` / `promptStore` / `favoritesStore`
 
 ---

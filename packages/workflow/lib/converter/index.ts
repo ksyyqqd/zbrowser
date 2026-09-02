@@ -4,3 +4,4 @@
 
 export * from './SkillToWorkflow';
 export * from './WorkflowToSkill';
+export * from './StepsToWorkflow';

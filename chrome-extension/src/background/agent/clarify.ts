@@ -20,9 +20,17 @@ export function summarizeClarifyResponse(resp: ClarifyResponse, options?: { id: 
   if (resp.pickedSelector || resp.pickedXpath) {
     const bits: string[] = [];
     if (resp.pickedSelector) bits.push(`selector=${resp.pickedSelector}`);
+    if (resp.pickedStableSelector) bits.push(`stableSelector=${resp.pickedStableSelector}`);
     if (resp.pickedXpath) bits.push(`xpath=${resp.pickedXpath}`);
     if (resp.pickedText) bits.push(`text="${resp.pickedText.slice(0, 80)}"`);
     parts.push(`User picked an element on the page: ${bits.join(', ')}.`);
+    // 禁用态是"点了没反应"最常见的成因。不明确告知模型，它会反复点同一个元素并把失败
+    // 归因成"选错了按钮"，进而去猜别的元素 —— 而真正的问题在前置条件（表单没填完等）。
+    if (resp.pickedDisabled) {
+      parts.push(
+        'NOTE: that element is currently disabled (disabled/aria-disabled). Clicking it will do nothing — satisfy its precondition first (e.g. fill the required input) instead of picking another element.',
+      );
+    }
   }
   if (!parts.length) return 'User answered with no content.';
   return parts.join(' ');

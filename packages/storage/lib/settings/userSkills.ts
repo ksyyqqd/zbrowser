@@ -10,6 +10,11 @@ export interface UserSkillConfig {
   id: string;
   name: string;
   description: string;
+  /**
+   * 技能正文（Markdown）。通用文本格式的主体，执行时注入给 LLM。
+   * 旧记录没有这个字段——读取时由 normalizeSkillConfig 从 steps 补出来。
+   */
+  instructions?: string;
   version: string;
   category: SkillCategory;
   author: string;
@@ -56,7 +61,8 @@ export interface StoredSkillPackage extends UserSkillConfig {
     hasReferences: boolean;
     hasAssets: boolean;
     createdAt?: number;
-    source?: 'zip' | 'markdown' | 'json' | 'recording';
+    /** `ai_created` = 由 AI 在对话中通过 `skill_create` 生成，用于在设置页里标出来源。 */
+    source?: 'zip' | 'markdown' | 'json' | 'recording' | 'ai_created';
   };
 }
 
@@ -122,8 +128,38 @@ function validateSkillConfig(skill: UserSkillConfig): string | null {
   if (!skill.id) return 'Skill ID is required';
   if (!skill.name) return 'Skill name is required';
   if (!skill.description) return 'Skill description is required';
-  if (!skill.steps || skill.steps.length === 0) return 'Skill must have at least one step';
+  // 通用文本格式下 steps 可以为空——正文（instructions）才是主体。
+  // 两者都空才算无内容。
+  const hasInstructions = !!skill.instructions?.trim();
+  const hasSteps = !!skill.steps?.length;
+  if (!hasInstructions && !hasSteps) return 'Skill must have instructions or at least one step';
   return null;
+}
+
+/**
+ * 读取时向后兼容：旧记录没有 instructions 字段，用 steps 现渲染一份正文。
+ *
+ * 不在写入时做一次性迁移，是因为 steps 对录制产物仍有用（workflow 转换要读它），
+ * 就地覆盖会丢定位信息；这里只补出 instructions，steps 原样保留。
+ */
+function normalizeSkillConfig(skill: UserSkillConfig): UserSkillConfig {
+  if (skill.instructions?.trim()) return skill;
+  if (!skill.steps?.length) return skill;
+
+  const lines: string[] = [];
+  for (let i = 0; i < skill.steps.length; i++) {
+    const step = skill.steps[i];
+    lines.push(`${i + 1}. ${step.description?.trim() || step.action}`);
+    const p = step.parameters ?? {};
+    const detail: string[] = [];
+    for (const key of ['url', 'selector', 'xpath', 'text'] as const) {
+      const v = p[key];
+      if (typeof v === 'string' && v) detail.push(`${key}=${v}`);
+    }
+    if (detail.length) lines.push(`   （${detail.join('，')}）`);
+  }
+
+  return { ...skill, instructions: lines.join('\n') };
 }
 
 /**
@@ -188,12 +224,13 @@ export const userSkillsStore: UserSkillsStorage = {
 
   async getSkill(id: string) {
     const current = await storage.get();
-    return current.skills[id];
+    const skill = current.skills[id];
+    return skill ? normalizeSkillConfig(skill) : undefined;
   },
 
   async getAllSkills() {
     const current = await storage.get();
-    return Object.values(current.skills);
+    return Object.values(current.skills).map(normalizeSkillConfig);
   },
 
   async importSkills(skills: UserSkillConfig[]) {
@@ -230,10 +267,13 @@ export const userSkillsStore: UserSkillsStorage = {
     const current = await storage.get();
 
     if (!ids) {
-      return Object.values(current.skills);
+      return Object.values(current.skills).map(normalizeSkillConfig);
     }
 
-    return ids.map(id => current.skills[id]).filter((s): s is UserSkillConfig => s !== undefined);
+    return ids
+      .map(id => current.skills[id])
+      .filter((s): s is UserSkillConfig => s !== undefined)
+      .map(normalizeSkillConfig);
   },
 
   // SkillPackage methods
@@ -265,7 +305,7 @@ export const userSkillsStore: UserSkillsStorage = {
     const skill = current.skills[id];
     if (!skill) return undefined;
     // Return as StoredSkillPackage (may or may not have resources)
-    return skill as StoredSkillPackage;
+    return normalizeSkillConfig(skill) as StoredSkillPackage;
   },
 
   /**
@@ -313,13 +353,15 @@ export const userSkillsStore: UserSkillsStorage = {
    */
   async exportSkillPackages(ids?: string[]) {
     const current = await storage.get();
-    const allSkills = Object.values(current.skills) as StoredSkillPackage[];
 
     if (!ids) {
-      return allSkills;
+      return Object.values(current.skills).map(s => normalizeSkillConfig(s) as StoredSkillPackage);
     }
 
-    return ids.map(id => current.skills[id]).filter((s): s is StoredSkillPackage => s !== undefined);
+    return ids
+      .map(id => current.skills[id])
+      .filter((s): s is StoredSkillPackage => s !== undefined)
+      .map(s => normalizeSkillConfig(s) as StoredSkillPackage);
   },
 };
 
@@ -333,6 +375,7 @@ function convertPackageToStored(package_: SkillPackage): StoredSkillPackage {
     id: skill.id,
     name: skill.name,
     description: skill.description,
+    instructions: skill.instructions,
     version: skill.version,
     category: skill.category,
     author: skill.author ?? 'Unknown',

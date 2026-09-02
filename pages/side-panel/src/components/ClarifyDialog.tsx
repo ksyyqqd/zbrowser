@@ -80,8 +80,10 @@ export function ClarifyDialog({ payload, port, onClose }: ClarifyDialogProps) {
       choiceId,
       text: trimmed || undefined,
       pickedSelector: ps.phase === 'picked' ? ps.selector : undefined,
+      pickedStableSelector: ps.phase === 'picked' ? ps.stableSelector : undefined,
       pickedXpath: ps.phase === 'picked' ? ps.xpath : undefined,
       pickedText: ps.phase === 'picked' ? ps.text : undefined,
+      pickedDisabled: ps.phase === 'picked' ? ps.evidence?.disabled : undefined,
     });
   };
 

@@ -49,7 +49,17 @@ export const clickElementActionSchema: ActionSchema = {
     'Click element by index. If a remembered or user-provided xpath/selector is available, include it and it must be used before any index fallback.',
   schema: z.object({
     intent: z.string().default('').describe('purpose of this action'),
-    index: z.number().int().describe('index of the element'),
+    // index 必须可选：提示词与本 schema 都要求「命中事实库时把 xpath/selector 原样填进来」，
+    // 而记忆里的元素不一定出现在本次渲染的可交互列表里（没有 highlightIndex），此时模型
+    // 根本给不出 index。强制 required 会让照做的模型被 schema 打回（缺 index → 整步失败）。
+    // 与 input_text 保持一致；builder 侧的解析顺序本就是 xpath → selector → index。
+    index: z
+      .number()
+      .int()
+      .optional()
+      .describe(
+        'index of the element. Omit only if providing xpath/selector for a known element not in the current page summary.',
+      ),
     xpath: z
       .string()
       .nullable()

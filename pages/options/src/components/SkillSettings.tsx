@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { Button } from '@extension/ui';
 import { userSkillsStore, type StoredSkillPackage } from '@extension/storage';
-import type { ExecutionMode, Skill, SkillCategory, SkillPackage, SkillParameter, SkillStep } from '@extension/skills';
+import type { Skill, SkillPackage } from '@extension/skills';
 import { MarkdownParser, SkillPackageParser } from '@extension/skills';
 import JSZip from 'jszip';
 import {
@@ -18,6 +18,8 @@ import {
   FiSave,
   FiCheckSquare,
   FiSquare,
+  FiType,
+  FiPlus,
 } from 'react-icons/fi';
 import { t } from '@extension/i18n';
 
@@ -36,12 +38,20 @@ export const SkillSettings = ({ isDarkMode = false }: SkillSettingsProps) => {
   const [exportFormat, setExportFormat] = useState<'markdown' | 'json' | 'zip'>('markdown');
   const [viewingFile, setViewingFile] = useState<{ name: string; content: string; type: string } | null>(null);
 
-  // Editing states
+  // Editing states —— 只保留文本编辑。
+  // 原先还有一套结构化 UI 编辑器（逐个字段编 parameters / steps），已移除：
+  // steps 那套执行路径本来就没接通，通用格式下正文才是主体，两套编辑器并存
+  // 只会让同一份数据有两个真相来源。
   const [isEditing, setIsEditing] = useState(false);
-  const [editMode, setEditMode] = useState<'text' | 'ui'>('text');
-  const [editedSkill, setEditedSkill] = useState<Partial<StoredSkillPackage> | null>(null);
   const [editContent, setEditContent] = useState('');
-  const [editTextFormat, setEditTextFormat] = useState<'markdown' | 'json'>('markdown');
+
+  // 新建：复用同一套文本格式，只是初始内容是模板而非现有 skill
+  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [createContent, setCreateContent] = useState('');
+
+  // 改名：名字藏在 frontmatter 里，只想改个名却要看懂 YAML 门槛太高，单独开一个入口
+  const [renamingId, setRenamingId] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState('');
 
   // Export selection states
   const [selectedForExport, setSelectedForExport] = useState<Set<string>>(new Set());
@@ -73,6 +83,97 @@ export const SkillSettings = ({ isDarkMode = false }: SkillSettingsProps) => {
     await loadSkills();
   };
 
+  const NEW_SKILL_TEMPLATE = `---
+name: 新技能
+description: 一句话说明这个技能做什么
+category: custom
+parameters:
+  - name: keyword
+    type: string
+    required: true
+    description: 要搜索的关键词
+---
+
+1. 打开 https://example.com
+2. 把 {{keyword}} 填进搜索框并提交
+3. 读出第一条结果并回复
+`;
+
+  const openCreateModal = () => {
+    setCreateContent(NEW_SKILL_TEMPLATE);
+    setIsCreateModalOpen(true);
+  };
+
+  const handleCreateSkill = async () => {
+    try {
+      const parser = new MarkdownParser();
+      const parsed = parser.parse(createContent);
+
+      // parse 出的 id 由名字 slug 化而来，同名会直接覆盖已有 skill（importSkillPackages
+      // 是按 id 覆盖写入的）。新建语义上永远是"多一条"，所以撞了就换一个带后缀的 id。
+      const existingIds = new Set(userSkills.map(s => s.id));
+      let id = parsed.id;
+      if (existingIds.has(id)) {
+        id = `${parsed.id}-${Date.now().toString(36)}`;
+      }
+
+      const result = await userSkillsStore.importSkillPackages([
+        {
+          skill: { ...parsed, id },
+          packageInfo: {
+            hasScripts: false,
+            hasReferences: false,
+            hasAssets: false,
+            createdAt: Date.now(),
+            source: 'markdown',
+          },
+        },
+      ]);
+
+      if (result.errors.length > 0) {
+        alert(`新建失败：\n${result.errors.join('\n')}`);
+        return;
+      }
+
+      await loadSkills();
+      setIsCreateModalOpen(false);
+      setCreateContent('');
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+      alert(`新建失败: ${errorMsg}`);
+    }
+  };
+
+  const startRename = (skill: StoredSkillPackage) => {
+    setRenamingId(skill.id);
+    setRenameValue(skill.name);
+  };
+
+  const commitRename = async () => {
+    if (!renamingId) return;
+    const name = renameValue.trim();
+    // 空名字过不了 validateSkillConfig，与其抛错不如当成取消
+    if (!name) {
+      setRenamingId(null);
+      return;
+    }
+
+    try {
+      // 只改 name，不动 id —— id 是 workflow 转换、skill_invoke 的引用键，
+      // 跟着名字变会让已有引用全部失效。
+      await userSkillsStore.updateSkill(renamingId, { name });
+      await loadSkills();
+      if (selectedSkill?.id === renamingId) {
+        const updated = await userSkillsStore.getSkillPackage(renamingId);
+        if (updated) setSelectedSkill(updated);
+      }
+    } catch (error) {
+      alert(`改名失败: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    } finally {
+      setRenamingId(null);
+    }
+  };
+
   const handleImportSkills = async () => {
     try {
       const parser = new MarkdownParser();
@@ -82,9 +183,13 @@ export const SkillSettings = ({ isDarkMode = false }: SkillSettingsProps) => {
         // Parse Markdown format
         skillsArray = parser.parseMultiple(importContent);
       } else if (importFormat === 'json') {
-        // Parse JSON format
+        // JSON 直接反序列化，绕过了 parser，所以旧导出文件里可能没有 instructions。
+        // 补一份（从 steps 渲染），否则导入后正文是空的、执行时啥也注入不到。
         const parsed = JSON.parse(importContent);
-        skillsArray = Array.isArray(parsed) ? parsed : [parsed];
+        const raw: Skill[] = Array.isArray(parsed) ? parsed : [parsed];
+        skillsArray = raw.map(s =>
+          s.instructions?.trim() ? s : { ...s, instructions: parser.parse(parser.toMarkdown(s)).instructions },
+        );
       } else {
         // ZIP format is handled separately
         return;
@@ -285,6 +390,7 @@ export const SkillSettings = ({ isDarkMode = false }: SkillSettingsProps) => {
     id: pkg.id,
     name: pkg.name,
     description: pkg.description,
+    instructions: pkg.instructions ?? '',
     version: pkg.version,
     category: pkg.category,
     author: pkg.author,
@@ -318,22 +424,13 @@ export const SkillSettings = ({ isDarkMode = false }: SkillSettingsProps) => {
     setEditContent('');
   };
 
-  // Start editing a skill
-  const startEditing = (mode: 'text' | 'ui') => {
+  // Start editing a skill（通用文本格式：frontmatter + 正文）
+  const startEditing = () => {
     if (!selectedSkill) return;
 
-    setEditMode(mode);
-    if (mode === 'ui') {
-      // Initialize editedSkill with current skill data for UI editing
-      setEditedSkill({ ...selectedSkill });
-    } else {
-      // Generate text content from the current skill definition
-      const parser = new MarkdownParser();
-      const skillObj = convertPackageToSkill(selectedSkill);
-      const markdown = parser.toMarkdown(skillObj);
-      setEditContent(markdown);
-      setEditTextFormat('markdown');
-    }
+    const parser = new MarkdownParser();
+    const skillObj = convertPackageToSkill(selectedSkill);
+    setEditContent(parser.toMarkdown(skillObj));
     setIsEditing(true);
   };
 
@@ -348,64 +445,31 @@ export const SkillSettings = ({ isDarkMode = false }: SkillSettingsProps) => {
     if (!selectedSkill) return;
 
     try {
-      let skillUpdates: Partial<StoredSkillPackage>;
+      const parser = new MarkdownParser();
+      const parsedSkill = parser.parse(editContent);
 
-      if (editMode === 'text') {
-        // Parse from text content
-        const parser = new MarkdownParser();
-        let parsedSkill: Skill;
-
-        if (editTextFormat === 'markdown') {
-          parsedSkill = parser.parse(editContent);
-        } else {
-          parsedSkill = JSON.parse(editContent);
-        }
-
-        // Convert to UserSkillConfig format
-        skillUpdates = {
-          name: parsedSkill.name,
-          description: parsedSkill.description,
-          version: parsedSkill.version || selectedSkill.version,
-          category: parsedSkill.category,
-          author: parsedSkill.author ?? selectedSkill.author,
-          tags: parsedSkill.tags || [],
-          parameters: parsedSkill.parameters.map(p => ({
-            name: p.name,
-            type: p.type as 'string' | 'number' | 'boolean' | 'array' | 'object',
-            description: p.description,
-            required: p.required,
-            default: p.default,
-            enum: p.enum,
-          })),
-          steps: parsedSkill.steps.map(s => ({
-            id: s.id,
-            action: s.action,
-            description: s.description,
-            parameters: s.parameters,
-            condition: s.condition,
-            onError: s.onError ?? 'continue',
-            retryCount: s.retryCount,
-            delay: s.delay,
-          })),
-          executionMode: parsedSkill.executionMode ?? 'both',
-          timeout: parsedSkill.timeout,
-        };
-      } else {
-        // Use UI edited skill
-        if (!editedSkill) return;
-        skillUpdates = {
-          name: editedSkill.name,
-          description: editedSkill.description,
-          version: editedSkill.version,
-          category: editedSkill.category,
-          author: editedSkill.author,
-          tags: editedSkill.tags,
-          parameters: editedSkill.parameters,
-          steps: editedSkill.steps,
-          executionMode: editedSkill.executionMode,
-          timeout: editedSkill.timeout,
-        };
-      }
+      const skillUpdates: Partial<StoredSkillPackage> = {
+        name: parsedSkill.name,
+        description: parsedSkill.description,
+        instructions: parsedSkill.instructions,
+        version: parsedSkill.version || selectedSkill.version,
+        category: parsedSkill.category,
+        author: parsedSkill.author ?? selectedSkill.author,
+        tags: parsedSkill.tags || [],
+        parameters: parsedSkill.parameters.map(p => ({
+          name: p.name,
+          type: p.type as 'string' | 'number' | 'boolean' | 'array' | 'object',
+          description: p.description,
+          required: p.required,
+          default: p.default,
+          enum: p.enum,
+        })),
+        // 文本格式解析不出 steps。保留原有 steps —— 录制产物的精确 locator 在里面，
+        // 用户只是改了正文措辞，不该把定位数据抹掉；workflow 转换也还要读它。
+        steps: parsedSkill.steps.length > 0 ? parsedSkill.steps : selectedSkill.steps,
+        executionMode: parsedSkill.executionMode ?? 'both',
+        timeout: parsedSkill.timeout,
+      };
 
       // Update the skill in storage
       await userSkillsStore.updateSkill(selectedSkill.id, skillUpdates);
@@ -420,107 +484,12 @@ export const SkillSettings = ({ isDarkMode = false }: SkillSettingsProps) => {
       }
 
       setIsEditing(false);
-      setEditedSkill(null);
       setEditContent('');
       alert(t('options_skills_saveSuccess') || 'Skill saved successfully');
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : 'Unknown error';
       alert(t('options_skills_saveError', [errorMsg]) || `Save failed: ${errorMsg}`);
     }
-  };
-
-  // Update edited skill field (UI mode)
-  const updateEditedField = <K extends keyof StoredSkillPackage>(field: K, value: StoredSkillPackage[K]) => {
-    if (!editedSkill) return;
-    setEditedSkill(prev => {
-      if (!prev) return null;
-      return { ...prev, [field]: value };
-    });
-  };
-
-  // Update edited parameter
-  const updateEditedParameter = (index: number, updates: Partial<SkillParameter>) => {
-    if (!editedSkill) return;
-    setEditedSkill(prev => {
-      if (!prev) return null;
-      const params = [...(prev.parameters ?? [])];
-      params[index] = { ...params[index], ...updates };
-      return { ...prev, parameters: params };
-    });
-  };
-
-  // Add new parameter
-  const addEditedParameter = () => {
-    if (!editedSkill) return;
-    setEditedSkill(prev => {
-      if (!prev) return null;
-      return {
-        ...prev,
-        parameters: [
-          ...(prev.parameters ?? []),
-          {
-            name: 'new_param',
-            type: 'string',
-            description: 'New parameter',
-            required: false,
-          },
-        ],
-      };
-    });
-  };
-
-  // Remove parameter
-  const removeEditedParameter = (index: number) => {
-    if (!editedSkill) return;
-    setEditedSkill(prev => {
-      if (!prev) return null;
-      const params = (prev.parameters ?? []).filter((_, i) => i !== index);
-      return { ...prev, parameters: params };
-    });
-  };
-
-  // Update edited step
-  const updateEditedStep = (index: number, updates: Partial<SkillStep>) => {
-    if (!editedSkill) return;
-    setEditedSkill(prev => {
-      if (!prev) return null;
-      const steps = [...(prev.steps ?? [])];
-      steps[index] = { ...steps[index], ...updates };
-      return { ...prev, steps: steps };
-    });
-  };
-
-  // Add new step
-  const addEditedStep = () => {
-    if (!editedSkill) return;
-    setEditedSkill(prev => {
-      if (!prev) return null;
-      const currentSteps = prev.steps ?? [];
-      const newStepId = `step${currentSteps.length + 1}`;
-      return {
-        ...prev,
-        steps: [
-          ...currentSteps,
-          {
-            id: newStepId,
-            action: 'wait',
-            description: 'New step',
-            parameters: { intent: 'Wait for a moment', seconds: 1 },
-            onError: 'continue',
-          },
-        ],
-      };
-    });
-  };
-
-  // Remove step
-  const removeEditedStep = (index: number) => {
-    if (!editedSkill) return;
-    setEditedSkill(prev => {
-      if (!prev) return null;
-      const steps = (prev.steps ?? []).filter((_, i) => i !== index);
-      return { ...prev, steps: steps };
-    });
   };
 
   const convertBuiltInToPackage = (skill: Skill): StoredSkillPackage => ({
@@ -580,7 +549,25 @@ export const SkillSettings = ({ isDarkMode = false }: SkillSettingsProps) => {
       <div className="flex items-start justify-between">
         <div className="flex-1">
           <div className="flex items-center gap-2 mb-1">
-            <h3 className={`font-medium ${isDarkMode ? 'text-gray-200' : 'text-gray-800'}`}>{skill.name}</h3>
+            {renamingId === skill.id ? (
+              <input
+                type="text"
+                value={renameValue}
+                onChange={e => setRenameValue(e.target.value)}
+                onBlur={commitRename}
+                onKeyDown={e => {
+                  if (e.key === 'Enter') commitRename();
+                  if (e.key === 'Escape') setRenamingId(null);
+                }}
+                autoFocus
+                maxLength={60}
+                className={`rounded border px-2 py-0.5 text-sm font-medium ${
+                  isDarkMode ? 'border-slate-500 bg-slate-800 text-gray-200' : 'border-gray-300 bg-white text-gray-800'
+                }`}
+              />
+            ) : (
+              <h3 className={`font-medium ${isDarkMode ? 'text-gray-200' : 'text-gray-800'}`}>{skill.name}</h3>
+            )}
             {isBuiltIn ? (
               <span
                 className={`inline-flex items-center rounded-full px-2 py-1 text-xs ${isDarkMode ? 'bg-blue-900 text-blue-300' : 'bg-blue-100 text-blue-700'}`}>
@@ -635,9 +622,17 @@ export const SkillSettings = ({ isDarkMode = false }: SkillSettingsProps) => {
           </button>
           {!isBuiltIn && (
             <button
+              onClick={() => startRename(skill)}
+              className={`p-2 rounded-md ${isDarkMode ? 'hover:bg-slate-600 text-gray-400 hover:text-gray-200' : 'hover:bg-gray-200 text-gray-500 hover:text-gray-700'}`}
+              title="重命名">
+              <FiType className="h-4 w-4" />
+            </button>
+          )}
+          {!isBuiltIn && (
+            <button
               onClick={() => {
                 openSkillDetail(skill);
-                setTimeout(() => startEditing('ui'), 100);
+                setTimeout(startEditing, 100);
               }}
               className={`p-2 rounded-md ${isDarkMode ? 'hover:bg-slate-600 text-gray-400 hover:text-gray-200' : 'hover:bg-gray-200 text-gray-500 hover:text-gray-700'}`}
               title="编辑 Skill">
@@ -699,6 +694,12 @@ export const SkillSettings = ({ isDarkMode = false }: SkillSettingsProps) => {
             {t('options_skills_header')}
           </h2>
           <div className="flex items-center gap-2">
+            <Button
+              onClick={openCreateModal}
+              className={`flex items-center gap-2 ${isDarkMode ? 'bg-sky-600 hover:bg-sky-700 text-white' : 'bg-blue-600 hover:bg-blue-700 text-white'}`}>
+              <FiPlus className="h-4 w-4" />
+              新建
+            </Button>
             <Button
               onClick={() => setIsImportModalOpen(true)}
               className={`flex items-center gap-2 ${isDarkMode ? 'bg-slate-600 hover:bg-slate-500 text-gray-200' : 'bg-gray-200 hover:bg-gray-300 text-gray-700'}`}>
@@ -773,22 +774,9 @@ export const SkillSettings = ({ isDarkMode = false }: SkillSettingsProps) => {
             {/* Header */}
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-3">
-                {isEditing && editMode === 'ui' ? (
-                  <input
-                    type="text"
-                    value={editedSkill?.name || selectedSkill.name}
-                    onChange={e => updateEditedField('name', e.target.value)}
-                    className={`px-3 py-1 rounded-md text-lg font-semibold ${
-                      isDarkMode
-                        ? 'bg-slate-700 text-gray-200 border border-slate-600'
-                        : 'bg-gray-50 text-gray-800 border border-gray-300'
-                    }`}
-                  />
-                ) : (
-                  <h3 className={`text-lg font-semibold ${isDarkMode ? 'text-gray-200' : 'text-gray-800'}`}>
-                    {selectedSkill.name}
-                  </h3>
-                )}
+                <h3 className={`text-lg font-semibold ${isDarkMode ? 'text-gray-200' : 'text-gray-800'}`}>
+                  {selectedSkill.name}
+                </h3>
                 {selectedSkill.packageInfo?.source === 'recording' && (
                   <span
                     className={`inline-flex items-center rounded-full px-2 py-1 text-xs ${
@@ -799,67 +787,21 @@ export const SkillSettings = ({ isDarkMode = false }: SkillSettingsProps) => {
                 )}
               </div>
 
-              {/* Edit mode toggle buttons */}
+              {/* 编辑入口 —— 只有文本编辑一种 */}
               {!isEditing && !!selectedSkill.packageInfo && (
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => startEditing('ui')}
-                    className={`flex items-center gap-1 px-3 py-1.5 rounded-md text-sm ${
-                      isDarkMode
-                        ? 'bg-slate-600 hover:bg-slate-500 text-gray-200'
-                        : 'bg-gray-200 hover:bg-gray-300 text-gray-700'
-                    }`}
-                    title="UI 编辑">
-                    <FiEdit2 className="h-4 w-4" />
-                    UI编辑
-                  </button>
-                  <button
-                    onClick={() => startEditing('text')}
-                    className={`flex items-center gap-1 px-3 py-1.5 rounded-md text-sm ${
-                      isDarkMode ? 'bg-sky-600 hover:bg-sky-700 text-white' : 'bg-blue-600 hover:bg-blue-700 text-white'
-                    }`}
-                    title="文本编辑">
-                    <FiCode className="h-4 w-4" />
-                    文本编辑
-                  </button>
-                </div>
+                <button
+                  onClick={startEditing}
+                  className={`flex items-center gap-1 px-3 py-1.5 rounded-md text-sm ${
+                    isDarkMode ? 'bg-sky-600 hover:bg-sky-700 text-white' : 'bg-blue-600 hover:bg-blue-700 text-white'
+                  }`}
+                  title="编辑">
+                  <FiCode className="h-4 w-4" />
+                  编辑
+                </button>
               )}
 
               {isEditing && (
                 <div className="flex items-center gap-2">
-                  {editMode === 'text' && (
-                    <select
-                      value={editTextFormat}
-                      onChange={e => {
-                        setEditTextFormat(e.target.value as 'markdown' | 'json');
-                        // Convert content
-                        if (e.target.value === 'json' && editContent) {
-                          try {
-                            const parser = new MarkdownParser();
-                            const parsed = parser.parse(editContent);
-                            setEditContent(JSON.stringify(parsed, null, 2));
-                          } catch {
-                            // Keep current content
-                          }
-                        } else if (e.target.value === 'markdown' && editContent) {
-                          try {
-                            const parsed = JSON.parse(editContent);
-                            const parser = new MarkdownParser();
-                            setEditContent(parser.toMarkdown(parsed));
-                          } catch {
-                            // Keep current content
-                          }
-                        }
-                      }}
-                      className={`rounded-md border px-2 py-1 text-sm ${
-                        isDarkMode
-                          ? 'border-slate-600 bg-slate-700 text-gray-200'
-                          : 'border-gray-300 bg-white text-gray-700'
-                      }`}>
-                      <option value="markdown">Markdown</option>
-                      <option value="json">JSON</option>
-                    </select>
-                  )}
                   <button
                     onClick={cancelEditing}
                     className={`flex items-center gap-1 px-3 py-1.5 rounded-md text-sm ${
@@ -892,17 +834,17 @@ export const SkillSettings = ({ isDarkMode = false }: SkillSettingsProps) => {
               </button>
             </div>
 
-            {/* Text editing mode */}
-            {isEditing && editMode === 'text' && (
+            {/* 文本编辑 —— 通用格式：frontmatter + 正文 */}
+            {isEditing && (
               <div className="space-y-4">
                 <p className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
-                  直接编辑 {editTextFormat === 'markdown' ? 'Markdown' : 'JSON'} 格式的 Skill 定义
+                  编辑 Skill 定义：顶部 <code>---</code> 之间是元信息，下方正文就是给 AI 的指令
                 </p>
                 <textarea
                   ref={editTextAreaRef}
                   value={editContent}
                   onChange={e => setEditContent(e.target.value)}
-                  rows={20}
+                  rows={24}
                   className={`w-full rounded-md border px-3 py-2 text-sm font-mono ${
                     isDarkMode
                       ? 'border-slate-600 bg-slate-900 text-gray-200'
@@ -911,220 +853,61 @@ export const SkillSettings = ({ isDarkMode = false }: SkillSettingsProps) => {
                   spellCheck={false}
                 />
                 <p className={`text-xs ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>
-                  {editTextFormat === 'markdown'
-                    ? 'Markdown 格式：使用 # 作为技能名称，## 作为章节标题'
-                    : 'JSON 格式：确保格式正确，包含 id、name、description、steps 等字段'}
+                  元信息支持 name / description / category / version / parameters；正文用自然语言写清步骤，
+                  <code>{'{{参数名}}'}</code> 会在执行时替换成实际取值
                 </p>
               </div>
             )}
 
-            {/* UI editing mode or view mode */}
-            {(!isEditing || editMode === 'ui') && (
+            {/* 查看模式（只读；改内容走上面的文本编辑） */}
+            {!isEditing && (
               <div className="space-y-4">
-                {/* Basic Info */}
+                {/* 基本信息 */}
                 <div>
-                  {isEditing ? (
-                    <textarea
-                      value={editedSkill?.description || selectedSkill.description}
-                      onChange={e => updateEditedField('description', e.target.value)}
-                      rows={2}
-                      className={`w-full px-3 py-2 rounded-md text-sm ${
-                        isDarkMode
-                          ? 'bg-slate-700 text-gray-300 border border-slate-600'
-                          : 'bg-gray-50 text-gray-500 border border-gray-300'
-                      }`}
-                      placeholder="Skill description"
-                    />
-                  ) : (
-                    <p className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
-                      {selectedSkill.description}
-                    </p>
-                  )}
-                  <div className="flex items-center gap-4 mt-2 text-xs">
+                  <p className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                    {selectedSkill.description}
+                  </p>
+                  <div className="mt-2 flex items-center gap-4 text-xs">
                     <span className={`${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>ID: {selectedSkill.id}</span>
-                    {isEditing ? (
-                      <input
-                        type="text"
-                        value={editedSkill?.version || selectedSkill.version}
-                        onChange={e => updateEditedField('version', e.target.value)}
-                        className={`w-20 px-2 py-1 rounded ${
-                          isDarkMode
-                            ? 'bg-slate-700 text-gray-300 border border-slate-600'
-                            : 'bg-gray-50 text-gray-400 border border-gray-300'
-                        }`}
-                        placeholder="版本"
-                      />
-                    ) : (
-                      <span className={`${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>
-                        版本: {selectedSkill.version}
-                      </span>
-                    )}
-                    {isEditing ? (
-                      <select
-                        value={editedSkill?.category || selectedSkill.category}
-                        onChange={e => updateEditedField('category', e.target.value as SkillCategory)}
-                        className={`px-2 py-1 rounded ${
-                          isDarkMode
-                            ? 'bg-slate-700 text-gray-300 border border-slate-600'
-                            : 'bg-gray-50 text-gray-400 border border-gray-300'
-                        }`}>
-                        <option value="navigation">导航</option>
-                        <option value="data-extraction">数据提取</option>
-                        <option value="form-interaction">表单交互</option>
-                        <option value="automation">自动化</option>
-                        <option value="analysis">分析</option>
-                        <option value="custom">自定义</option>
-                      </select>
-                    ) : (
-                      <span className={`${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>
-                        分类: {getCategoryLabel(selectedSkill.category)}
-                      </span>
-                    )}
-                    {isEditing ? (
-                      <select
-                        value={editedSkill?.executionMode || selectedSkill.executionMode}
-                        onChange={e => updateEditedField('executionMode', e.target.value as ExecutionMode)}
-                        className={`px-2 py-1 rounded ${
-                          isDarkMode
-                            ? 'bg-slate-700 text-gray-300 border border-slate-600'
-                            : 'bg-gray-50 text-gray-400 border border-gray-300'
-                        }`}>
-                        <option value="atomic">atomic</option>
-                        <option value="expanded">expanded</option>
-                        <option value="both">both</option>
-                      </select>
-                    ) : (
-                      <span className={`${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>
-                        执行模式: {selectedSkill.executionMode}
-                      </span>
-                    )}
+                    <span className={`${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>
+                      版本: {selectedSkill.version}
+                    </span>
+                    <span className={`${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>
+                      分类: {getCategoryLabel(selectedSkill.category)}
+                    </span>
                   </div>
                 </div>
 
-                {/* Parameters */}
+                {/* 参数 */}
                 <div>
-                  <div className="flex items-center justify-between mb-2">
-                    <h4 className={`text-sm font-medium ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>
-                      参数 ({isEditing ? (editedSkill?.parameters?.length ?? 0) : selectedSkill.parameters.length})
-                    </h4>
-                    {isEditing && (
-                      <button
-                        onClick={addEditedParameter}
-                        className={`text-xs px-2 py-1 rounded ${
-                          isDarkMode
-                            ? 'bg-slate-600 hover:bg-slate-500 text-gray-300'
-                            : 'bg-gray-200 hover:bg-gray-300 text-gray-600'
-                        }`}>
-                        + 添加参数
-                      </button>
-                    )}
-                  </div>
-                  {(isEditing ? editedSkill?.parameters : selectedSkill.parameters)?.length === 0 ? (
+                  <h4 className={`mb-2 text-sm font-medium ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>
+                    参数 ({selectedSkill.parameters.length})
+                  </h4>
+                  {selectedSkill.parameters.length === 0 ? (
                     <p className={`text-xs ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>无参数</p>
                   ) : (
                     <div className="space-y-2">
-                      {(isEditing ? editedSkill?.parameters || [] : selectedSkill.parameters).map((param, index) => (
+                      {selectedSkill.parameters.map(param => (
                         <div
-                          key={param.name + index}
+                          key={param.name}
                           className={`rounded border p-2 ${
                             isDarkMode ? 'border-slate-600 bg-slate-700' : 'border-gray-200 bg-gray-50'
                           }`}>
-                          <div className="flex items-center gap-2 mb-1">
-                            {isEditing ? (
-                              <>
-                                <input
-                                  type="text"
-                                  value={param.name}
-                                  onChange={e => updateEditedParameter(index, { name: e.target.value })}
-                                  className={`w-24 px-2 py-0.5 rounded text-sm font-medium ${
-                                    isDarkMode
-                                      ? 'bg-slate-600 text-gray-200 border border-slate-500'
-                                      : 'bg-white text-gray-700 border border-gray-300'
-                                  }`}
-                                />
-                                <select
-                                  value={param.type}
-                                  onChange={e =>
-                                    updateEditedParameter(index, {
-                                      type: e.target.value as 'string' | 'number' | 'boolean' | 'array' | 'object',
-                                    })
-                                  }
-                                  className={`px-2 py-0.5 rounded text-xs ${
-                                    isDarkMode
-                                      ? 'bg-slate-600 text-gray-400 border border-slate-500'
-                                      : 'bg-white text-gray-400 border border-gray-300'
-                                  }`}>
-                                  <option value="string">string</option>
-                                  <option value="number">number</option>
-                                  <option value="boolean">boolean</option>
-                                  <option value="array">array</option>
-                                  <option value="object">object</option>
-                                </select>
-                                <label className="flex items-center gap-1 text-xs">
-                                  <input
-                                    type="checkbox"
-                                    checked={param.required}
-                                    onChange={e => updateEditedParameter(index, { required: e.target.checked })}
-                                    className="rounded"
-                                  />
-                                  必填
-                                </label>
-                                <button
-                                  onClick={() => removeEditedParameter(index)}
-                                  className={`ml-auto text-xs px-1.5 py-0.5 rounded ${
-                                    isDarkMode
-                                      ? 'bg-red-900/50 hover:bg-red-800 text-red-300'
-                                      : 'bg-red-50 hover:bg-red-100 text-red-600'
-                                  }`}>
-                                  删除
-                                </button>
-                              </>
-                            ) : (
-                              <>
-                                <span
-                                  className={`font-medium text-sm ${isDarkMode ? 'text-gray-200' : 'text-gray-700'}`}>
-                                  {param.name}
-                                </span>
-                                <span className={`text-xs ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>
-                                  ({param.type})
-                                </span>
-                                {param.required && (
-                                  <span className={`text-xs ${isDarkMode ? 'text-red-400' : 'text-red-500'}`}>
-                                    必填
-                                  </span>
-                                )}
-                              </>
+                          <div className="flex items-center gap-2">
+                            <span className={`text-sm font-medium ${isDarkMode ? 'text-gray-200' : 'text-gray-700'}`}>
+                              {param.name}
+                            </span>
+                            <span className={`text-xs ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>
+                              ({param.type})
+                            </span>
+                            {param.required && (
+                              <span className={`text-xs ${isDarkMode ? 'text-red-400' : 'text-red-500'}`}>必填</span>
                             )}
                           </div>
-                          {isEditing ? (
-                            <input
-                              type="text"
-                              value={param.description}
-                              onChange={e => updateEditedParameter(index, { description: e.target.value })}
-                              className={`w-full px-2 py-0.5 rounded text-xs ${
-                                isDarkMode
-                                  ? 'bg-slate-600 text-gray-400 border border-slate-500'
-                                  : 'bg-white text-gray-500 border border-gray-300'
-                              }`}
-                              placeholder="参数描述"
-                            />
-                          ) : (
+                          {param.description && (
                             <p className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
                               {param.description}
                             </p>
-                          )}
-                          {isEditing && param.default !== undefined && (
-                            <input
-                              type="text"
-                              value={String(param.default)}
-                              onChange={e => updateEditedParameter(index, { default: e.target.value })}
-                              className={`w-full mt-1 px-2 py-0.5 rounded text-xs ${
-                                isDarkMode
-                                  ? 'bg-slate-600 text-gray-400 border border-slate-500'
-                                  : 'bg-white text-gray-500 border border-gray-300'
-                              }`}
-                              placeholder="默认值"
-                            />
                           )}
                         </div>
                       ))}
@@ -1132,166 +915,127 @@ export const SkillSettings = ({ isDarkMode = false }: SkillSettingsProps) => {
                   )}
                 </div>
 
-                {/* Steps */}
+                {/* 技能正文 —— 通用格式下这才是执行时真正注入给 AI 的内容 */}
                 <div>
-                  <div className="flex items-center justify-between mb-2">
-                    <h4 className={`text-sm font-medium ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>
-                      执行步骤 ({isEditing ? (editedSkill?.steps?.length ?? 0) : selectedSkill.steps.length})
-                    </h4>
-                    {isEditing && (
-                      <button
-                        onClick={addEditedStep}
-                        className={`text-xs px-2 py-1 rounded ${
-                          isDarkMode
-                            ? 'bg-slate-600 hover:bg-slate-500 text-gray-300'
-                            : 'bg-gray-200 hover:bg-gray-300 text-gray-600'
-                        }`}>
-                        + 添加步骤
-                      </button>
-                    )}
-                  </div>
-                  <div className="space-y-2">
-                    {(isEditing ? editedSkill?.steps || [] : selectedSkill.steps).map((step, index) => (
-                      <div
-                        key={step.id + index}
-                        className={`rounded border p-2 ${
-                          isDarkMode ? 'border-slate-600 bg-slate-700' : 'border-gray-200 bg-gray-50'
-                        }`}>
-                        <div className="flex items-center gap-2 mb-1">
-                          {isEditing ? (
-                            <>
-                              <span className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
-                                #{index + 1}
-                              </span>
-                              <input
-                                type="text"
-                                value={step.id}
-                                onChange={e => updateEditedStep(index, { id: e.target.value })}
-                                className={`w-20 px-2 py-0.5 rounded text-xs ${
-                                  isDarkMode
-                                    ? 'bg-slate-600 text-gray-300 border border-slate-500'
-                                    : 'bg-white text-gray-600 border border-gray-300'
-                                }`}
-                                placeholder="step id"
-                              />
-                              <select
-                                value={step.action}
-                                onChange={e => updateEditedStep(index, { action: e.target.value })}
-                                className={`px-2 py-0.5 rounded text-sm font-medium ${
-                                  isDarkMode
-                                    ? 'bg-slate-600 text-gray-200 border border-slate-500'
-                                    : 'bg-white text-gray-700 border border-gray-300'
-                                }`}>
-                                <option value="go_to_url">go_to_url</option>
-                                <option value="click_element">click_element</option>
-                                <option value="input_text">input_text</option>
-                                <option value="send_keys">send_keys</option>
-                                <option value="scroll_to_percent">scroll_to_percent</option>
-                                <option value="wait">wait</option>
-                                <option value="extract_data">extract_data</option>
-                                <option value="done">done</option>
-                              </select>
-                              <select
-                                value={step.onError}
-                                onChange={e =>
-                                  updateEditedStep(index, { onError: e.target.value as 'continue' | 'stop' | 'retry' })
-                                }
-                                className={`px-2 py-0.5 rounded text-xs ${
-                                  isDarkMode
-                                    ? 'bg-slate-600 text-gray-400 border border-slate-500'
-                                    : 'bg-white text-gray-400 border border-gray-300'
-                                }`}>
-                                <option value="stop">stop</option>
-                                <option value="continue">continue</option>
-                                <option value="retry">retry</option>
-                              </select>
-                              <button
-                                onClick={() => removeEditedStep(index)}
-                                className={`ml-auto text-xs px-1.5 py-0.5 rounded ${
-                                  isDarkMode
-                                    ? 'bg-red-900/50 hover:bg-red-800 text-red-300'
-                                    : 'bg-red-50 hover:bg-red-100 text-red-600'
-                                }`}>
-                                删除
-                              </button>
-                            </>
-                          ) : (
-                            <>
-                              <span className={`font-medium text-sm ${isDarkMode ? 'text-gray-200' : 'text-gray-700'}`}>
-                                #{index + 1}: {step.action}
-                              </span>
-                              {step.description && (
-                                <span className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
-                                  - {step.description}
-                                </span>
-                              )}
-                            </>
-                          )}
-                        </div>
-                        {isEditing ? (
-                          <input
-                            type="text"
-                            value={step.description || ''}
-                            onChange={e => updateEditedStep(index, { description: e.target.value })}
-                            className={`w-full px-2 py-0.5 rounded text-xs ${
-                              isDarkMode
-                                ? 'bg-slate-600 text-gray-400 border border-slate-500'
-                                : 'bg-white text-gray-500 border border-gray-300'
-                            }`}
-                            placeholder="步骤描述"
-                          />
-                        ) : null}
-                        {isEditing ? (
-                          <textarea
-                            value={JSON.stringify(step.parameters, null, 2)}
-                            onChange={e => {
-                              try {
-                                updateEditedStep(index, { parameters: JSON.parse(e.target.value) });
-                              } catch {
-                                // Invalid JSON, keep current
-                              }
-                            }}
-                            rows={3}
-                            className={`w-full mt-1 px-2 py-1 rounded text-xs font-mono ${
-                              isDarkMode
-                                ? 'bg-slate-900 text-gray-300 border border-slate-500'
-                                : 'bg-gray-100 text-gray-600 border border-gray-300'
-                            }`}
-                            placeholder="参数 JSON"
-                            spellCheck={false}
-                          />
-                        ) : (
-                          <p className={`text-xs ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>
-                            参数: {JSON.stringify(step.parameters)}
-                          </p>
-                        )}
-                      </div>
-                    ))}
-                  </div>
+                  <h4 className={`mb-2 text-sm font-medium ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>
+                    技能正文
+                  </h4>
+                  {selectedSkill.instructions?.trim() ? (
+                    <pre
+                      className={`max-h-72 overflow-auto whitespace-pre-wrap rounded border p-3 text-xs ${
+                        isDarkMode
+                          ? 'border-slate-600 bg-slate-900 text-gray-300'
+                          : 'border-gray-200 bg-gray-50 text-gray-600'
+                      }`}>
+                      {selectedSkill.instructions}
+                    </pre>
+                  ) : (
+                    <p className={`text-xs ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>
+                      暂无正文，点「编辑」补充
+                    </p>
+                  )}
                 </div>
 
-                {/* Package resources (only in view mode) */}
-                {!isEditing && (
-                  <>
-                    {renderFileList(
-                      t('options_skills_scriptsSection'),
-                      selectedSkill.scripts,
-                      t('options_skills_noScripts'),
-                    )}
-                    {renderFileList(
-                      t('options_skills_referencesSection'),
-                      selectedSkill.references,
-                      t('options_skills_noReferences'),
-                    )}
-                    {renderFileList(
-                      t('options_skills_assetsSection'),
-                      selectedSkill.assets,
-                      t('options_skills_noAssets'),
-                    )}
-                  </>
+                {/* 录制的定位数据 —— 只读，供排查用；正文才是执行依据 */}
+                {selectedSkill.steps.length > 0 && (
+                  <details>
+                    <summary
+                      className={`cursor-pointer text-sm font-medium ${
+                        isDarkMode ? 'text-gray-300' : 'text-gray-600'
+                      }`}>
+                      录制的定位数据（{selectedSkill.steps.length} 条）
+                    </summary>
+                    <div className="mt-2 space-y-1">
+                      {selectedSkill.steps.map((step, index) => (
+                        <div
+                          key={step.id + index}
+                          className={`rounded border p-2 text-xs ${
+                            isDarkMode ? 'border-slate-600 bg-slate-700' : 'border-gray-200 bg-gray-50'
+                          }`}>
+                          <span className={`font-medium ${isDarkMode ? 'text-gray-200' : 'text-gray-700'}`}>
+                            #{index + 1}: {step.action}
+                          </span>
+                          {step.description && (
+                            <span className={`ml-1 ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                              - {step.description}
+                            </span>
+                          )}
+                          <p className={`break-all ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>
+                            {JSON.stringify(step.parameters)}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  </details>
                 )}
+
+                {/* Package resources */}
+                {renderFileList(
+                  t('options_skills_scriptsSection'),
+                  selectedSkill.scripts,
+                  t('options_skills_noScripts'),
+                )}
+                {renderFileList(
+                  t('options_skills_referencesSection'),
+                  selectedSkill.references,
+                  t('options_skills_noReferences'),
+                )}
+                {renderFileList(t('options_skills_assetsSection'), selectedSkill.assets, t('options_skills_noAssets'))}
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Create Modal —— 和编辑共用同一套文本格式，避免出现第二种 skill 写法 */}
+      {isCreateModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/50" onClick={() => setIsCreateModalOpen(false)} />
+          <div
+            className={`relative rounded-lg border ${isDarkMode ? 'border-slate-600 bg-slate-800' : 'border-gray-200 bg-white'} p-6 w-full max-w-3xl mx-4 shadow-xl max-h-[85vh] overflow-y-auto`}>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className={`text-lg font-semibold ${isDarkMode ? 'text-gray-200' : 'text-gray-800'}`}>新建 Skill</h3>
+              <button
+                onClick={() => setIsCreateModalOpen(false)}
+                className={`p-1 rounded ${isDarkMode ? 'hover:bg-slate-600 text-gray-400' : 'hover:bg-gray-200 text-gray-500'}`}>
+                <FiX className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <p className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                顶部 <code>---</code> 之间是元信息，下方正文就是给 AI 的指令
+              </p>
+              <textarea
+                value={createContent}
+                onChange={e => setCreateContent(e.target.value)}
+                rows={22}
+                spellCheck={false}
+                className={`w-full rounded-md border px-3 py-2 text-sm font-mono ${
+                  isDarkMode
+                    ? 'border-slate-600 bg-slate-900 text-gray-200'
+                    : 'border-gray-300 bg-gray-50 text-gray-700'
+                }`}
+              />
+              <p className={`text-xs ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>
+                元信息支持 name / description / category / version / parameters；
+                <code>{'{{参数名}}'}</code> 会在执行时替换成实际取值
+              </p>
+              <div className="flex items-center justify-end gap-2">
+                <Button
+                  onClick={() => setIsCreateModalOpen(false)}
+                  className={`${isDarkMode ? 'bg-slate-600 hover:bg-slate-500 text-gray-200' : 'bg-gray-200 hover:bg-gray-300 text-gray-700'}`}>
+                  取消
+                </Button>
+                <Button
+                  onClick={handleCreateSkill}
+                  disabled={!createContent.trim()}
+                  className="bg-green-600 hover:bg-green-700 text-white disabled:opacity-50">
+                  <FiSave className="mr-1 inline h-4 w-4" />
+                  创建
+                </Button>
+              </div>
+            </div>
           </div>
         </div>
       )}

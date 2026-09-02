@@ -121,6 +121,15 @@
   "chat_bookmarks_delete": {
     "message": "删除书签"
   },
+  "chat_bookmarks_runWorkflow": {
+    "message": "执行工作流「$NAME$」",
+    "placeholders": {
+      "name": {
+        "content": "$1",
+        "example": "每日报表"
+      }
+    }
+  },
   "chat_replay_starting": {
     "message": "开始重播任务：\n\n\"$TASK$\"",
     "placeholders": {
@@ -226,9 +235,6 @@
   "options_tabs_models": {
     "message": "模型"
   },
-  "options_tabs_images": {
-    "message": "图片"
-  },
   "options_tabs_firewall": {
     "message": "防火墙"
   },
@@ -310,12 +316,6 @@
   "options_general_viewportExpansion_option_all": {
     "message": "显示整页所有元素"
   },
-  "options_general_showImageGeneration": {
-    "message": "显示图片生成"
-  },
-  "options_general_showImageGeneration_desc": {
-    "message": "在对话框中显示图片生成按钮（需要配置图片提供者）"
-  },
   "options_general_showRequestLogs": {
     "message": "显示请求日志"
   },
@@ -324,18 +324,6 @@
   },
   "options_general_experimentalSection": {
     "message": "实验性功能"
-  },
-  "options_general_multiActionEnabled": {
-    "message": "连续动作执行（实验性功能）"
-  },
-  "options_general_multiActionEnabled_desc": {
-    "message": "开启后AI会尝试一次规划多个连续动作并顺序执行，减少AI请求次数从而提升执行速度。关闭后每次只执行一个动作（更稳定但较慢）。"
-  },
-  "options_general_maxMultiActions": {
-    "message": "最大连续动作数"
-  },
-  "options_general_maxMultiActions_desc": {
-    "message": "连续动作模式下，每次最多规划的动作数量（1-10）"
   },
   "options_general_autonomousMode": {
     "message": "自主模式（实验性功能）"
@@ -526,7 +514,6 @@
   "options_firewall_howItWorks": {
     "message": "防火墙包含一个拒绝清单和一个允许清单。\n- 如果两个清单都为空，则允许所有 URL。\n- 拒绝清单具有较高优先级。如果一个 URL 符合任何拒绝清单中的项目，它将被阻止。\n- 当允许清单为空时，所有未被拒绝的 URL 都会被允许。\n- 当允许清单不为空时，只有符合清单中项目的 URL 才被允许。\n- 目前尚不支持通配符。\n- 建议优先使用允许清单，而非拒绝清单。"
   },
-
   "options_tabs_mcp": {
     "message": "MCP 服务器"
   },
@@ -602,6 +589,9 @@
   "options_mcp_statusUnknown": {
     "message": "未知"
   },
+  "options_mcp_disabled": {
+    "message": "MCP 功能在当前版本中已停用。"
+  },
   "options_mcp_statusConnected": {
     "message": "已连接"
   },
@@ -611,7 +601,6 @@
   "options_mcp_statusDisabled": {
     "message": "已禁用"
   },
-
   "options_skills_header": {
     "message": "技能"
   },
@@ -765,7 +754,6 @@
   "options_skills_saveSuccess": {
     "message": "保存成功"
   },
-
   "bg_errors_noTabId": {
     "message": "未提供标签页 ID"
   },
@@ -808,6 +796,9 @@
   "bg_cmd_replay_failed": {
     "message": "重播失败"
   },
+  "bg_workflow_unreviewed": {
+    "message": "该工作流尚未确认。请在工作流编辑器中检查步骤并确认后再执行。"
+  },
   "bg_setup_noApiKeys": {
     "message": "请先在设置页面中完成 API 密钥的设置。"
   },
@@ -828,6 +819,9 @@
   },
   "exec_errors_maxFailuresReached": {
     "message": "已达失败次数上限。"
+  },
+  "exec_task_ok": {
+    "message": "任务已完成"
   },
   "exec_task_cancel": {
     "message": "任务已取消"
@@ -1545,6 +1539,21 @@
   "workflow_execute": {
     "message": "执行"
   },
+  "workflow_bookmark": {
+    "message": "加入书签 —— 会出现在侧边栏快速访问里，可一键执行"
+  },
+  "workflow_unbookmark": {
+    "message": "移出书签"
+  },
+  "workflow_bookmarkNeedsReview": {
+    "message": "请先确认该工作流。书签是一键执行的入口，未确认的工作流无法执行。"
+  },
+  "workflow_unreviewedBadge": {
+    "message": "未确认"
+  },
+  "workflow_confirm": {
+    "message": "确认"
+  },
   "workflow_convert": {
     "message": "转换"
   },
@@ -1710,9 +1719,6 @@
   "workflow_action_cacheContent": {
     "message": "缓存内容"
   },
-  "workflow_action_generateImage": {
-    "message": "生成图片"
-  },
   "workflow_intent": {
     "message": "意图"
   },
@@ -1751,21 +1757,6 @@
   },
   "workflow_param_tabIndex": {
     "message": "标签页索引"
-  },
-  "workflow_param_prompt": {
-    "message": "提示词"
-  },
-  "workflow_param_model": {
-    "message": "模型"
-  },
-  "workflow_param_size": {
-    "message": "尺寸"
-  },
-  "workflow_param_quality": {
-    "message": "质量"
-  },
-  "workflow_param_outputVariable": {
-    "message": "输出变量"
   },
   "workflow_editEdge": {
     "message": "编辑连线"
@@ -1865,90 +1856,6 @@
   },
   "workflow_branchNamePlaceholder": {
     "message": "分支名称"
-  },
-  "image_generation_title": {
-    "message": "图片生成"
-  },
-  "image_generation_providers": {
-    "message": "图片服务提供商"
-  },
-  "image_generation_addProvider": {
-    "message": "添加图片提供商"
-  },
-  "image_generation_removeProvider": {
-    "message": "删除提供商"
-  },
-  "image_generation_activeProvider": {
-    "message": "当前使用的提供商"
-  },
-  "image_generation_providerName": {
-    "message": "提供商名称"
-  },
-  "image_generation_apiKey": {
-    "message": "API 密钥"
-  },
-  "image_generation_baseUrl": {
-    "message": "API 地址"
-  },
-  "image_generation_baseUrl_placeholder": {
-    "message": "例如: https://www.packyapi.com/v1"
-  },
-  "image_generation_models": {
-    "message": "可用模型"
-  },
-  "image_generation_defaultModel": {
-    "message": "默认模型"
-  },
-  "image_generation_defaultSize": {
-    "message": "默认尺寸"
-  },
-  "image_generation_quality": {
-    "message": "图片质量"
-  },
-  "image_generation_prompt_placeholder": {
-    "message": "输入图片生成提示词..."
-  },
-  "image_generation_generate": {
-    "message": "生成图片"
-  },
-  "image_generation_generating": {
-    "message": "正在生成图片..."
-  },
-  "image_generation_result": {
-    "message": "图片生成成功"
-  },
-  "image_generation_error": {
-    "message": "图片生成失败"
-  },
-  "image_generation_noProvider": {
-    "message": "未配置图片服务提供商"
-  },
-  "image_generation_testConnection": {
-    "message": "测试连接"
-  },
-  "image_generation_testSuccess": {
-    "message": "连接成功"
-  },
-  "image_generation_testFailed": {
-    "message": "连接失败"
-  },
-  "image_generation_saveProvider": {
-    "message": "保存提供商"
-  },
-  "image_generation_providerSaved": {
-    "message": "提供商保存成功"
-  },
-  "image_generation_providerRemoved": {
-    "message": "提供商删除成功"
-  },
-  "image_generation_setActive": {
-    "message": "设为当前使用"
-  },
-  "image_generation_customProvider": {
-    "message": "自定义提供商"
-  },
-  "image_generation_openaiProvider": {
-    "message": "OpenAI (DALL-E)"
   },
   "workflow_noDescription": {
     "message": "暂无描述"

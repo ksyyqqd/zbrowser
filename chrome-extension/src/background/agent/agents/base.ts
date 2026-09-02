@@ -8,7 +8,7 @@ import type { Action } from '../actions/builder';
 import {
   convertInputMessages,
   deepParseJsonStrings,
-  extractJsonFromModelOutput,
+  extractJsonCandidatesFromModelOutput,
   removeThinkTags,
 } from '../messages/utils';
 import { isAbortedError, ResponseParseError } from './errors';
@@ -16,6 +16,45 @@ import { ProviderTypeEnum } from '@extension/storage';
 import { appendAgentRequestLog, serializeMessagesForLog } from '../requestLogs';
 
 const logger = createLogger('agent');
+
+/**
+ * Whether an error message looks like a response-shape problem rather than a transport,
+ * auth or quota problem. Parse-shaped failures are worth retrying with a fresh completion.
+ */
+function isParseShapedError(message: string): boolean {
+  const normalized = message.toLowerCase();
+  return (
+    normalized.includes('is not valid json') ||
+    normalized.includes('failed to parse') ||
+    normalized.includes('could not parse') ||
+    normalized.includes('unexpected token') ||
+    normalized.includes('json at position') ||
+    normalized.includes('received tool input did not match') ||
+    normalized.includes('does not match schema') ||
+    normalized.includes('invalid schema')
+  );
+}
+
+/**
+ * Summarize a schema validation failure into a short, single-line description.
+ * Zod errors carry a full issue list that is far too verbose for a user-facing message,
+ * so only the first few field paths are reported.
+ */
+function describeSchemaError(error: unknown): string {
+  const issues = (error as { issues?: Array<{ path?: unknown[]; message?: string }> })?.issues;
+  if (Array.isArray(issues) && issues.length > 0) {
+    const described = issues
+      .slice(0, 3)
+      .map(issue => {
+        const path = Array.isArray(issue.path) && issue.path.length > 0 ? issue.path.join('.') : '(root)';
+        return `${path}: ${issue.message ?? 'invalid'}`;
+      })
+      .join('; ');
+    const suffix = issues.length > 3 ? ` (+${issues.length - 3} more)` : '';
+    return `${described}${suffix}`;
+  }
+  return error instanceof Error ? error.message : String(error);
+}
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type CallOptions = Record<string, any>;
@@ -52,6 +91,8 @@ export abstract class BaseAgent<T extends z.ZodType, M = unknown> {
   protected withStructuredOutput: boolean;
   protected callOptions?: CallOptions;
   protected modelOutputToolName: string;
+  /** Why the most recent manual parse attempt failed; used to build actionable error messages. */
+  protected lastParseFailureReason?: string;
   declare ModelOutput: z.infer<T>;
 
   constructor(modelOutputSchema: T, options: BaseAgentOptions, extraOptions?: Partial<ExtraAgentOptions>) {
@@ -246,18 +287,44 @@ export abstract class BaseAgent<T extends z.ZodType, M = unknown> {
           logger.debug(`[${this.modelName}] Successfully parsed structured output`);
           return response.parsed;
         }
+        // Structured output produced no parsed value. The payload is often still present in the
+        // raw text (prose or a code fence instead of a tool call), so try to recover it.
+        const rawText = this.stringifyResponseContent(response.raw?.content);
+        if (rawText.trim()) {
+          const recovered = this.manuallyParseResponse(rawText);
+          if (recovered) {
+            await this.recordRequestLog({
+              inputMessages,
+              phase: 'structured',
+              parseStatus: 'success',
+              responseContent: rawText,
+            });
+            logger.debug(`[${this.modelName}] Recovered structured output from raw content`);
+            return recovered;
+          }
+        }
+
+        if (!this.lastParseFailureReason) {
+          this.lastParseFailureReason = 'structured output returned no parsed value';
+        }
+        const structuredError = this.buildParseFailureMessage(rawText);
         await this.recordRequestLog({
           inputMessages,
           phase: 'structured',
           parseStatus: 'failed',
-          responseContent: this.stringifyResponseContent(response.raw?.content),
-          error: 'Could not parse response with structured output',
+          responseContent: rawText,
+          error: structuredError,
         });
         failureLogged = true;
         logger.error('Failed to parse response', response);
-        throw new Error('Could not parse response with structured output');
+        throw new ResponseParseError(structuredError);
       } catch (error) {
         if (isAbortedError(error)) {
+          throw error;
+        }
+
+        // Already a parse failure with a descriptive message and a recorded log entry.
+        if (error instanceof ResponseParseError) {
           throw error;
         }
 
@@ -274,12 +341,9 @@ export abstract class BaseAgent<T extends z.ZodType, M = unknown> {
           return this.invokeWithManualJsonExtraction(inputMessages);
         }
 
-        // Try to extract JSON from raw response manually if possible
-        if (
-          errorMessage.includes('is not valid JSON') &&
-          response?.raw?.content &&
-          typeof response.raw.content === 'string'
-        ) {
+        // Try to extract JSON from the raw response manually. Any parse-shaped failure is worth
+        // retrying, not only "is not valid JSON": providers word these errors inconsistently.
+        if (response?.raw?.content && typeof response.raw.content === 'string') {
           const parsed = this.manuallyParseResponse(response.raw.content);
           if (parsed) {
             await this.recordRequestLog({
@@ -301,6 +365,14 @@ export abstract class BaseAgent<T extends z.ZodType, M = unknown> {
           });
         }
         logger.error(`[${this.modelName}] LLM call failed with error: \n${errorMessage}`);
+        // Parse/validation failures are retryable by the executor, so keep them typed.
+        // Transport, auth and rate-limit errors stay generic and are handled upstream.
+        if (isParseShapedError(errorMessage)) {
+          this.lastParseFailureReason = errorMessage;
+          throw new ResponseParseError(
+            this.buildParseFailureMessage(this.stringifyResponseContent(response?.raw?.content)),
+          );
+        }
         throw new Error(`Failed to invoke ${this.modelName} with structured output: \n${errorMessage}`);
       }
     }
@@ -353,6 +425,8 @@ export abstract class BaseAgent<T extends z.ZodType, M = unknown> {
     logger.debug(`[${this.modelName}] Using manual JSON extraction fallback method`);
     const convertedInputMessages = convertInputMessages(inputMessages, this.modelName);
     let failureLogged = false;
+    let rawContentForError = '';
+    this.lastParseFailureReason = undefined;
 
     try {
       const response = await this.chatLLM.invoke(convertedInputMessages, {
@@ -362,6 +436,7 @@ export abstract class BaseAgent<T extends z.ZodType, M = unknown> {
 
       // 1) Try parsing from response.content (normal path for most models)
       if (typeof response.content === 'string' && response.content.trim()) {
+        rawContentForError = response.content;
         const parsed = this.manuallyParseResponse(response.content);
         if (parsed) {
           await this.recordRequestLog({
@@ -419,19 +494,28 @@ export abstract class BaseAgent<T extends z.ZodType, M = unknown> {
           return manualParsed;
         }
         logger.warning(`[${this.modelName}] tool_calls args could not be validated or parsed`);
+        const toolCallError = `Could not validate model output from tool_calls: ${
+          this.lastParseFailureReason ?? 'arguments did not match the expected schema'
+        }`;
         await this.recordRequestLog({
           inputMessages,
           phase: 'manual',
           parseStatus: 'failed',
           responseContent: this.stringifyResponseContent(response.content),
-          error: 'Could not validate model output from tool_calls',
+          error: toolCallError,
         });
         failureLogged = true;
-        throw new ResponseParseError('Could not validate model output from tool_calls');
+        throw new ResponseParseError(toolCallError);
       }
 
       // 3) Neither content nor tool_calls yielded valid output
       logger.error(`[${this.modelName}] Response has no parseable content or tool_calls`);
+      if (!rawContentForError) {
+        rawContentForError = this.stringifyResponseContent(response.content);
+      }
+      if (!this.lastParseFailureReason) {
+        this.lastParseFailureReason = 'response had no parseable content and no tool_calls';
+      }
     } catch (error) {
       if (error instanceof ResponseParseError) {
         if (!failureLogged) {
@@ -453,21 +537,22 @@ export abstract class BaseAgent<T extends z.ZodType, M = unknown> {
       });
       throw error;
     }
-    const errorMessage = `Failed to parse response from ${this.modelName}`;
+    const errorMessage = this.buildParseFailureMessage(rawContentForError);
     logger.error(errorMessage);
     if (!failureLogged) {
       await this.recordRequestLog({
         inputMessages,
         phase: 'manual',
         parseStatus: 'failed',
+        responseContent: rawContentForError,
         error: errorMessage,
       });
     }
-    throw new ResponseParseError('Could not parse response');
+    throw new ResponseParseError(errorMessage);
   }
 
   // Execute the agent and return the result
-  abstract execute(): Promise<AgentOutput<M>>;
+  abstract execute(...args: unknown[]): Promise<AgentOutput<M>>;
 
   // Helper method to validate metadata
   protected validateModelOutput(data: unknown): this['ModelOutput'] | undefined {
@@ -476,19 +561,71 @@ export abstract class BaseAgent<T extends z.ZodType, M = unknown> {
       return this.modelOutputSchema.parse(data);
     } catch (error) {
       logger.error('validateModelOutput', error);
-      throw new ResponseParseError('Could not validate model output');
+      throw new ResponseParseError(`Could not validate model output: ${describeSchemaError(error)}`);
     }
   }
 
-  // Helper method to manually parse the response content
+  /**
+   * Manually parse the response content into model output.
+   *
+   * Models often wrap the payload in prose, reasoning text, or a code fence that is not the
+   * first one in the message, so every plausible JSON object is validated against the schema
+   * and the first that fits wins. The reason for failure is recorded in
+   * {@link lastParseFailureReason} so callers can surface it instead of a bare
+   * "Could not parse response".
+   */
   protected manuallyParseResponse(content: string): this['ModelOutput'] | undefined {
     const cleanedContent = removeThinkTags(content);
-    try {
-      const extractedJson = extractJsonFromModelOutput(cleanedContent);
-      return this.validateModelOutput(extractedJson);
-    } catch (error) {
-      logger.warning('manuallyParseResponse failed', error);
+    const candidates = extractJsonCandidatesFromModelOutput(cleanedContent);
+
+    if (candidates.length === 0) {
+      this.lastParseFailureReason = cleanedContent.trim()
+        ? 'no JSON object found in model output'
+        : 'model returned empty content';
+      logger.warning(`[${this.modelName}] manuallyParseResponse: ${this.lastParseFailureReason}`);
       return undefined;
     }
+
+    const validationErrors: string[] = [];
+    for (const candidate of candidates) {
+      try {
+        const validated = this.validateModelOutput(candidate);
+        if (validated) {
+          this.lastParseFailureReason = undefined;
+          return validated;
+        }
+      } catch (error) {
+        validationErrors.push(error instanceof Error ? error.message : String(error));
+      }
+    }
+
+    this.lastParseFailureReason = `${candidates.length} JSON candidate(s) found but none matched the expected schema${
+      validationErrors.length > 0 ? ` (${validationErrors[0]})` : ''
+    }`;
+    logger.warning(`[${this.modelName}] manuallyParseResponse: ${this.lastParseFailureReason}`);
+    return undefined;
+  }
+
+  /**
+   * Build a parse-failure message that includes why parsing failed and a preview of what the
+   * model actually returned, so the surfaced error is actionable.
+   *
+   * The preview is explicitly marked as truncated when it is cut: a bare trailing "..." reads
+   * exactly like the model itself having been cut off at the output token cap, which sends
+   * debugging after the wrong root cause.
+   */
+  protected buildParseFailureMessage(rawContent?: string): string {
+    const PREVIEW_LIMIT = 600;
+    const reason = this.lastParseFailureReason ?? 'could not parse response';
+    const normalized = (rawContent ?? '').trim().replace(/\s+/g, ' ');
+    if (!normalized) {
+      return `Could not parse response from ${this.modelName}: ${reason}`;
+    }
+
+    const preview =
+      normalized.length > PREVIEW_LIMIT
+        ? `${normalized.slice(0, PREVIEW_LIMIT)}" [preview truncated at ${PREVIEW_LIMIT} of ${normalized.length} chars`
+        : normalized;
+    return `Could not parse response from ${this.modelName}: ${reason}. Model returned: "${preview}"`;
   }
 }

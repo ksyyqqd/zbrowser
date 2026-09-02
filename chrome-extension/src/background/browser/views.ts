@@ -53,6 +53,16 @@ export interface BrowserContextConfig {
   smartWaitDomStableTime: number;
 
   /**
+   * 元素动作执行后，校验页面是否真的发生了可见变化（before/after 状态签名比对）。
+   * 命中时中断本轮动作序列并回一条 error 提示模型换目标。
+   *
+   * 代价固定：为了拿 afterState 必须多做一次完整 getState（重建 DOM 树 + 全量哈希），
+   * 而命中率不高。追求速度可关掉；排查「点了没反应」时开着更有用。
+   * @default true
+   */
+  verifyVisibleChange: boolean;
+
+  /**
    * Default browser window size
    * @default { width: 1280, height: 1100 }
    */
@@ -106,6 +116,7 @@ export const DEFAULT_BROWSER_CONTEXT_CONFIG: BrowserContextConfig = {
   smartWaitEnabled: true,
   smartWaitMaxTimeout: 2.0,
   smartWaitDomStableTime: 0.1,
+  verifyVisibleChange: true,
   browserWindowSize: { width: 1280, height: 1100 },
   viewportExpansion: 0,
   allowedUrls: [],

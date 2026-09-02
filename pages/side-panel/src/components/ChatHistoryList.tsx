@@ -35,12 +35,6 @@ interface ChatHistoryListProps {
   isDarkMode?: boolean;
 }
 
-// Tab 配置
-const TABS = [
-  { key: 'user' as const, label: '主人的对话', icon: '\u{1F4AC}' }, // 💬
-  { key: 'ball' as const, label: '皮蛋的行动', icon: '\u{1F43E}' }, // 🐾
-] as const;
-
 const ChatHistoryList: React.FC<ChatHistoryListProps> = ({
   sessions,
   onSessionSelect,
@@ -52,7 +46,6 @@ const ChatHistoryList: React.FC<ChatHistoryListProps> = ({
   visible,
   isDarkMode = false,
 }) => {
-  const [activeTab, setActiveTab] = useState<'user' | 'ball'>('user');
   // 详情模式：选中某条历史后，在面板内展示完整消息
   const [detailSessionId, setDetailSessionId] = useState<string | null>(null);
   const [detailMessages, setDetailMessages] = useState<ChatMessage[]>([]);
@@ -75,12 +68,10 @@ const ChatHistoryList: React.FC<ChatHistoryListProps> = ({
   const formatDate = (ts: number) =>
     new Date(ts).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
 
-  // 当前 Tab 的会话列表（按时间倒序）
-  const currentItems = sessions.filter(s => s.source === activeTab).sort((a, b) => b.createdAt - a.createdAt);
+  // 全部会话，按时间倒序。原先按 source 分「主人的对话 / 皮蛋的行动」两个 Tab，
+  // 但 createSession 从来没有传过 'ball'，皮蛋那栏恒为空，故合并成单一列表。
+  const currentItems = [...sessions].sort((a, b) => b.createdAt - a.createdAt);
 
-  // 各 Tab 的数量
-  const userCount = sessions.filter(s => s.source === 'user').length;
-  const ballCount = sessions.filter(s => s.source === 'ball').length;
   const totalSessions = sessions.length;
 
   /** 进入详情：加载会话消息（使用缓存的 store） */
@@ -251,59 +242,6 @@ const ChatHistoryList: React.FC<ChatHistoryListProps> = ({
         </span>
       </h2>
 
-      {/* ===== Tab 切换栏 ===== */}
-      <div
-        className="mb-3 flex rounded-lg p-0.5"
-        style={{
-          background: isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)',
-          border: '1px solid var(--border-color)',
-        }}>
-        {TABS.map(tab => {
-          const isActive = activeTab === tab.key;
-          const count = tab.key === 'user' ? userCount : ballCount;
-          return (
-            <button
-              key={tab.key}
-              type="button"
-              onClick={() => setActiveTab(tab.key)}
-              className={`flex flex-1 items-center justify-center gap-1.5 rounded-md px-3 py-2 text-xs font-medium transition-all duration-200 ${
-                isActive ? 'shadow-sm' : ''
-              }`}
-              style={{
-                color: isActive
-                  ? tab.key === 'user'
-                    ? isDarkMode
-                      ? '#74C69D'
-                      : '#40916C'
-                    : isDarkMode
-                      ? '#F59E0B'
-                      : '#D97706'
-                  : 'var(--text-muted)',
-                background: isActive
-                  ? isDarkMode
-                    ? tab.key === 'user'
-                      ? 'rgba(116,198,157,0.15)'
-                      : 'rgba(245,158,11,0.15)'
-                    : tab.key === 'user'
-                      ? 'rgba(64,145,108,0.10)'
-                      : 'rgba(217,119,6,0.10)'
-                  : 'transparent',
-              }}>
-              <span>{tab.icon}</span>
-              <span>{tab.label}</span>
-              <span
-                className="rounded-full px-1.5 py-0.5 text-[10px]"
-                style={{
-                  background: isActive ? (isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)') : undefined,
-                  opacity: count > 0 ? 1 : 0.35,
-                }}>
-                {count}
-              </span>
-            </button>
-          );
-        })}
-      </div>
-
       {/* 会话列表区域 */}
       <div className="min-h-0 flex-1 overflow-y-auto">
         {currentItems.length === 0 ? (
@@ -314,15 +252,15 @@ const ChatHistoryList: React.FC<ChatHistoryListProps> = ({
               return (
                 <div
                   key={session.id}
-                  className={`history-item group ${activeTab === 'ball' ? 'history-item-ball' : ''}`}
+                  className={`history-item group ${session.source === 'ball' ? 'history-item-ball' : ''}`}
                   style={{ animationDelay: `${idx * 50}ms` }}>
                   <button
                     onClick={() => handleEnterDetail(session.id)}
                     className="relative z-10 w-full cursor-pointer text-left"
                     type="button">
                     <div className="flex items-center gap-2">
-                      {/* 皮蛋来源的小标记 */}
-                      {activeTab === 'ball' && (
+                      {/* 皮蛋来源的小标记 —— 合并列表后按单条会话的 source 判断 */}
+                      {session.source === 'ball' && (
                         <span className="shrink-0 text-sm" title="皮蛋发起">
                           🐾
                         </span>

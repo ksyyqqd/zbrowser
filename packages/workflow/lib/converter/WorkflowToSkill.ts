@@ -29,6 +29,9 @@ export function convertWorkflowToSkill(workflow: Workflow): Skill {
     id: workflow.id,
     name: workflow.name,
     description: workflow.description,
+    // 通用文本格式的正文：把节点序列渲染成人类可读的编号清单。
+    // steps 同时保留，因为 SkillToWorkflow 反向转换要靠它还原节点。
+    instructions: renderStepsAsInstructions(steps),
     version: workflow.version,
     category: 'custom', // Default category for workflow-generated skills
     author: 'workflow-converter',
@@ -39,6 +42,47 @@ export function convertWorkflowToSkill(workflow: Workflow): Skill {
     createdAt: workflow.createdAt,
     updatedAt: workflow.updatedAt,
   };
+}
+
+/**
+ * 把步骤渲染成 skill 正文。带上 selector/xpath/url 等定位信息——
+ * 只写描述的话，LLM 拿到正文根本不知道该点页面上的哪个元素。
+ */
+function renderStepsAsInstructions(steps: SkillStep[], depth = 0): string {
+  const indent = '  '.repeat(depth);
+  const lines: string[] = [];
+
+  for (let i = 0; i < steps.length; i++) {
+    const step = steps[i];
+    lines.push(`${indent}${i + 1}. ${step.description?.trim() || step.action}`);
+
+    const detail: string[] = [];
+    for (const key of ['url', 'selector', 'xpath', 'text'] as const) {
+      const v = step.parameters?.[key];
+      if (typeof v === 'string' && v) detail.push(`${key}=${v}`);
+    }
+    if (detail.length) lines.push(`${indent}   （${detail.join('，')}）`);
+
+    // 条件分支要展开，否则正文里会缺掉整条支路
+    const cond = step.condition;
+    if (cond) {
+      lines.push(`${indent}   判断：${cond.expression}`);
+      if (cond.thenSteps?.length) {
+        lines.push(`${indent}   若成立：`);
+        lines.push(renderStepsAsInstructions(cond.thenSteps, depth + 2));
+      }
+      if (cond.elseSteps?.length) {
+        lines.push(`${indent}   否则：`);
+        lines.push(renderStepsAsInstructions(cond.elseSteps, depth + 2));
+      }
+      for (const branch of cond.branches ?? []) {
+        lines.push(`${indent}   分支「${branch.name}」：`);
+        lines.push(renderStepsAsInstructions(branch.steps, depth + 2));
+      }
+    }
+  }
+
+  return lines.filter(Boolean).join('\n');
 }
 
 /**

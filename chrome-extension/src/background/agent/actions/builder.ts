@@ -26,14 +26,25 @@ import {
   askUserActionSchema,
 } from './schemas';
 import { mcpToolActionSchema, mcpListToolsActionSchema, mcpGetStatusActionSchema } from './mcpSchemas';
-import { skillInvokeActionSchema, skillListActionSchema, skillGetInfoActionSchema } from './skillSchemas';
+import {
+  skillInvokeActionSchema,
+  skillListActionSchema,
+  skillGetInfoActionSchema,
+  skillCreateActionSchema,
+} from './skillSchemas';
+import {
+  workflowListActionSchema,
+  workflowGetInfoActionSchema,
+  workflowCreateActionSchema,
+  workflowUpdateActionSchema,
+} from './workflowSchemas';
 import { z } from 'zod';
 import { createLogger } from '@src/background/log';
 import { ExecutionState, Actors, type AskUserPayload, type ClarifyResponse } from '@extension/shared';
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models';
 import { wrapUntrustedContent } from '../messages/utils';
 import { summarizeClarifyResponse } from '../clarify';
-import { elementHintsStore, getHostnameFromUrl } from '@extension/storage';
+import { elementHintsStore, getHostnameFromUrl, MAX_STALE_HITS } from '@extension/storage';
 import type { DOMElementNode } from '@src/background/browser/dom/views';
 
 const logger = createLogger('Action');
@@ -43,6 +54,28 @@ function normalizeLocatorValue(value?: string | null): string | null {
   return trimmed ? trimmed : null;
 }
 
+/**
+ * 把各处产出的 xpath 归一到可比较的规范形式。
+ *
+ * 代码里有三个互不兼容的 xpath 生成器，可以指向同一节点却字符串不相等：
+ *  - buildDomTree.js 的 getXPathTree（即 DOMElementNode.xpath、事实库里存的那份）：
+ *    无前导斜杠，且「该 tag 只有一个同名兄弟」时**省略** [n] → `html/body/div[1]/div/div[2]`
+ *  - content script 的 generateSimpleXPath（用户拾取）：有前导斜杠，同样省略 [n]
+ *  - 模型自己写的：有前导斜杠，且每层都补 [1] → `/html/body[1]/div[1]/div[1]`
+ *
+ * 而匹配用的是精确字符串相等，于是记忆/拾取的元素永远匹不上。
+ *
+ * 归一规则：补前导斜杠 + 去掉所有 [1]。去 [1] 是安全的：省略索引的生成器只在
+ * 「同名兄弟仅一个」时省略，此时 div 与 div[1] 选中同一节点；[2] 及以上一律保留，
+ * 所以不会把兄弟节点误判成同一个。
+ */
+function normalizeXPathForCompare(xpath?: string | null): string | null {
+  const trimmed = normalizeLocatorValue(xpath);
+  if (!trimmed) return null;
+  const withSlash = trimmed.startsWith('/') ? trimmed : `/${trimmed}`;
+  return withSlash.replace(/\[1\]/g, '');
+}
+
 export function resolveElementNodeForAction(
   selectorMap: Map<number, DOMElementNode>,
   index?: number | null,
@@ -50,20 +83,28 @@ export function resolveElementNodeForAction(
   xpath?: string | null,
   includeDynamicAttributes = true,
 ): DOMElementNode | undefined {
-  const normalizedXpath = normalizeLocatorValue(xpath);
+  // 三种 locator **依次回退**，不能「xpath 非空就早退」：模型命中事实库时往往同时给出
+  // xpath 和 index，而它写的 xpath 格式未必跟 DOMElementNode.xpath 对得上。早退会让
+  // 完全可用的 index 被彻底忽略，elementNode 变成 undefined，最后拿一条对不上的 xpath
+  // 去 document.evaluate —— 它常常能解析出「某个」节点并点下去，于是动作报成功但点错了元素。
+  const normalizedXpath = normalizeXPathForCompare(xpath);
   if (normalizedXpath) {
-    return Array.from(selectorMap.values()).find(node => normalizeLocatorValue(node.xpath) === normalizedXpath);
+    const byXpath = Array.from(selectorMap.values()).find(
+      node => normalizeXPathForCompare(node.xpath) === normalizedXpath,
+    );
+    if (byXpath) return byXpath;
   }
 
   const normalizedSelector = normalizeLocatorValue(selector);
   if (normalizedSelector) {
-    return Array.from(selectorMap.values()).find(node => {
+    const bySelector = Array.from(selectorMap.values()).find(node => {
       const selectors = [
         node.enhancedCssSelectorForElement(includeDynamicAttributes),
         node.enhancedCssSelectorForElement(!includeDynamicAttributes),
       ];
       return selectors.some(candidate => normalizeLocatorValue(candidate) === normalizedSelector);
     });
+    if (bySelector) return bySelector;
   }
 
   if (typeof index === 'number') {
@@ -71,6 +112,47 @@ export function resolveElementNodeForAction(
   }
 
   return undefined;
+}
+
+/**
+ * 记一次「事实库里的 locator 在当前页面上定位失败」。
+ *
+ * 为什么需要：站点改版后旧 selector 会稳定失败，但 `lastUsedAt` 不会变，TTL 还得等
+ * 几十天才到。中间这段时间它照样排在注入名额里，prompt 还告诉 LLM「优先用它不要另猜」，
+ * 于是每一步都被同一条坏数据带偏。累计 MAX_STALE_HITS 次后 `isHintExpired` 直接判它过期。
+ *
+ * 只在 locator 明确来自事实库（模型给了 selector/xpath 却匹配不到任何节点）时调用。
+ * 失败不抛：这本身就在错误处理路径上，再抛会盖掉真正的报错。
+ */
+async function markHintStaleOnLocatorFailure(
+  context: AgentContext,
+  selector?: string | null,
+  xpath?: string | null,
+): Promise<void> {
+  try {
+    const sel = normalizeLocatorValue(selector);
+    const xp = normalizeLocatorValue(xpath);
+    if (!sel && !xp) return;
+
+    const page = await context.browserContext.getCurrentPage();
+    const hostname = getHostnameFromUrl(page.url());
+    if (!hostname) return;
+
+    const hints = await elementHintsStore.getByHostname(hostname);
+    const hit = hints.find(
+      h =>
+        (xp && normalizeLocatorValue(h.xpath) === xp) ||
+        (sel && (normalizeLocatorValue(h.selector) === sel || normalizeLocatorValue(h.stableSelector) === sel)),
+    );
+    if (!hit) return;
+
+    await elementHintsStore.markHintStale(hostname, hit.id);
+    logger.info(
+      `[hint] locator failed on ${hostname}: purpose="${hit.purpose}" staleHits=${(hit.staleHits ?? 0) + 1}/${MAX_STALE_HITS}`,
+    );
+  } catch (err) {
+    logger.warning('markHintStaleOnLocatorFailure failed:', err);
+  }
 }
 
 /**
@@ -106,6 +188,7 @@ async function persistHintOnSuccess(
         const stored = await elementHintsStore.addHint(hostname, {
           purpose: matched.purpose || fallbackPurpose,
           selector: matched.selector,
+          stableSelector: matched.stableSelector,
           xpath: matched.xpath,
           textContent: matched.textContent || nodeText,
           source: 'user_pick',
@@ -354,7 +437,10 @@ export class ActionBuilder {
     // Element Interaction Actions
     const clickElement = new Action(
       async (input: z.infer<typeof clickElementActionSchema.schema>) => {
-        const intent = input.intent || t('act_click_start', [input.index.toString()]);
+        // index 现在可选（命中事实库时模型只给 xpath/selector），所以所有面向用户的标签
+        // 都要能在缺 index 时退回到 locator，否则 input.index.toString() 直接 TypeError。
+        const elementLabel = input.index?.toString() || input.xpath?.trim() || input.selector?.trim() || 'unknown';
+        const intent = input.intent || t('act_click_start', [elementLabel]);
         this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_START, intent);
 
         const page = await this.context.browserContext.getCurrentPage();
@@ -368,16 +454,29 @@ export class ActionBuilder {
           this.context.browserContext.getConfig().includeDynamicAttributes,
         );
         if (!elementNode) {
-          const hasLocator = Boolean(input.selector?.trim() || input.xpath?.trim());
-          const errorMsg = hasLocator
-            ? `Failed to resolve remembered element for click_element: xpath/selector did not match the current page`
-            : t('act_errors_elementNotExist', [input.index.toString()]);
-          throw new Error(errorMsg);
+          const locator = input.xpath?.trim() || input.selector?.trim();
+          if (locator) {
+            // 记忆/用户拾取的元素不一定出现在本次渲染的可交互 selectorMap 里（例如未被
+            // 打上 highlightIndex）。此时直接拿 locator 去真实 DOM 上点，而不是硬失败。
+            const clicked = await page.clickBySelector(locator);
+            if (clicked) {
+              const msg = t('act_click_ok', [locator, input.intent || '']);
+              logger.info(`click_element via direct locator: ${locator}`);
+              this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_OK, msg);
+              return new ActionResult({ extractedContent: msg, includeInMemory: true });
+            }
+            // 连 clickBySelector 都没点到 → 这条记忆确实失效了，记一次
+            await markHintStaleOnLocatorFailure(this.context, input.selector, input.xpath);
+            throw new Error(
+              `Failed to resolve remembered element for click_element: xpath/selector did not match the current page`,
+            );
+          }
+          throw new Error(t('act_errors_elementNotExist', [elementLabel]));
         }
 
         // Check if element is a file uploader
         if (page.isFileUploader(elementNode)) {
-          const msg = t('act_click_fileUploader', [input.index.toString()]);
+          const msg = t('act_click_fileUploader', [elementLabel]);
           logger.info(msg);
           return new ActionResult({
             extractedContent: msg,
@@ -388,7 +487,7 @@ export class ActionBuilder {
         try {
           const initialTabIds = await this.context.browserContext.getAllTabIds();
           await page.clickElementNode(this.context.options.useVision, elementNode);
-          let msg = t('act_click_ok', [input.index.toString(), elementNode.getAllTextTillNextClickableElement(2)]);
+          let msg = t('act_click_ok', [elementLabel, elementNode.getAllTextTillNextClickableElement(2)]);
           logger.info(msg);
 
           // TODO: could be optimized by chrome extension tab api
@@ -407,7 +506,7 @@ export class ActionBuilder {
           await persistHintOnSuccess(this.context, elementNode, this.context.currentElementPurpose);
           return new ActionResult({ extractedContent: msg, includeInMemory: true });
         } catch (error) {
-          const msg = t('act_errors_elementNoLongerAvailable', [input.index.toString()]);
+          const msg = t('act_errors_elementNoLongerAvailable', [elementLabel]);
           this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_FAIL, msg);
           return new ActionResult({
             error: error instanceof Error ? error.message : String(error),
@@ -437,14 +536,15 @@ export class ActionBuilder {
         );
         if (!elementNode) {
           const hasLocator = Boolean(input.selector?.trim() || input.xpath?.trim());
+          if (hasLocator) await markHintStaleOnLocatorFailure(this.context, input.selector, input.xpath);
           const errorMsg = hasLocator
             ? `Failed to resolve remembered element for input_text: xpath/selector did not match the current page`
-            : t('act_errors_elementNotExist', [input.index.toString()]);
+            : t('act_errors_elementNotExist', [targetLabel]);
           throw new Error(errorMsg);
         }
 
         await page.inputTextElementNode(this.context.options.useVision, elementNode, input.text);
-        const msg = t('act_inputText_ok', [input.text, input.index.toString()]);
+        const msg = t('act_inputText_ok', [input.text, targetLabel]);
         this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_OK, msg);
         await persistHintOnSuccess(this.context, elementNode, this.context.currentElementPurpose);
         return new ActionResult({ extractedContent: msg, includeInMemory: true });
@@ -817,6 +917,7 @@ export class ActionBuilder {
         );
         if (!elementNode) {
           const hasLocator = Boolean(input.selector?.trim() || input.xpath?.trim());
+          if (hasLocator) await markHintStaleOnLocatorFailure(this.context, input.selector, input.xpath);
           const errorMsg = hasLocator
             ? 'Failed to resolve remembered element for select_dropdown_option: xpath/selector did not match the current page'
             : t('act_errors_elementNotExist', [input.index.toString()]);
@@ -943,6 +1044,16 @@ export class ActionBuilder {
         resp = await this.context.waitForClarification(requestId);
       } finally {
         await this.context.resume();
+      }
+      if (resp.pickedSelector || resp.pickedXpath) {
+        this.context.pendingPickedHints.push({
+          purpose: input.intent || input.question || 'User picked element',
+          selector: resp.pickedSelector,
+          stableSelector: resp.pickedStableSelector,
+          xpath: resp.pickedXpath,
+          textContent: resp.pickedText,
+        });
+        this.context.skipNextElementGateForPickedHint = true;
       }
       const summary = summarizeClarifyResponse(resp, input.options);
       this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ASK_USER_RESOLVED, summary);
@@ -1164,6 +1275,239 @@ export class ActionBuilder {
       }
     }, skillGetInfoActionSchema);
     actions.push(skillGetInfo);
+
+    const skillCreate = new Action(async (input: z.infer<typeof skillCreateActionSchema.schema>) => {
+      const intent = input.intent || `Creating skill: ${input.name}`;
+      context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_START, intent);
+
+      try {
+        const result = await context.createSkill?.(
+          {
+            name: input.name,
+            description: input.description,
+            category: input.category,
+            parameters: input.parameters,
+            instructions: input.instructions,
+          },
+          context.skillsCreatedThisTask,
+        );
+
+        if (!result) {
+          const errorMsg = '当前环境不支持创建技能';
+          context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_FAIL, errorMsg);
+          return new ActionResult({ error: errorMsg, includeInMemory: true });
+        }
+
+        if (!result.success) {
+          const errorMsg = (result.errors ?? ['创建技能失败']).join('\n');
+          context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_FAIL, errorMsg);
+          return new ActionResult({ error: errorMsg, includeInMemory: true });
+        }
+
+        context.skillsCreatedThisTask += 1;
+
+        const msg = `已创建技能「${input.name}」(${result.skillId})，之后可以用 skill_invoke 调用。`;
+        context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_OK, msg);
+        return new ActionResult({ extractedContent: msg, includeInMemory: true, isDone: false });
+      } catch (error) {
+        const errorMsg = error instanceof Error ? error.message : 'Skill creation failed';
+        context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_FAIL, errorMsg);
+        return new ActionResult({ error: errorMsg, includeInMemory: true });
+      }
+    }, skillCreateActionSchema);
+    actions.push(skillCreate);
+
+    return actions;
+  }
+
+  /**
+   * 工作流动作。只在 background 注入了 workflowService 时注册。
+   *
+   * 四个动作都是「看」和「写」，**没有执行** —— 工作流是固定图，执行时不再逐节点
+   * 决策，让 AI 自己触发等于交给它一个不可中途纠偏的脚本去操作用户的浏览器。
+   * 执行入口只有用户在 UI 上点。
+   *
+   * 动作本身刻意都很薄：真正的策略（哪些工作流可见、创建/修改的上限、改完退回未确认）
+   * 都在 services/workflow 里，因为它们需要访问 store。
+   */
+  buildWorkflowActions(): Action[] {
+    const actions: Action[] = [];
+    const context = this.context;
+
+    const workflowList = new Action(async (input: z.infer<typeof workflowListActionSchema.schema>) => {
+      const intent = input.intent || 'Listing available workflows';
+      context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_START, intent);
+
+      try {
+        const workflows = (await context.listWorkflows?.()) ?? [];
+        if (workflows.length === 0) {
+          // 明确说「没有」而不是返回空串：空结果会让 AI 以为动作失败并重试
+          context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_OK, 'No workflows available');
+          return new ActionResult({
+            extractedContent: '当前没有可用的工作流（用户尚未创建或确认任何工作流）',
+            includeInMemory: true,
+          });
+        }
+
+        // 标出未确认的：AI 需要知道哪些是它（或之前的会话）刚建的、用户还没过目的，
+        // 否则会跟用户说「这个可以用了」
+        const listing = workflows
+          .map(
+            w =>
+              `${w.id}: ${w.name}${w.description ? ` - ${w.description}` : ''}${w.reviewed ? '' : ' [未确认，用户需先在编辑器里确认]'}`,
+          )
+          .join('\n');
+        context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_OK, `Found ${workflows.length} workflows`);
+        return new ActionResult({ extractedContent: listing, includeInMemory: true });
+      } catch (error) {
+        const errorMsg = error instanceof Error ? error.message : 'Failed to list workflows';
+        context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_FAIL, errorMsg);
+        return new ActionResult({ error: errorMsg, includeInMemory: true });
+      }
+    }, workflowListActionSchema);
+    actions.push(workflowList);
+
+    const workflowGetInfo = new Action(async (input: z.infer<typeof workflowGetInfoActionSchema.schema>) => {
+      const intent = input.intent || `Getting workflow info: ${input.workflow_id}`;
+      context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_START, intent);
+
+      try {
+        const summary = await context.getWorkflowSummary?.(input.workflow_id);
+        if (!summary) {
+          const errorMsg = `工作流不存在: ${input.workflow_id}`;
+          context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_FAIL, errorMsg);
+          return new ActionResult({ error: errorMsg, includeInMemory: true });
+        }
+
+        // 手写文本而不是 JSON.stringify(summary)：必填/可选和有无默认值是 AI 唯一需要
+        // 据此行动的信息（决定要不要追问用户），铺成一行行比嵌套 JSON 更难被忽略。
+        const varLines =
+          summary.variables.length > 0
+            ? summary.variables
+                .map(v => {
+                  const flags = [v.required ? '必填' : '可选', v.hasDefault ? '有默认值' : null]
+                    .filter(Boolean)
+                    .join('、');
+                  return `  - ${v.name} (${v.type}, ${flags})${v.description ? `: ${v.description}` : ''}`;
+                })
+                .join('\n')
+            : '  （无入参）';
+
+        const text = [
+          `工作流: ${summary.name} (${summary.id})`,
+          summary.description ? `说明: ${summary.description}` : null,
+          summary.reviewed ? null : '状态: 未确认，用户需先在工作流编辑器里确认才能执行',
+          '入参:',
+          varLines,
+          `步骤(${summary.steps.length}): ${summary.steps.join(' → ')}`,
+        ]
+          .filter(Boolean)
+          .join('\n');
+
+        context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_OK, `Workflow info retrieved: ${summary.name}`);
+        return new ActionResult({ extractedContent: text, includeInMemory: true });
+      } catch (error) {
+        const errorMsg = error instanceof Error ? error.message : 'Failed to get workflow info';
+        context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_FAIL, errorMsg);
+        return new ActionResult({ error: errorMsg, includeInMemory: true });
+      }
+    }, workflowGetInfoActionSchema);
+    actions.push(workflowGetInfo);
+
+    const workflowCreate = new Action(async (input: z.infer<typeof workflowCreateActionSchema.schema>) => {
+      const intent = input.intent || `Creating workflow: ${input.name}`;
+      context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_START, intent);
+
+      try {
+        const result = await context.createWorkflow?.(
+          {
+            name: input.name,
+            description: input.description,
+            variables: input.variables,
+            steps: input.steps,
+          },
+          context.workflowsCreatedThisTask,
+        );
+
+        if (!result) {
+          const errorMsg = '当前环境不支持创建工作流';
+          context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_FAIL, errorMsg);
+          return new ActionResult({ error: errorMsg, includeInMemory: true });
+        }
+
+        if (!result.success) {
+          // 逐条错误原样回给 AI —— 这些是它能据此改正的具体信息（哪个动作名不存在、
+          // 哪个变量名不合法），比一句「创建失败」有用得多
+          const errorMsg = (result.errors ?? ['创建工作流失败']).join('\n');
+          context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_FAIL, errorMsg);
+          return new ActionResult({ error: errorMsg, includeInMemory: true });
+        }
+
+        context.workflowsCreatedThisTask += 1;
+
+        // 明确写出「未确认、要用户去确认」：否则 AI 会把创建当成任务完成，
+        // 用户拿到一个「已经建好了」的答复却不知道还得去点确认
+        const msg =
+          `已创建工作流「${input.name}」(${result.workflowId})，共 ${input.steps.length} 个步骤。` +
+          `该工作流尚未确认，请告诉用户去设置页的工作流编辑器里检查并确认，确认后即可执行。`;
+        context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_OK, msg);
+        return new ActionResult({ extractedContent: msg, includeInMemory: true, isDone: false });
+      } catch (error) {
+        const errorMsg = error instanceof Error ? error.message : 'Workflow creation failed';
+        context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_FAIL, errorMsg);
+        return new ActionResult({ error: errorMsg, includeInMemory: true });
+      }
+    }, workflowCreateActionSchema);
+    actions.push(workflowCreate);
+
+    const workflowUpdate = new Action(async (input: z.infer<typeof workflowUpdateActionSchema.schema>) => {
+      const intent = input.intent || `Updating workflow: ${input.workflow_id}`;
+      context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_START, intent);
+
+      try {
+        const result = await context.updateWorkflow?.(
+          {
+            workflowId: input.workflow_id,
+            name: input.name,
+            description: input.description,
+            variables: input.variables,
+            steps: input.steps,
+          },
+          context.workflowsUpdatedThisTask,
+        );
+
+        if (!result) {
+          const errorMsg = '当前环境不支持修改工作流';
+          context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_FAIL, errorMsg);
+          return new ActionResult({ error: errorMsg, includeInMemory: true });
+        }
+
+        if (!result.success) {
+          const errorMsg = (result.errors ?? ['修改工作流失败']).join('\n');
+          context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_FAIL, errorMsg);
+          return new ActionResult({ error: errorMsg, includeInMemory: true });
+        }
+
+        context.workflowsUpdatedThisTask += 1;
+
+        const changed = [
+          input.steps ? `${input.steps.length} 个步骤` : null,
+          input.name ? '名称' : null,
+          input.description !== undefined ? '说明' : null,
+          input.variables ? '入参' : null,
+        ].filter(Boolean);
+        const msg =
+          `已修改工作流 ${result.workflowId}（${changed.join('、')}）。` +
+          `修改后该工作流回到未确认状态，请告诉用户去工作流编辑器里检查并重新确认。`;
+        context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_OK, msg);
+        return new ActionResult({ extractedContent: msg, includeInMemory: true, isDone: false });
+      } catch (error) {
+        const errorMsg = error instanceof Error ? error.message : 'Workflow update failed';
+        context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_FAIL, errorMsg);
+        return new ActionResult({ error: errorMsg, includeInMemory: true });
+      }
+    }, workflowUpdateActionSchema);
+    actions.push(workflowUpdate);
 
     return actions;
   }

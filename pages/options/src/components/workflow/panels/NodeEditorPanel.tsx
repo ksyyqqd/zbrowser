@@ -68,24 +68,6 @@ export function NodeEditorPanel({ node, onSave, isDarkMode, variables = [], onAd
         return [
           { key: 'tabIndex', label: t('workflow_param_tabIndex'), type: 'number', placeholder: 'Tab index (0-based)' },
         ];
-      case 'generate_image':
-        return [
-          { key: 'prompt', label: t('workflow_param_prompt'), type: 'textarea', placeholder: 'Describe the image...' },
-          { key: 'model', label: t('workflow_param_model'), type: 'text', placeholder: 'gpt-image-2 (optional)' },
-          { key: 'size', label: t('workflow_param_size'), type: 'text', placeholder: '1024x1024 (optional)' },
-          {
-            key: 'quality',
-            label: t('workflow_param_quality'),
-            type: 'text',
-            placeholder: 'standard/high/low (optional)',
-          },
-          {
-            key: 'outputVariable',
-            label: t('workflow_param_outputVariable'),
-            type: 'text',
-            placeholder: 'Variable name',
-          },
-        ];
       case 'scroll_to_text':
         return [{ key: 'text', label: '目标文本', type: 'text', placeholder: '要滚动到的文字（区分大小写不敏感）' }];
       case 'get_dropdown_options':
@@ -359,7 +341,6 @@ export function NodeEditorPanel({ node, onSave, isDarkMode, variables = [], onAd
               <option value="scroll_to_text">滚动到文本</option>
               <option value="get_dropdown_options">读取下拉选项</option>
               <option value="cache_content">缓存元素内容</option>
-              <option value="generate_image">{t('workflow_action_generateImage')}</option>
             </select>
           </div>
           {actionParamFields.length > 0 && (
